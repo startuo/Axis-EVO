@@ -38,8 +38,13 @@
 E/F/G 只读复审完成；发现的 TEMP namespace 问题已在新模块修复并独立复现验证关闭。
 
 本记录针对**本地完整源码审查包**。按用户规则，Git 只上传实现、必要文档及测试结果；
-新增测试、fixture、交付报告保留本地，完整内容位于 `axis-evo-phase2-step2-review.zip`。
-历史已跟踪测试和报告保持原样。远端测试库存较少，不应声称单独克隆远端可复现上述新增测试数量。
+全部测试源码、fixture 和交付报告已移出 Git 跟踪，本地原文件与审查包保留。
+完整内容位于 `axis-evo-phase2-step2-review.zip`。远端不含项目自测源码，单独克隆远端无法复现上述测试数量。
 
 以上证据验证进程硬退出后的提交持久性，未开展断电或硬件故障实验。
 未开始 Phase 2 / Step 3、Recovery、Checkpoint、Trust Evaluator 或真实模型循环。
+
+2026-10-08 仓库结构整理：仅更新发布文件布局与说明，生产源码、SQL、依赖、测试/fixture 原文件均未修改。
+完整 pytest 结果沿用上述实现验证，本次未重复运行全量测试。
+README legacy 与 Skill-bound 示例在独立临时目录运行均为 COMPLETED，Inspector trace 一致；绑定示例的 Skill trace 也一致。
+56 个本地保留文件（源码、SQL、测试/fixture、报告、封面和审查包）哈希核对通过；Git 清理清单与文档链接检查通过。

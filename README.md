@@ -209,15 +209,19 @@ src/axis_evo/
     ├── 002_phase2_skills.sql # skills / skill_versions / skill_state_events
     └── 003_phase2_skill_bindings.sql # skill_invocation_bindings
 
-tests/
-├── unit/                    # 协议、路径、工具、Inspector、Skill Card
-├── integration/             # 存储、执行、Runner、崩溃、Skill Registry
-└── fixtures/                # TaskSpec、seed 文件、硬退出子进程
+docs/
+├── assets/Axis.png           # 项目封面原图
+└── TEST_RESULTS.md           # 本地完整验证结果
 
-docs/assets/Axis.png          # 项目封面原图
+README.md                    # 项目介绍与使用说明
+AGENTS.md                    # 工程维护与提交规则
+pyproject.toml               # 包配置与依赖声明
+.gitignore                   # 本地材料与运行产物排除规则
 ```
 
-## 安装与测试
+测试源码、fixture、阶段交付报告和审查 ZIP 保留本地，不纳入远端仓库。
+
+## 安装
 
 从仓库根目录操作。Windows PowerShell：
 
@@ -225,8 +229,7 @@ docs/assets/Axis.png          # 项目封面原图
 git clone https://github.com/startuo/Axis-EVO.git
 cd Axis-EVO
 python -m venv .venv
-.\.venv\Scripts\python -m pip install -e ".[test]"
-.\.venv\Scripts\python -m pytest -q
+.\.venv\Scripts\python -m pip install -e .
 ```
 
 Linux / macOS：
@@ -235,21 +238,22 @@ Linux / macOS：
 git clone https://github.com/startuo/Axis-EVO.git
 cd Axis-EVO
 python3 -m venv .venv
-.venv/bin/python -m pip install -e ".[test]"
-.venv/bin/python -m pytest -q
+.venv/bin/python -m pip install -e .
 ```
 
-已有可用环境时，直接运行 `python -m pytest -q`。当前没有第三方运行时依赖，pytest 属于 test extra。
+当前没有第三方运行时依赖。任务需要使用 `run_tests` 或 pytest Acceptance 时，安装可选依赖
+`python -m pip install -e ".[test]"`。项目自身的完整回归需在包含本地测试源码的审查包中运行。
 
 ## 最小任务示例
 
-在项目根目录使用已安装本包的 Python 运行以下代码。它使用仓库内真实 fixture：
-复制 seed 到新工作区，把 timeout 从 10 改为 20，再执行文件断言和独立 pytest 验收。
-每次生成新的工作区与 run；数据保存在 Git 忽略的 `.local/` 下。
+在项目根目录使用已安装本包的 Python 运行以下代码。示例自行创建 TaskSpec 和 seed，
+复制到新工作区，把 timeout 从 10 改为 20，再执行独立文件断言验收。
+每次生成新的任务、工作区与 run；数据保存在 Git 忽略的 `.local/` 下，无需测试 fixture。
 
 ```python
 from pathlib import Path
 from uuid import uuid4
+import json
 
 from axis_evo.inspector import inspect_database
 from axis_evo.models import PlanStep
@@ -260,6 +264,25 @@ from axis_evo.tools import PatchFileTool
 
 state_dir = Path(".local").resolve()
 state_dir.mkdir(exist_ok=True)
+task_dir = state_dir / f"task_{uuid4().hex}"
+seed_dir = task_dir / "seed"
+seed_dir.mkdir(parents=True)
+(seed_dir / "config.json").write_bytes(b'{"timeout": 10}\n')
+task_path = task_dir / "task.json"
+task_path.write_text(json.dumps({
+    "schema_version": 1,
+    "task_id": "demo_timeout",
+    "title": "Update timeout",
+    "goal": "Change timeout from 10 to 20",
+    "workspace": {"seed_dir": "seed"},
+    "acceptance": {
+        "pytest": {"enabled": False, "args": []},
+        "file_assertions": [{
+            "path": "config.json", "operator": "equals",
+            "expected": '{"timeout": 20}\n',
+        }],
+    },
+}), encoding="utf-8")
 database = state_dir / "demo.sqlite3"
 workspace = state_dir / f"workspace_{uuid4().hex}"
 registry = PluginRegistry()
@@ -269,7 +292,7 @@ connection = connect_database(database)
 try:
     run = run_task(
         connection,
-        "tests/fixtures/tasks/demo_runner/task.json",
+        task_path,
         workspace,
         [PlanStep("update_timeout", "patch_file", {
             "path": "config.json",
@@ -386,7 +409,7 @@ Trace 的稳定顶层字段为 `schema_version / run_id / mode / consistent / is
 零绑定行显示 `LEGACY_UNBOUND`。没有运行级绑定标记，因此无法仅凭该视图识别所有绑定被外部删除的情形。
 该视图不替代 Phase 1 Inspector 的 PRE/POST 观察与 invocation 闭合检查。
 
-## 验证记录与审查资料
+## 验证记录
 
 当前 Windows / Python 3.12.10 / SQLite 3.49.1 的本地完整回归结果：
 
@@ -396,36 +419,15 @@ python -m pytest -q
 ```
 
 失败 0；pytest 未报告 warnings。8 个 skip 均为 Windows `WinError 1314` 符号链接权限限制，
-具体 nodeid 与原因记录在交付报告中，不计作通过。
-
-| Focused test | 结果 |
-| --- | --- |
-| `python -m pytest -q tests/unit/test_skill_binding.py` | 144 passed |
-| `python -m pytest -q tests/integration/test_skill_aware_runner.py` | 30 passed |
-| `python -m pytest -q tests/integration/test_skill_binding_crash.py` | 2 passed |
-| `python -m pytest -q tests/integration/test_runner.py` | 82 passed, 1 skipped |
-| `python -m pytest -q tests/integration/test_inspector_crash.py` | 6 passed |
-| `python -m pytest -q tests/integration/test_skill_manager.py` | 98 passed |
+具体 nodeid 与原因记录在 [测试结果](docs/TEST_RESULTS.md) 中，不计作通过。
 
 测试使用真实生产代码、SQLite、并发连接和 subprocess hard exit，覆盖提交边界、Crash Window B、
 路径约束、验收证据一致性、invocation 完整性、SQL 不可变性、真实 trigger / COMMIT 失败和 lineage 损坏。
 进程硬退出测试验证已提交事实在进程退出后保留；没有声称验证断电或硬件故障。
 
-详细结果见 [TEST_RESULTS.md](TEST_RESULTS.md)。本轮新增 176 项测试均通过。
-上述完整结果针对本地审查包；按维护规则，远端不新增测试源码、fixture 或交付报告，
-因此单独克隆远端后的测试库存不等于本地审查包的完整库存。需要完整复现时使用本地阶段审查 ZIP。
-
-阶段交付报告：
-
-- [Phase 1 / Step 2 — Sandbox + Tools](STEP2_DELIVERY_REPORT.md)
-- [Phase 1 / Step 4 — Inspector + Crash-State Detection](STEP4_DELIVERY_REPORT.md)
-- [Phase 2 / Step 1 — Skill substrate](PHASE2_STEP1_DELIVERY_REPORT.md)
-
-这些报告记录各自交付时的测试、文件和工作区状态；最新能力与使用说明以本 README 和当前源码为准。
-Phase 2 Step 1 报告同时记录附件历史测试数量与真实旧文件库存的差异。
-本地阶段审查 ZIP 保留为历史快照，不参与 Git 跟踪。
-本轮完整源码、176 项新测试及 `PHASE2_STEP2_DELIVERY_REPORT.md` 保存在
-`axis-evo-phase2-step2-review.zip` 中。
+详细命令和结果集中在 [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md)，Phase 2 Step 2 新增 176 项测试均通过。
+上述完整结果针对本地完整审查包；远端只保留实现、配置、使用说明及测试结果，
+不包含项目自测源码、fixture、交付报告或审查 ZIP。需要完整复现时使用本地阶段审查包。
 
 ## 阶段状态与后续方向
 
@@ -445,5 +447,5 @@ Phase 2 Step 1 报告同时记录附件历史测试数量与真实旧文件库�
 
 项目维护：[startuo](https://github.com/startuo)。
 
-后续工程变更遵守 [AGENTS.md](AGENTS.md)：验证后提交并推送实现和测试结果；新增测试、fixture 和交付报告
-保留本地并进入审查 ZIP，不新增上传。历史已经跟踪的测试和报告继续保留。
+后续工程变更遵守 [AGENTS.md](AGENTS.md)：验证后提交并推送实现和测试结果；全部测试源码、fixture 和交付报告
+保留本地并按需进入审查 ZIP，不纳入 Git 跟踪。

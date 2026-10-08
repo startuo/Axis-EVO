@@ -46,6 +46,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Local-only validation materials (existing tracked history is preserved)
-tests/
+# Local-only validation materials
+/tests/
 *_DELIVERY_REPORT.md
