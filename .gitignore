@@ -1,0 +1,47 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+build/
+dist/
+.step1-check/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Local environments and tooling
+venv/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.idea/
+.vscode/
+
+# Local execution facts and workspaces
+.local/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3-journal
+
+# Stage review snapshots and test output
+axis-evo-*-review.zip
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+
+# Local credentials and operating-system metadata
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
