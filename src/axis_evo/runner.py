@@ -13,6 +13,8 @@ from .hashing import canonical_json_bytes
 from .models import PlanStep, Run, RunStatus
 from .plugins import PluginRegistry
 from .sandbox import Sandbox
+from .skill_binding import preflight_skill_binding, record_skill_invocation_binding
+from .skill_card import SkillRef
 from .storage import append_event, create_run, finish_run
 from .task_spec import load_task_spec
 from .tools import execute_tool_call
@@ -85,6 +87,7 @@ def run_task(
     model_plugin: str = "explicit_plan",
     *,
     run_id: str | None = None,
+    skill_ref: SkillRef | None = None,
 ) -> Run:
     """Run a snapshotted deterministic plan and return its normally observed terminal Run.
 
@@ -99,6 +102,8 @@ def run_task(
     if run_id is not None and (type(run_id) is not str or not run_id.strip()):
         raise ValueError("run_id must be a nonempty string")
     steps = _snapshot_plan(plan, tool_registry)
+    if skill_ref is not None:
+        skill_ref = preflight_skill_binding(connection, steps, skill_ref)
     task_path = Path(task_spec_path).resolve(strict=True)
     task_spec = load_task_spec(task_path)
     seed = _resolve_seed(task_path, task_spec.workspace["seed_dir"])
@@ -116,6 +121,8 @@ def run_task(
     for step in steps:
         tool_call_id = f"call_{uuid4().hex}"
         event_fields = {"step_id": step.step_id, "tool_call_id": tool_call_id}
+        if skill_ref is not None:
+            record_skill_invocation_binding(connection, run.run_id, tool_call_id, step, skill_ref)
         append_event(connection, run.run_id, EventType.STEP_PLANNED, {
             "tool_name": step.tool_name, "arguments": step.arguments,
         }, **event_fields)

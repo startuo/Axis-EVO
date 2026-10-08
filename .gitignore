@@ -45,3 +45,7 @@ htmlcov/
 !.env.example
 .DS_Store
 Thumbs.db
+
+# Local-only validation materials (existing tracked history is preserved)
+tests/
+*_DELIVERY_REPORT.md

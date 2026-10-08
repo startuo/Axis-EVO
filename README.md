@@ -7,13 +7,15 @@
 **面向大语言模型智能体的可信执行事实与不可变技能版本研究原型。**
 
 Axis-Evo is a research prototype for durable agent execution facts, deterministic
-acceptance, crash-state inspection, and immutable skill versioning.
+acceptance, crash-state inspection, immutable skill versioning, and explicit
+skill authorization bound to tool invocations.
 
 本项目服务于《大语言模型智能体可信技能演化与中断恢复系统设计与实现》。它从执行证据出发，
 记录“准备做什么、观察到什么、实际持久化了什么”，为后续技能使用、演化与中断恢复建立可审查的基础。
 
-当前实现到 **Phase 2 / Step 1 — Skill Card + Immutable Version Registry + Lifecycle + Lineage**。
-Phase 1 的执行、验收和 Inspector 已完成并冻结；Skill 版本基础已实现并通过测试，尚未接入 Runner。
+当前实现到 **Phase 2 / Step 2 — Explicit Skill Binding + Skill-aware Trace**。
+Phase 1 和 Skill 版本基础保持冻结；Runner 可显式绑定指定 Skill 版本，先核验整份计划的工具权限，
+再为每次调用持久化授权关联。未指定 Skill 的执行保持原有行为。
 运行时代码仅依赖 Python 标准库，要求 **Python 3.11+**；测试使用 pytest。
 
 ## 项目解决什么问题
@@ -39,6 +41,7 @@ Phase 1 的执行、验收和 Inspector 已完成并冻结；Skill 版本基础�
 | Runner / Acceptance | 显式顺序计划、执行事实编排、文件断言、独立 pytest 验收、原子终态提交 |
 | Inspector | 只读执行轨迹检查、invocation 闭合一致性检查、未结束运行和缺失结果识别、外部状态比较 |
 | Skill Registry | Skill Card v1、不可变 SkillRef、连续版本分配、来源验证、追加式生命周期、读取完整性校验 |
+| Skill Binding / Trace | 整份计划预检、精确版本和工具授权、调用前提交不可变绑定、独立只读关联视图 |
 
 Sandbox 提供工作区路径约束和文件观察；当前没有容器或操作系统级进程隔离。
 `run_tests` 是受限 pytest 子进程入口，PluginRegistry 只负责显式注册和检索。
@@ -134,7 +137,32 @@ Card 使用现有 canonical JSON 字节计算 SHA-256；SQLite 触发器阻止�
 读取核对规范字节、hash、身份、来源、连续版本及生命周期历史；不一致抛出 `SkillIntegrityError`，不静默修复。
 
 `TRUSTED` 当前只是显式生命周期状态，没有证据评分或 Trust Evaluator。
-Card instructions 仅作为数据保存；当前任务执行不会消费 Skill。
+Card instructions 仅作为数据保存；当前任务执行使用 Skill 身份和 allowed_tools 授权，不解释自然语言步骤。
+
+### 5. Skill 授权绑定到一次调用
+
+`run_task(..., *, run_id=None, skill_ref=None)` 增加可选的 keyword-only `skill_ref`。
+默认 `None` 保留 legacy 执行，不要求 migration 002/003，也不增加 Skill 查询。
+绑定模式只接受 exact `SkillRef`，不接受 dict、字符串或子类；不默认选择 latest，不回退版本。
+
+整份计划在 Sandbox 和 run 创建前完成预检：参数是精确 JSON-native 快照，工具已注册，
+指定版本及其历史通过完整性检查，当前状态为 TRUSTED，每一步工具名精确属于 allowed_tools。
+空的绑定计划、越权的后续步骤和未初始化的 schema 都会拒绝。
+
+每次调用先在独立 `BEGIN IMMEDIATE` 中复验授权并写入 `skill_invocation_bindings`，
+COMMIT 成功后才继续原有 `STEP_PLANNED → PRE → TOOL_INTENT COMMIT → execute → POST → RESULT`。
+外部工具执行仍位于事务之外。新表通过 `(run_id, tool_call_id)` 关联事件，
+另以 `(run_id, step_id)` 唯一约束保证计划身份，保存精确 SkillRef、Card hash、参数 hash 和绑定时的 TRUSTED 状态。
+SQL 触发器拒绝更新、删除、替换、终态 Run、非 TRUSTED、错误 Card hash 和越权工具；
+完整 Card、canonical hash、来源及生命周期验证仍由 Core 的 SkillManager 负责。
+
+`inspect_skill_trace()` 使用单一只读事务快照，区分 `stored_skill` 与 `verified_skill`，
+按 `events.seq` 核对计划、意图和结果的身份及参数 hash，并检测绑定运行中的未绑定 intent。
+绑定后尚未规划、规划后尚未产生 intent、intent 后尚无 result，均可属于有效中断前缀。
+绑定证明持久化授权，不证明工具执行、任务成功、Skill 归因或重试安全；时间戳不作排序证据。
+
+This milestone binds an immutable Skill version to deterministic tool invocations and enforces its tool permissions.
+It does not semantically execute the Skill's natural-language instructions through an LLM.
 
 ## 架构与目录
 
@@ -150,9 +178,14 @@ flowchart LR
     Acceptance --> Facts
     Facts --> Inspector[Read-only Inspector]
     Skills[SkillManager] --> Registry[(SQLite Skill Registry)]
+    Registry --> Binding[Explicit Skill Authorization]
+    Binding --> Runner
+    Runner --> Bindings[(Immutable Invocation Bindings)]
+    Bindings --> SkillTrace[Read-only Skill Trace]
+    Facts --> SkillTrace
 ```
 
-Skill Registry 目前是独立的版本基础，不与 Runner 建立执行绑定。
+Skill-aware Trace 与 Phase 1 Inspector 分开；原 Event Envelope、payload 与 Inspector 协议保持不变。
 
 ```text
 src/axis_evo/
@@ -170,9 +203,11 @@ src/axis_evo/
 ├── skill_card.py             # SkillRef / SkillSource / SkillCard
 ├── skill_storage.py          # 显式 Skill schema 初始化
 ├── skill_manager.py          # 版本、来源、生命周期与完整性读取
+├── skill_binding.py          # 显式授权、不可变调用绑定、只读 Skill trace
 └── migrations/
     ├── 001_phase1.sql        # runs / events
-    └── 002_phase2_skills.sql # skills / skill_versions / skill_state_events
+    ├── 002_phase2_skills.sql # skills / skill_versions / skill_state_events
+    └── 003_phase2_skill_bindings.sql # skill_invocation_bindings
 
 tests/
 ├── unit/                    # 协议、路径、工具、Inspector、Skill Card
@@ -310,13 +345,54 @@ with TemporaryDirectory() as directory:
 完整公开方法为：`create_version()`、`get_version()`、`list_versions()`、
 `get_current_state()`、`get_state_history()`、`promote()`。
 
+## 显式 Skill 绑定用法
+
+在上面的最小任务示例中，于调用 `run_task()` 前显式初始化并选择版本：
+
+```python
+from axis_evo.skill_binding import initialize_skill_binding_schema, inspect_skill_trace
+from axis_evo.skill_manager import SkillManager
+from axis_evo.skill_storage import initialize_skill_schema
+
+initialize_skill_schema(connection)
+initialize_skill_binding_schema(connection)
+manager = SkillManager(connection)
+card = manager.create_version(
+    "config.timeout",
+    name="Update timeout",
+    description="Authorize the explicit timeout patch",
+    instructions="Read, patch, then validate the configuration.",
+    allowed_tools=["patch_file"],
+)
+manager.promote(card.skill_id, card.skill_version, "SHADOW")
+manager.promote(card.skill_id, card.skill_version, "TRUSTED")
+```
+
+随后在同一个 `run_task(...)` 调用中增加 `skill_ref=card.ref`，并在连接关闭前读取
+`inspect_skill_trace(connection, run.run_id)`。此初始化示例使用新数据库；已有 Skill 应通过明确的
+`SkillRef(skill_id, skill_version)` 选择，而不是重新创建版本或猜测 latest。
+
+新模块提供四个入口：`initialize_skill_binding_schema(connection)`、
+`preflight_skill_binding(connection, steps, skill_ref)`、
+`record_skill_invocation_binding(connection, run_id, tool_call_id, step, skill_ref)`、
+`inspect_skill_trace(connection, run_id)`。通常使用 Runner 完成预检和写入。
+initializer 与 writer 要求 `foreign_keys=ON`；四个入口拒绝调用方活动事务，
+并拒绝相关事实表被同名 TEMP table/view 遮蔽。无关 TEMP 对象允许存在。
+SQLite 必须支持 JSON1；初始化会显式探测，不支持时明确拒绝，不静默降级授权规则。
+
+Trace 的稳定顶层字段为 `schema_version / run_id / mode / consistent / issues / invocations`；
+每项 invocation 含 step/call/tool、stored/verified Skill 身份、参数 hash、绑定状态及三个事件 seq。
+`verified_skill=null` 表示版本身份未能完整验证，不能按存储引用宣称已验证。
+零绑定行显示 `LEGACY_UNBOUND`。没有运行级绑定标记，因此无法仅凭该视图识别所有绑定被外部删除的情形。
+该视图不替代 Phase 1 Inspector 的 PRE/POST 观察与 invocation 闭合检查。
+
 ## 验证记录与审查资料
 
-当前 Windows / Python 3.12.10 的完整回归结果：
+当前 Windows / Python 3.12.10 / SQLite 3.49.1 的本地完整回归结果：
 
 ```text
 python -m pytest -q
-672 passed, 8 skipped in 25.52s
+848 passed, 8 skipped in 39.63s
 ```
 
 失败 0；pytest 未报告 warnings。8 个 skip 均为 Windows `WinError 1314` 符号链接权限限制，
@@ -324,12 +400,20 @@ python -m pytest -q
 
 | Focused test | 结果 |
 | --- | --- |
-| `python -m pytest -q tests/unit/test_skill_card.py` | 95 passed |
+| `python -m pytest -q tests/unit/test_skill_binding.py` | 144 passed |
+| `python -m pytest -q tests/integration/test_skill_aware_runner.py` | 30 passed |
+| `python -m pytest -q tests/integration/test_skill_binding_crash.py` | 2 passed |
+| `python -m pytest -q tests/integration/test_runner.py` | 82 passed, 1 skipped |
+| `python -m pytest -q tests/integration/test_inspector_crash.py` | 6 passed |
 | `python -m pytest -q tests/integration/test_skill_manager.py` | 98 passed |
 
 测试使用真实生产代码、SQLite、并发连接和 subprocess hard exit，覆盖提交边界、Crash Window B、
 路径约束、验收证据一致性、invocation 完整性、SQL 不可变性、真实 trigger / COMMIT 失败和 lineage 损坏。
 进程硬退出测试验证已提交事实在进程退出后保留；没有声称验证断电或硬件故障。
+
+详细结果见 [TEST_RESULTS.md](TEST_RESULTS.md)。本轮新增 176 项测试均通过。
+上述完整结果针对本地审查包；按维护规则，远端不新增测试源码、fixture 或交付报告，
+因此单独克隆远端后的测试库存不等于本地审查包的完整库存。需要完整复现时使用本地阶段审查 ZIP。
 
 阶段交付报告：
 
@@ -340,6 +424,8 @@ python -m pytest -q
 这些报告记录各自交付时的测试、文件和工作区状态；最新能力与使用说明以本 README 和当前源码为准。
 Phase 2 Step 1 报告同时记录附件历史测试数量与真实旧文件库存的差异。
 本地阶段审查 ZIP 保留为历史快照，不参与 Git 跟踪。
+本轮完整源码、176 项新测试及 `PHASE2_STEP2_DELIVERY_REPORT.md` 保存在
+`axis-evo-phase2-step2-review.zip` 中。
 
 ## 阶段状态与后续方向
 
@@ -350,10 +436,14 @@ Phase 2 Step 1 报告同时记录附件历史测试数量与真实旧文件库�
 | Phase 1 / Step 3 — Runner + Trace + Acceptance | 已完成、冻结 |
 | Phase 1 / Step 4 — Inspector + Crash-State Detection | 已完成、冻结 |
 | Phase 2 / Step 1 — Skill Card + Immutable Registry + Lifecycle + Lineage | 已实现、测试通过、审查包已交付 |
-| Skill 与执行事实绑定、技能选择及演化 | 后续计划，尚未实现 |
+| Phase 2 / Step 2 — Explicit Skill Binding + Skill-aware Trace | 已实现，848 passed / 8 skipped，本地审查包已交付 |
+| 自动技能选择及演化 | 后续计划，尚未实现 |
 | Trust Evaluator、Checkpoint、Recovery、真实 LLM Loop | 后续计划，尚未实现 |
 
 当前版本没有自动技能应用、LLM 生成演化、trust score、故障归因、retry/resume/compensation 或 UI。
 后续变更需要遵守已经冻结的执行证据和数据语义；新里程碑应独立实现、验证和审查。
 
 项目维护：[startuo](https://github.com/startuo)。
+
+后续工程变更遵守 [AGENTS.md](AGENTS.md)：验证后提交并推送实现和测试结果；新增测试、fixture 和交付报告
+保留本地并进入审查 ZIP，不新增上传。历史已经跟踪的测试和报告继续保留。
