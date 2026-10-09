@@ -161,7 +161,13 @@ def _verify(connection, row):
         trusted = {name: _tool_schema(name) for name in catalog}
         if canonical_json_bytes(catalog) != canonical_json_bytes(trusted):
             raise ValueError("Tool schema mismatch")
-        if _build_request(task, card, trusted, row["adapter_name"], row["model_id"]) != row["request_json"]:
+        feedback = None
+        if "request_schema_version" in request:
+            if type(request["request_schema_version"]) is not int or request["request_schema_version"] != 2:
+                raise ValueError("Unsupported planning request version")
+            from .agent_feedback import validate_feedback_context
+            feedback = validate_feedback_context(request["agent_feedback"])
+        if _build_request(task, card, trusted, row["adapter_name"], row["model_id"], agent_feedback=feedback) != row["request_json"]:
             raise ValueError("Request identity or canonical bytes mismatch")
         for prefix, name in (("request", "request_json"), ("response", "response_text"), ("plan", "plan_json")):
             if _digest(row[name]) != row[prefix + "_sha256"]:
@@ -230,6 +236,9 @@ def preflight_plan_proposal(connection, proposal_id, approval, task_spec, steps,
         _require_planning_schema(connection)
         proposal = _load(connection, proposal_id)
         _execution_identity(proposal, approval, task_spec, steps, skill_ref, registry)
+        if "request_schema_version" in _strict_json(proposal.request_json, MAX_REQUEST_BYTES):
+            from .agent_loop import _guard_agent_execution
+            _guard_agent_execution(connection, proposal, registry, "preflight")
         if _rows(connection, "SELECT 1 FROM main.plan_run_links WHERE proposal_id=?", (proposal_id,)):
             raise PlanningIntegrityError("Plan Proposal already consumed by a Run")
 
@@ -245,6 +254,9 @@ def record_plan_run_link(connection, run_id, proposal_id, approval, steps, skill
         run = runs[0]
         task = task_spec_from_dict(_strict_json(run["task_spec_json"], MAX_REQUEST_BYTES))
         _execution_identity(proposal, approval, task, steps, skill_ref, registry)
+        if "request_schema_version" in _strict_json(proposal.request_json, MAX_REQUEST_BYTES):
+            from .agent_loop import _guard_agent_execution
+            _guard_agent_execution(connection, proposal, registry, "link", run=run)
         if run["task_spec_sha256"] != proposal.task_spec_sha256 or run["task_id"] != task.task_id:
             raise PlanningIntegrityError("Run TaskSpec identity differs from proposal")
         if _rows(connection, "SELECT 1 FROM main.events WHERE run_id=? LIMIT 1", (run_id,)):

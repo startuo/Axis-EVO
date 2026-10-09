@@ -8,13 +8,15 @@
 
 Axis-Evo is a research prototype for durable agent execution facts, deterministic
 acceptance, crash-state inspection, immutable skill versioning, explicit
-skill authorization, and auditable Skill-conditioned model planning.
+skill authorization, auditable Skill-conditioned model planning, and bounded
+independent coding attempts with factual feedback.
 
 记录“准备做什么、观察到什么、实际持久化了什么”，为后续技能使用、演化与中断恢复建立可审查的基础。
 
-当前实现到 **Phase 2 / Step 3 — Skill-guided Planning + Immutable Plan Provenance**。
+当前实现到 **Phase 2 / Step 4 — Bounded Coding Agent Loop + Reproducible Baseline**。
 调用方显式选择 TRUSTED 的不可变 Skill 版本，模型只提出计划；Core 严格校验并持久化提案，
-调用方确认精确 Plan digest 后，原有 Skill-bound Runner 才执行。旧的显式计划 API 保持兼容。
+调用方确认精确 Plan digest 后，原有 Skill-bound Runner 才执行。正常失败且证据完整时，
+可基于事实反馈提出新的独立计划，每次都重新审批、使用原始 seed 创建新工作区。旧 API 保持兼容。
 运行时代码仅依赖 Python 标准库，要求 **Python 3.11+**；测试使用 pytest。
 
 ## 项目解决什么问题
@@ -29,7 +31,7 @@ skill authorization, and auditable Skill-conditioned model planning.
 - **任务是否真正完成？** 最终完成由独立的确定性 Acceptance 授权，而非模型声明或工具自报。
 - **技能版本是否可追溯？** 每个 Skill 由稳定身份和整数版本定位，内容不可变，来源明确，生命周期历史只追加。
 
-Runner 只执行已经确定的计划。新规划路径支持一次模型请求，不包含执行中重规划或多轮工具调用循环。
+Runner 只执行已经确定的计划。每次 attempt 只有一次规划请求；不在执行中的 Run 内重新规划。
 恢复、信任评估与技能自动演化尚未实现。
 
 ## 已实现能力
@@ -43,6 +45,7 @@ Runner 只执行已经确定的计划。新规划路径支持一次模型请求�
 | Skill Registry | Skill Card v1、不可变 SkillRef、连续版本分配、来源验证、追加式生命周期、读取完整性校验 |
 | Skill Binding / Trace | 整份计划预检、精确版本和工具授权、调用前提交不可变绑定、独立只读关联视图 |
 | Skill Planning / Provenance | 单次模型规划、严格 Plan v1、不可变提案、精确 digest 审批、Run 关联和只读规划证据 |
+| Bounded Agent / Baseline | 固定 Task/seed/Skill/model、最多 5 次独立 attempt、核验反馈、新审批和工作区、UNKNOWN 停机、离线独立评估 |
 
 Sandbox 提供工作区路径约束和文件观察；当前没有容器或操作系统级进程隔离。
 `run_tests` 是受限 pytest 子进程入口，PluginRegistry 只负责显式注册和检索。
@@ -208,7 +211,8 @@ TaskSpec 与 Card 沿用既有 canonical digest，不能混用源文件或 prett
 
 提案生成期间先关闭读取快照，再调用 adapter；网络等待期间没有 SQLite 事务。
 收到有效计划后，在独立 `BEGIN IMMEDIATE` 中复验精确 Card 与 TRUSTED 状态，插入提案并 COMMIT 后返回。
-生成不创建 Run/workspace，不调用工具。被拒绝的规划尝试当前不保存为提案，也没有单独的失败尝试审计表。
+生成不创建 Run/workspace，不调用工具。Step 3 独立规划不保存被拒绝的响应；Step 4 Episode
+额外记录模型调用前的 attempt 分配，以及固定类别的规划失败，不把失败响应存为可执行提案。
 
 执行时重新验证全部证据、TaskSpec、Skill 状态、注册工具和计划，要求调用方提交准确的小写 `plan_sha256`。
 执行计划从 SQLite 重建，不能替换为调用方修改的列表。相同计划可以具有相同 digest；审批身份由明确的
@@ -281,18 +285,21 @@ src/axis_evo/
 ├── planning_adapter.py       # 窄规划接口、离线 double、可配置 HTTPS transport
 ├── skill_planner.py          # 请求构建、严格 Plan 校验、生成与审批执行
 ├── planning_provenance.py    # 不可变提案、关联、完整性检查与只读视图
+├── agent_episode_storage.py  # 显式 005 初始化、不可变 Episode、输入 fingerprint
+├── agent_feedback.py         # 核验终态事实、严格有界反馈
+├── agent_loop.py             # 独立 attempt 分配、审批 dispatch、只读 Episode 检查
 └── migrations/
     ├── 001_phase1.sql        # runs / events
     ├── 002_phase2_skills.sql # skills / skill_versions / skill_state_events
     ├── 003_phase2_skill_bindings.sql # skill_invocation_bindings
-    └── 004_phase2_skill_planning.sql # plan_proposals / plan_run_links
+    ├── 004_phase2_skill_planning.sql # plan_proposals / plan_run_links
+    └── 005_phase2_agent_episodes.sql # episodes / allocations / outcomes / dispatches
 
 docs/
 ├── assets/Axis.png           # 项目封面原图
 └── TEST_RESULTS.md           # 本地完整验证结果
 
 README.md                    # 项目介绍与使用说明
-AGENTS.md                    # 工程维护与提交规则
 pyproject.toml               # 包配置与依赖声明
 .gitignore                   # 本地材料与运行产物排除规则
 ```
@@ -564,6 +571,139 @@ with TemporaryDirectory() as directory:
 
 预期为 `COMPLETED True`。这证明真实 Core/Runner/SQLite 的离线链路，不能声称已验证远端模型服务。
 
+## 有界 Agent Episode API
+
+```python
+initialize_agent_episode_schema(connection) -> None
+create_agent_episode(connection, task_spec_path, skill_ref, workspace_root,
+                     adapter_name, model_id, *, max_attempts=3, episode_id=None,
+                     include_message_excerpts=False) -> AgentEpisode
+propose_next_attempt(connection, episode_id, task_spec_path, tool_registry,
+                     model_adapter) -> PlanProposal
+execute_approved_attempt(connection, episode_id, proposal_id, approved_plan_sha256,
+                         task_spec_path, tool_registry) -> Run
+inspect_agent_episode(connection, episode_id) -> dict
+```
+
+Episode API 位于 `agent_loop.py`，initializer 和 frozen `AgentEpisode` 位于
+`agent_episode_storage.py`。在 001–004 初始化后显式初始化 005；旧 Runner 与 v1 规划不要求 005。
+`workspace_root` 必须是已经存在的绝对目录，与 TaskSpec 资产目录分离。
+Episode 固定 canonical TaskSpec、精确 TRUSTED SkillRef/Card、adapter/model、预算和 seed manifest。
+manifest 记录相对路径、文件原始字节 hash/大小和空目录，最多 256 项、总文件字节 1 MiB、JSON 128 KiB；
+此有界入口保守拒绝所有 seed symlink/junction。每次规划和执行重新验证输入，变化则拒绝。
+
+预算默认 3，允许 exact integer 1–5。模型请求之前先 COMMIT attempt allocation；失败或 hard exit
+也占用该预算。提案 COMMIT 与 outcome 关联分开，孤立提案/无 outcome 前缀显示 UNKNOWN，不补写或复用。
+四张 005 表按这四个提交时点分工：`agent_episodes / agent_attempts / agent_attempt_facts / agent_dispatches`。
+SQL 拒绝 UPDATE、DELETE、所有唯一身份的 REPLACE，序号连续，proposal 和 reserved Run 各只能消费一次。
+
+每个 Agent 请求明确使用 `request_schema_version=2` 和 canonical `agent_feedback`；Plan response 仍为 v1。
+第一次明确 `previous_run_id=null / prior_evidence=null`。后续反馈只能来自前一次正常 FAILED Run：
+原 Inspector、Skill trace、planning provenance、确认结果和终态引用均通过核验后，才允许新的独立 attempt。
+反馈含 Run/proposal/Plan 身份、结果 status、Acceptance、事件 seq 与事实 hash；默认省略原始 message、
+stdout/stderr、result 字典和文件内容。显式 opt-in message excerpt 每条最多 2048 UTF-8 bytes，
+整体反馈最多 16 KiB，最多 10 条结果；超限拒绝，不悄悄丢弃证据。开启摘录可能向模型提供私有工具文本。
+完整 Task、Card、响应和 opt-in 摘录保留在本地 SQLite 请求证据中，不含凭据 headers。
+反馈只是历史数据；不能变成策略、授权或模型自报的成功。v1 请求的字节和 hash 保持原样。
+
+批准必须指定本次 `proposal_id + plan_sha256`。同样的 canonical Plan 可能同 hash，但不能把旧提案
+替换成新提案；Episode 再次收到此前任何相同 Plan hash 时记录 `STALLED`，不执行第二遍。
+审批后先 COMMIT 唯一 dispatch，再调用原 Step 3 入口和完全未修改的 Runner。
+内部一次性 Python permit 在新 dispatch 提交后产生，防止通过直接 Step 3 调用消费孤立/旧的 v2 预约；
+它不是敌对本地 Python 的隔离机制。Run link 前还核对实际 seed-copy 与固定 manifest，保持工具执行在事务外。
+
+`inspect_agent_episode()` 返回 JSON-native 的 `schema_version / episode_id / state / attempt_count /
+max_attempts / attempts / integrity_issues / evidence_verified`。它支持 `query_only=ON`，不迁移、
+不联系模型、不改事实和 workspace。损坏字段保留为未核验的观察或 `null`，不归一化成可信证据。
+多个冻结 Inspector 分别拥有读取快照；反馈提取前后比较事实，消费事务内再复核，不能称全局原子快照。
+SQLite 内部 WAL/SHM 协调仍遵循既有逻辑只读定义，没有 `immutable=1`。
+
+成功停在 `SUCCEEDED`；正常失败且预算剩余为 `FAILED_FEEDBACK_AVAILABLE`；预算耗尽、重复计划、
+规划失败分别停止为 `BUDGET_EXHAUSTED / STALLED / PLANNING_FAILED`。
+Run 仍 RUNNING、无结果或 dispatch 尚无 Run 均 `HALTED_UNKNOWN`，矛盾/腐败证据为 `HALTED_INTEGRITY`。
+不重新消费预约、不恢复旧 Run、不把旧 workspace 用作新 seed；失败工作区保留。
+
+下面的独立例子保留 `.local/` 下证据：脚本模型先提出 timeout=15，验收失败后读取实际反馈再提出 20。
+**每次执行都需要调用方输入打印出的完整 digest**；例子不自动批准，也不需要 test fixture。
+
+```python
+import json
+from pathlib import Path
+from uuid import uuid4
+from axis_evo.agent_episode_storage import initialize_agent_episode_schema
+from axis_evo.agent_loop import (create_agent_episode, propose_next_attempt,
+    execute_approved_attempt, inspect_agent_episode)
+from axis_evo.planning_adapter import PlanningResponse
+from axis_evo.planning_provenance import initialize_skill_planning_schema
+from axis_evo.skill_binding import initialize_skill_binding_schema
+from axis_evo.skill_manager import SkillManager
+from axis_evo.skill_storage import initialize_skill_schema
+from axis_evo.storage import connect_database
+from axis_evo.plugins import PluginRegistry
+from axis_evo.tools import PatchFileTool
+
+root = Path(".local", "agent_" + uuid4().hex).resolve()
+assets, work = root / "assets", root / "workspaces"
+(assets / "seed").mkdir(parents=True)
+work.mkdir()
+(assets / "seed/config.json").write_bytes(b'{"timeout": 10}\n')
+task = assets / "task.json"
+task.write_text(json.dumps({"schema_version": 1, "task_id": "bounded_demo",
+    "title": "Timeout", "goal": "Change timeout from 10 to 20",
+    "workspace": {"seed_dir": "seed"}, "acceptance": {
+        "pytest": {"enabled": False, "args": []}, "file_assertions": [
+            {"path": "config.json", "operator": "equals", "expected": '{"timeout": 20}\n'}]}}),
+    encoding="utf-8")
+
+class ScriptedAdapter:
+    adapter_name, model_id = "demo_scripted", "offline"
+    def plan(self, request_json):
+        feedback = json.loads(request_json)["agent_feedback"]
+        if feedback["attempt_no"] == 2:
+            assert feedback["prior_evidence"]["validation"]["passed"] is False
+        value = 15 if feedback["attempt_no"] == 1 else 20
+        return PlanningResponse(json.dumps({"schema_version": 1, "steps": [
+            {"step_id": "patch", "tool_name": "patch_file", "arguments": {
+                "path": "config.json", "old": '"timeout": 10', "new": f'"timeout": {value}'}}]}),
+            self.adapter_name, self.model_id)
+
+c = connect_database(root / "facts.sqlite3")
+try:
+    initialize_skill_schema(c)
+    initialize_skill_binding_schema(c)
+    initialize_skill_planning_schema(c)
+    initialize_agent_episode_schema(c)
+    manager = SkillManager(c)
+    card = manager.create_version("demo.patch", name="Patch timeout", description="",
+        instructions="Patch the original timeout literal; final Acceptance decides completion.",
+        allowed_tools=["patch_file"])
+    manager.promote(card.skill_id, 1, "SHADOW")
+    manager.promote(card.skill_id, 1, "TRUSTED")
+    registry = PluginRegistry()
+    registry.register(PatchFileTool())
+    adapter = ScriptedAdapter()
+    episode = create_agent_episode(c, task, card.ref, work, adapter.adapter_name, adapter.model_id)
+    for _ in range(2):
+        proposal = propose_next_attempt(c, episode.episode_id, task, registry, adapter)
+        print(proposal.proposal_id, proposal.plan_json, proposal.plan_sha256)
+        approved_digest = input("Approve this exact digest (blank refuses): ").strip()
+        run = execute_approved_attempt(c, episode.episode_id, proposal.proposal_id,
+            approved_digest, task, registry)
+        print(run.status, inspect_agent_episode(c, episode.episode_id)["state"])
+finally:
+    c.close()
+print("Evidence retained:", root)
+```
+
+预期依次为 `FAILED FAILED_FEEDBACK_AVAILABLE`、`COMPLETED SUCCEEDED`，两个 workspace 各从 timeout=10 开始。
+完整审查包内可运行 `python tests/fixtures/agent_baseline/harness.py NEW_RESULT_DIRECTORY` 复现 A–G。
+该 harness 使用独立 evaluator-only oracle、合成调用方审批、实际 SQLite/Runner 和 hard-exit 子进程；
+3/7 受控案例最终完成是脚本机制结果，不是 live LLM 成功率或 Recovery/Trust 对照。
+`TOOL_INTENT` 数只是意图证据；token 不可测为 `null`，只有独立 effect ledger 才提供重复效果计数。
+
+This step implements a bounded sequence of independent, explicitly approved Coding Agent attempts using factual feedback.
+It does not implement checkpoint restoration, interrupted-Run resumption, Skill fault attribution or autonomous Skill evolution.
+
 ## 显式启用真实模型 transport
 
 `PlanningAdapter.plan(request_json: str) -> PlanningResponse(response_text, adapter_name, model_id)` 是窄接口。
@@ -605,10 +745,10 @@ adapter = OpenAICompatiblePlanningAdapter(
 
 ```text
 python -m pytest -q
-1204 passed, 8 skipped in 49.45s
+1456 passed, 10 skipped in 90.64s (0:01:30)
 ```
 
-失败 0；pytest 未报告 warnings。8 个 skip 均为 Windows `WinError 1314` 符号链接权限限制，
+失败 0；pytest 未报告 warnings。10 个 skip 均为 Windows `WinError 1314` 符号链接权限限制，
 具体 nodeid 与原因记录在 [测试结果](docs/TEST_RESULTS.md) 中，不计作通过。
 
 测试使用真实生产代码、SQLite、并发连接和 subprocess hard exit，覆盖提交边界、Crash Window B、
@@ -629,7 +769,8 @@ python -m pytest -q
 | Phase 1 / Step 4 — Inspector + Crash-State Detection | 已完成、冻结 |
 | Phase 2 / Step 1 — Skill Card + Immutable Registry + Lifecycle + Lineage | 已实现、测试通过、审查包已交付 |
 | Phase 2 / Step 2 — Explicit Skill Binding + Skill-aware Trace | 已实现，848 passed / 8 skipped，本地审查包已交付 |
-| Phase 2 / Step 3 — Skill-guided Planning + Immutable Plan Provenance | 当前里程碑，独立回归与完整源码审查包交付 |
+| Phase 2 / Step 3 — Skill-guided Planning + Immutable Plan Provenance | 已完成；旧 v1 字节与执行协议兼容 |
+| Phase 2 / Step 4 — Bounded Coding Agent Loop + Reproducible Baseline | 当前里程碑；本地完整验证与审查包 |
 | 自动技能选择及演化 | 后续计划，尚未实现 |
 | Trust Evaluator、Checkpoint、Recovery、多轮 LLM Tool Loop | 后续计划，尚未实现 |
 
