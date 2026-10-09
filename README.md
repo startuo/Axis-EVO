@@ -10,7 +10,6 @@ Axis-Evo is a research prototype for durable agent execution facts, deterministi
 acceptance, crash-state inspection, immutable skill versioning, explicit
 skill authorization, and auditable Skill-conditioned model planning.
 
-本项目服务于《大语言模型智能体可信技能演化与中断恢复系统设计与实现》。它从执行证据出发，
 记录“准备做什么、观察到什么、实际持久化了什么”，为后续技能使用、演化与中断恢复建立可审查的基础。
 
 当前实现到 **Phase 2 / Step 3 — Skill-guided Planning + Immutable Plan Provenance**。
@@ -638,6 +637,3 @@ python -m pytest -q
 后续变更需要遵守已经冻结的执行证据和数据语义；新里程碑应独立实现、验证和审查。
 
 项目维护：[startuo](https://github.com/startuo)。
-
-后续工程变更遵守 [AGENTS.md](AGENTS.md)：验证后提交并推送实现和测试结果；全部测试源码、fixture 和交付报告
-保留本地并按需进入审查 ZIP，不纳入 Git 跟踪。
