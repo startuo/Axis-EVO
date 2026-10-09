@@ -88,6 +88,8 @@ def run_task(
     *,
     run_id: str | None = None,
     skill_ref: SkillRef | None = None,
+    plan_proposal_id: str | None = None,
+    approved_plan_sha256: str | None = None,
 ) -> Run:
     """Run a snapshotted deterministic plan and return its normally observed terminal Run.
 
@@ -101,16 +103,25 @@ def run_task(
         raise ValueError("model_plugin must be a nonempty metadata string")
     if run_id is not None and (type(run_id) is not str or not run_id.strip()):
         raise ValueError("run_id must be a nonempty string")
+    if plan_proposal_id is None and approved_plan_sha256 is not None:
+        raise ValueError("Plan approval requires a proposal identity")
     steps = _snapshot_plan(plan, tool_registry)
     if skill_ref is not None:
         skill_ref = preflight_skill_binding(connection, steps, skill_ref)
     task_path = Path(task_spec_path).resolve(strict=True)
     task_spec = load_task_spec(task_path)
+    if plan_proposal_id is not None:
+        from .planning_provenance import preflight_plan_proposal, record_plan_run_link
+        preflight_plan_proposal(connection, plan_proposal_id, approved_plan_sha256,
+                                task_spec, steps, skill_ref, tool_registry)
     seed = _resolve_seed(task_path, task_spec.workspace["seed_dir"])
     preflight_acceptance(task_spec)
     sandbox = Sandbox.from_seed(seed, workspace_path)
     preflight_acceptance(task_spec, sandbox)
     run = create_run(connection, task_spec, sandbox.root, model_plugin, run_id=run_id)
+    if plan_proposal_id is not None:
+        record_plan_run_link(connection, run.run_id, plan_proposal_id, approved_plan_sha256,
+                             steps, skill_ref, tool_registry)
     append_event(connection, run.run_id, EventType.RUN_STARTED, {
         "workspace_path": run.workspace_path, "model_plugin": run.model_plugin,
     })
