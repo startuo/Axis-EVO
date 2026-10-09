@@ -739,16 +739,65 @@ adapter = OpenAICompatiblePlanningAdapter(
 默认所有自动测试均为 fake/本地拦截 transport，不读取环境 key 后自动联系外网。
 `run_tests` 在批准执行后会运行任务测试代码，不能称为无副作用规划检查；TRUSTED、schema 校验和审批也不保证任务语义安全。
 
+## Phase 3 / Step 1：可验证 Checkpoint
+
+本阶段显式捕获已提交事件前缀及有界工作区文件证据。元数据和实际文件 BLOB 在一个 SQLite transaction
+中提交；不改动 Runner、Tools、Inspector 或旧 migrations，不自动执行 checkpoint，也不提供恢复动作。
+
+```python
+from axis_evo.checkpoint_storage import initialize_checkpoint_schema
+from axis_evo.checkpoint_manager import (
+    create_checkpoint, get_checkpoint, list_checkpoints, verify_checkpoint,
+    ControlledCaptureBoundary,
+)
+
+# Explicit dependency order: initialize 001, 002, 003, 004, 005 first.
+initialize_checkpoint_schema(connection)
+checkpoint = create_checkpoint(connection, completed_run.run_id, workspace_path)
+report = verify_checkpoint(connection, checkpoint.checkpoint_id, compare_workspace=True)
+```
+
+支持 `COMPLETED` / `FAILED` 的一致终态，或最后事实为 `STEP_CONFIRMED` 的显式协作暂停。
+运行中暂停点还必须位于下一 invocation 的 Skill binding 提交之前；已 prebind 而无事件时拒绝捕获。
+运行中调用必须提供 `ControlledCaptureBoundary(run_id, event_cursor_seq, exclusive_execution_id)`，
+并由受信任调用方保证整个捕获期间独占执行、没有外部写入者。该对象是明确的调用方声明，
+不是身份认证、进程锁或生产自动暂停机制。任何缺少 `TOOL_RESULT` 的 intent 都拒绝稳定捕获。
+
+默认最多 256 个文件/目录项、总文件字节 1 MiB、单文件 1 MiB、manifest 128 KiB、snapshot metadata 512 KiB。
+完整采样两次，记录空目录；拒绝超限、非 regular file、symlink/reparse/junction、重定向祖先及多硬链接文件。
+只读取 Run 绑定的绝对规范 workspace，不读取环境凭据、模型配置或其他目录。
+调用方必须保证所授权 workspace 本身不含应排除的凭据；本模块不进行内容级秘密识别。
+
+006 的 `checkpoint_records` / `checkpoint_artifacts` 有 7 个保护触发器；禁止 UPDATE、DELETE、重复主键及
+REPLACE 覆盖。Artifact 只能对应 manifest 中完全匹配的 file 项，Core 在 COMMIT 前检查完整集合及实际 BLOB hash。
+文件 SHA-256 来自保存的原始 bytes，不解码、归一化或改换换行。
+事件前缀 hash 是 `canonical_json_bytes({"schema_version": 1, "events": [...]})` 的 SHA-256，
+每项包含 `event_id/schema_version/run_id/task_id/seq/event_type/step_id/tool_call_id/occurred_at/payload`，
+不含内部 `event_pk`；严格检查 canonical payload、连续 seq、唯一 event_id。后续事件不改变旧前缀锚点。
+
+验证分别报告 stored metadata、event prefix、exact Skill、approved Plan、artifact integrity，
+以及可选 current workspace 的 MATCH / DIFFERENT / UNAVAILABLE；旧版本无 Skill/Plan 时明确 NOT_APPLICABLE。
+验证支持 `PRAGMA query_only=ON`，不迁移、不调用模型、不执行工具、不写文件。
+WAL/SHM 内部协调遵循既有逻辑只读边界，不使用 `immutable=1`。
+
+这不是数据库和文件系统的原子快照：两次采样和事务内事实复核能检出可见变化，不能排除恶意竞争、ABA 或目录树
+非原子读取。Windows 3.12 的 path-stat / fd-stat creation-time 行为有差异，跨 API 比较使用文件身份、size、mtime
+并再次比对完整 bytes。验证成功不授权 restore/resume；文件变化不证明工具因果关系。
+
+本地显式实验 harness 覆盖 F0–F9、真实 `os._exit(70)` 与父进程独立文件 oracle。
+实验源码、结果报告及审查 ZIP 按仓库规则保留本地。进程硬退出不等同主机断电或硬件故障。
+本轮不实现 Recovery、Trust Evaluator、自动 Skill 演化或 Phase 3 / Step 2。
+
 ## 验证记录
 
 当前 Windows / Python 3.12.10 / SQLite 3.49.1 的本地完整回归结果：
 
 ```text
 python -m pytest -q
-1456 passed, 10 skipped in 90.64s (0:01:30)
+1555 passed, 14 skipped in 112.11s (0:01:52)
 ```
 
-失败 0；pytest 未报告 warnings。10 个 skip 均为 Windows `WinError 1314` 符号链接权限限制，
+失败 0；pytest 未报告 warnings。14 个 skip 包含13项 Windows `WinError 1314` 符号链接权限限制及1项 POSIX FIFO 不可用，
 具体 nodeid 与原因记录在 [测试结果](docs/TEST_RESULTS.md) 中，不计作通过。
 
 测试使用真实生产代码、SQLite、并发连接和 subprocess hard exit，覆盖提交边界、Crash Window B、
@@ -770,9 +819,10 @@ python -m pytest -q
 | Phase 2 / Step 1 — Skill Card + Immutable Registry + Lifecycle + Lineage | 已实现、测试通过、审查包已交付 |
 | Phase 2 / Step 2 — Explicit Skill Binding + Skill-aware Trace | 已实现，848 passed / 8 skipped，本地审查包已交付 |
 | Phase 2 / Step 3 — Skill-guided Planning + Immutable Plan Provenance | 已完成；旧 v1 字节与执行协议兼容 |
-| Phase 2 / Step 4 — Bounded Coding Agent Loop + Reproducible Baseline | 当前里程碑；本地完整验证与审查包 |
+| Phase 2 / Step 4 — Bounded Coding Agent Loop + Reproducible Baseline | 已完成、冻结 |
+| Phase 3 / Step 1 — Verifiable Checkpoint + Deterministic Fault Injection | 当前里程碑 |
 | 自动技能选择及演化 | 后续计划，尚未实现 |
-| Trust Evaluator、Checkpoint、Recovery、多轮 LLM Tool Loop | 后续计划，尚未实现 |
+| Trust Evaluator、Recovery、多轮 LLM Tool Loop | 后续计划，尚未实现 |
 
 当前版本没有自动技能应用、LLM 生成演化、trust score、故障归因、retry/resume/compensation 或 UI。
 后续变更需要遵守已经冻结的执行证据和数据语义；新里程碑应独立实现、验证和审查。
