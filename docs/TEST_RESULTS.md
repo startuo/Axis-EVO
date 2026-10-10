@@ -265,3 +265,51 @@ E/F/G 只读复审完成；发现的 TEMP namespace 问题已在新模块修复�
 完整 pytest 结果沿用上述实现验证，本次未重复运行全量测试。
 README legacy 与 Skill-bound 示例在独立临时目录运行均为 COMPLETED，Inspector trace 一致；绑定示例的 Skill trace 也一致。
 56 个本地保留文件（源码、SQL、测试/fixture、报告、封面和审查包）哈希核对通过；Git 清理清单与文档链接检查通过。
+
+
+---
+
+## Phase 3 / Step 3 - verified 2026-10-10
+
+Tested implementation commit: `406a0db1af87c48f3a696cfcda17fa9b3ead7467`. Baseline: `7e609764e34de2d002f5e0de8a499615ebe1a4df`. The following documentation-only commit retains identical production and test bytes.
+
+Environment: Windows 11 build 22631; Python 3.12.10; SQLite 3.49.1; pytest 9.1.1.
+
+| Command | Actual result |
+| --- | --- |
+| `python -m pytest -q tests/integration/test_safety_hardening.py` | 27 passed in 4.89s |
+| `python -m pytest -q tests/integration/test_storage.py tests/integration/test_tool_execution.py tests/integration/test_hard_crash.py tests/integration/test_inspector_crash.py tests/integration/test_skill_guided_crash.py tests/integration/test_skill_binding_crash.py tests/integration/test_checkpoint_consistency.py tests/integration/test_recovery_crash.py tests/integration/test_agent_loop_crash.py` | 135 passed in 164.88s (0:02:44) |
+| `python -m pytest -q` | 1722 passed, 14 skipped in 808.56s (0:13:28) |
+| `python -m pytest -q tests/unit/test_skill_trust.py` | 136 passed in 7.42s |
+| `python -m pytest -q tests/integration/test_skill_trust_storage.py` | 123 passed in 17.20s |
+| `python -m pytest -q tests/integration/test_skill_trust_crash.py` | 10 passed in 7.66s |
+| `python -m pytest -q` | 1991 passed, 14 skipped in 397.47s (0:06:37) |
+
+Final collection: **2005 tests; 1991 passed; 14 skipped; 0 failures; 0 errors**. No warnings summary was reported and no warning filters were introduced. The test runner only added `-ra` and JUnit output reporting to `PYTEST_ADDOPTS`; all cases were selected.
+
+The 14 final skips (13 Windows symlink privilege limitations and one unavailable POSIX FIFO):
+
+- `tests.integration.test_agent_episode::test_external_seed_symlink_is_rejected_before_episode_persistence`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.integration.test_agent_episode::test_episode_workspace_symlink_redirection_is_rejected_before_dispatch`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.integration.test_runner::test_external_symlink_assertion_preflight_blocks_mutating_plan`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_checkpoint_manager::test_symlink_capture_rejected[external_file]`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_checkpoint_manager::test_symlink_capture_rejected[internal_file]`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_checkpoint_manager::test_symlink_capture_rejected[ancestor]`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_checkpoint_manager::test_fifo_rejected_without_blocking`: POSIX FIFO unavailable on Windows.
+- `tests.unit.test_inspector::test_external_symlink_is_not_followed_for_comparison[target]`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_inspector::test_external_symlink_is_not_followed_for_comparison[parent]`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_inspector::test_external_symlink_is_not_followed_for_comparison[root]`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_sandbox::test_external_symlink_target_is_rejected`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_sandbox::test_external_symlink_parent_blocks_existing_and_new_files`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_sandbox::test_internal_symlink_is_allowed`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+- `tests.unit.test_sandbox::test_seed_copy_preserves_external_symlink_without_copying_target`: Windows symlink privilege unavailable (WinError 1314 / OS privilege check).
+
+The private archive preserves the raw log/XML messages, including original console-encoding artifacts. PureWindowsPath.is_reserved() deprecation/compatibility debt on later Python versions was not hidden. This environment did not provide fresh Linux or live-provider testing.
+
+Frozen audit: 90 baseline files, 87 unchanged; only sandbox.py, storage.py and tools.py changed under the explicit Gate A safety exception. Migrations 001-007 and every old test/fixture remain byte-identical. Gate B changed none of the Gate A frozen source. Current production manifest SHA-256: `a4fa83903168dfcedf24b8b2eab52e0df4a7f5ae29ea658f2b38342454fb3886`.
+
+Security evidence: baseline hard-link escape and duplicate invocation reproduced; patched hard-link access rejected, concurrent coordinator admits one actual execution without loser PRE pollution; all 120 final Windows cold connections succeeded with WAL/FULL/FK and restored busy_timeout. 008 audits legacy duplicate facts without rewriting them or adding an incompatible index. Tool execution remains outside SQLite write transactions.
+
+Trust evidence: actual subprocess hard exits before/after Intent, Result and Assessment COMMIT; real Crash B Source stays UNKNOWN after successful Recovery Child. Offline paired inventory Oracle: 4 eligible cases, 3 regressions, 0 improvements, 1 tie, 8/8 valid plans, 5/8 Oracle/public-acceptance successes. Latest isolated experiment batch: 24 actual offline adapter calls; token usage null. Deterministic Tool failure is an explicit injected failure, not a causal Skill defect.
+
+The new public consumer ran both COMPLETED and FAILED cases through real Runner/SQLite, with consistent Inspector traces. Full tests, fixtures, hidden Oracles, raw fault evidence, reports and ZIP remain private under AGENTS.md. See PUBLIC_VERIFICATION_PLAN.md for public commands and authorized private reproduction, including the historical harness Git-metadata prerequisite. No CI workflow, license selection, lifecycle automation or Phase 3 / Step 4 work was added.
