@@ -9,14 +9,15 @@
 Axis-Evo is a research prototype for durable agent execution facts, deterministic
 acceptance, crash-state inspection, immutable skill versioning, explicit
 skill authorization, auditable Skill-conditioned model planning, and bounded
-independent coding attempts with factual feedback.
+independent coding attempts with factual feedback, verifiable checkpoints,
+and explicitly approved continuation from reconciled local file state.
 
 记录“准备做什么、观察到什么、实际持久化了什么”，为后续技能使用、演化与中断恢复建立可审查的基础。
 
-当前实现到 **Phase 2 / Step 4 — Bounded Coding Agent Loop + Reproducible Baseline**。
+当前实现到 **Phase 3 / Step 2 — Evidence-based Recovery Manager**。
 调用方显式选择 TRUSTED 的不可变 Skill 版本，模型只提出计划；Core 严格校验并持久化提案，
 调用方确认精确 Plan digest 后，原有 Skill-bound Runner 才执行。正常失败且证据完整时，
-可基于事实反馈提出新的独立计划，每次都重新审批、使用原始 seed 创建新工作区。旧 API 保持兼容。
+可基于事实反馈提出新的独立计划，每次都重新审批、使用原始 seed 创建新工作区。Recovery 是独立链路，从核验后当前状态派生输入；旧 API 保持兼容。
 运行时代码仅依赖 Python 标准库，要求 **Python 3.11+**；测试使用 pytest。
 
 ## 项目解决什么问题
@@ -32,7 +33,7 @@ independent coding attempts with factual feedback.
 - **技能版本是否可追溯？** 每个 Skill 由稳定身份和整数版本定位，内容不可变，来源明确，生命周期历史只追加。
 
 Runner 只执行已经确定的计划。每次 attempt 只有一次规划请求；不在执行中的 Run 内重新规划。
-恢复、信任评估与技能自动演化尚未实现。
+文件型恢复通过独立审批和新的派生任务执行；信任评估与技能自动演化尚未实现。
 
 ## 已实现能力
 
@@ -46,6 +47,8 @@ Runner 只执行已经确定的计划。每次 attempt 只有一次规划请求�
 | Skill Binding / Trace | 整份计划预检、精确版本和工具授权、调用前提交不可变绑定、独立只读关联视图 |
 | Skill Planning / Provenance | 单次模型规划、严格 Plan v1、不可变提案、精确 digest 审批、Run 关联和只读规划证据 |
 | Bounded Agent / Baseline | 固定 Task/seed/Skill/model、最多 5 次独立 attempt、核验反馈、新审批和工作区、UNKNOWN 停机、离线独立评估 |
+| Checkpoint | 不可变事件前缀、精确 Skill/Plan 身份、有界文件 BLOB、分维度只读核验 |
+| Recovery | 受控文件状态对账、显式状态采纳、精确 digest 审批、单次 durable dispatch、派生任务与原 Runner 续跑 |
 
 Sandbox 提供工作区路径约束和文件观察；当前没有容器或操作系统级进程隔离。
 `run_tests` 是受限 pytest 子进程入口，PluginRegistry 只负责显式注册和检索。
@@ -786,7 +789,66 @@ WAL/SHM 内部协调遵循既有逻辑只读边界，不使用 `immutable=1`。
 
 本地显式实验 harness 覆盖 F0–F9、真实 `os._exit(70)` 与父进程独立文件 oracle。
 实验源码、结果报告及审查 ZIP 按仓库规则保留本地。进程硬退出不等同主机断电或硬件故障。
-本轮不实现 Recovery、Trust Evaluator、自动 Skill 演化或 Phase 3 / Step 2。
+以上为 Step 1 的独立能力边界；Step 2 的恢复权限与证据另行记录。
+
+## Phase 3 / Step 2：经证据核验的文件型恢复
+
+```python
+from axis_evo.recovery_storage import initialize_recovery_schema
+from axis_evo.recovery_manager import (
+    RecoveryBoundary, create_recovery_case, assess_and_record_recovery,
+    propose_recovery, inspect_recovery_case,
+)
+from axis_evo.recovery_continuation import execute_approved_recovery
+
+# Explicit dependency order: migrations 001–006, then 007.
+initialize_recovery_schema(connection)
+# Caller excludes source execution and other writers throughout this lifecycle.
+boundary = RecoveryBoundary(source_run_id, "caller-held-exclusive-barrier")
+case = create_recovery_case(connection, source_run_id, checkpoint_id)
+assessment = assess_and_record_recovery(connection, case.case_id, boundary=boundary)
+# assets_root must be an existing absolute independent directory.
+proposal = propose_recovery(connection, case.case_id, assessment.assessment_id,
+                            tool_registry, assets_root, boundary=boundary)
+# Review proposal.data; this is a separate trusted caller approval action.
+run = execute_approved_recovery(connection, case.case_id, proposal.proposal_id,
+    proposal.recovery_sha256, tool_registry, boundary=boundary)
+report = inspect_recovery_case(connection, case.case_id)
+```
+
+`assess_recovery()` 只读、不记录审批；`get_recovery_proposal()` 返回不可变 canonical JSON 记录，
+`.data` 每次给出独立副本。007 的五张 append-only 表分别保存 Case、Assessment、Proposal、Dispatch、Outcome，
+19 个触发器禁止改写、删除和 REPLACE 覆盖，并约束 source/checkpoint、assessment、审批和终态关联。
+Recovery digest 是完整 canonical Proposal UTF-8 的 SHA-256，包含状态采纳、原 Skill/Plan、完整输入 manifest、
+精确剩余 Plan、可信工具 schema、派生 TaskSpec、新 Run/workspace 预约与安全条件。只接受精确小写字符串；
+它表示调用方批准，不认证人类身份。原 planning proposal ID 不会重用。
+
+首版执行范围：有效 `CONTROLLED_STEP` Checkpoint 紧接一个未决 `write_file` 或 `patch_file`；
+Checkpoint bytes、PRE、TOOL_INTENT 完全一致；当前整个有界目录树恰好等于确定性 exact-after；
+剩余原 Plan 非空。允许已确认前缀和剩余计划中的 exact builtin `read_file`，不凭 `mutating=False` 推断纯净性。
+patch 采用冻结工具的重叠匹配计数及一次替换，严格 UTF-8，不归一化换行。
+
+before 未变、第三种状态、其他文件变化、多未决调用、pending read、run_tests、可执行 pytest Acceptance、
+未知外部工具、旧 Checkpoint 间隔含额外执行、空 suffix 和正常 FAILED 源任务均不在可执行恢复范围。
+损坏 Skill、Plan、Checkpoint、过期 source/seed/TaskSpec 或审批不匹配都拒绝；不改写旧证据。
+当前 exact-after 仅证明 `POSTCONDITION_VERIFIED`，原 `TOOL_RESULT` 继续 UNKNOWN。
+
+新派生 TaskSpec 有新 task_id 和 canonical digest，保留原 Acceptance，seed 使用核验后的当前 bytes。
+Dispatch 在调用冻结 Runner 前单独 COMMIT；新 Runner 仍正常写 Skill binding、STEP_PLANNED、PRE、
+TOOL_INTENT、POST、RESULT、CONFIRMED、独立验收及原子终态。私有 permit 在实际交出工具前复核审批、
+源事实、资产、真实 child 身份、复制后完整输入及已完成 suffix；没有第二套执行循环。
+一个 Case/Proposal 只预约一个 child；Dispatch 已提交但无 Run、零事件 Run、再次 Crash B 或 Outcome 缺失
+都保留未知前缀，不重新消费预约。来自 Agent Episode 的源历史仍独立保持 HALTED_UNKNOWN。
+
+Inspector 支持 `query_only=ON`，不写事实、不迁移、不运行工具、不恢复文件。`AWAITING_APPROVAL`
+只描述持久化提案；`inputs_currently_verified=False` 明确不代表当前 staging 仍可执行，执行 API 必须重验。
+旧 Source UNKNOWN 与 child Recovery Outcome 分别呈现。SQLite WAL/SHM 协调边界不变，不用 `immutable=1`。
+
+独占声明不是 OS 锁；双采样不能排除敌对 ABA，SQLite COMMIT 不会原子提交文件系统。
+孤立 staging、部分复制、预约但无 Run、Run 无事件都是合法故障前缀，保留现场且不自动清理。
+只支持受信任本地 fixture；Sandbox 不提供恶意代码的 OS 隔离。进程 hard exit 不证明断电耐久性。
+只读的未来操作协议见 [Recovery Operation Contract v0](docs/RECOVERY_OPERATION_CONTRACT.md)，
+未实现真实电商、外部 exactly-once、Trust Evaluator 或 Skill 自动演化。
 
 ## 验证记录
 
@@ -794,7 +856,7 @@ WAL/SHM 内部协调遵循既有逻辑只读边界，不使用 `immutable=1`。
 
 ```text
 python -m pytest -q
-1555 passed, 14 skipped in 112.11s (0:01:52)
+1695 passed, 14 skipped in 228.13s (0:03:48)
 ```
 
 失败 0；pytest 未报告 warnings。14 个 skip 包含13项 Windows `WinError 1314` 符号链接权限限制及1项 POSIX FIFO 不可用，
@@ -820,11 +882,12 @@ python -m pytest -q
 | Phase 2 / Step 2 — Explicit Skill Binding + Skill-aware Trace | 已实现，848 passed / 8 skipped，本地审查包已交付 |
 | Phase 2 / Step 3 — Skill-guided Planning + Immutable Plan Provenance | 已完成；旧 v1 字节与执行协议兼容 |
 | Phase 2 / Step 4 — Bounded Coding Agent Loop + Reproducible Baseline | 已完成、冻结 |
-| Phase 3 / Step 1 — Verifiable Checkpoint + Deterministic Fault Injection | 当前里程碑 |
+| Phase 3 / Step 1 — Verifiable Checkpoint + Deterministic Fault Injection | 已完成、冻结 |
+| Phase 3 / Step 2 — Evidence-based Recovery Manager | 当前里程碑；严格受控文件型恢复 |
 | 自动技能选择及演化 | 后续计划，尚未实现 |
-| Trust Evaluator、Recovery、多轮 LLM Tool Loop | 后续计划，尚未实现 |
+| Trust Evaluator、外部业务恢复、多轮 LLM Tool Loop | 后续计划，尚未实现 |
 
-当前版本没有自动技能应用、LLM 生成演化、trust score、故障归因、retry/resume/compensation 或 UI。
+当前版本没有自动技能选择、LLM 生成演化、trust score、故障归因、自动 retry/compensation 或 UI。
 后续变更需要遵守已经冻结的执行证据和数据语义；新里程碑应独立实现、验证和审查。
 
 项目维护：[startuo](https://github.com/startuo)。

@@ -1,3 +1,63 @@
+# Phase 3 / Step 2 验证结果
+
+日期2026-10-10；Windows-11-10.0.22631-SP0；Python3.12.10；SQLite3.49.1。
+预编辑HEAD `af8c493b7e56a3cf7eb5c9d03f1ba46c8fb01813`。历史基线1569，不冒充本轮结果。
+
+| Command | Actual result |
+|---|---|
+| python -m pytest -q tests/unit/test_recovery_policy.py | 23 passed in 0.13s |
+| python -m pytest -q tests/unit/test_recovery_reconciliation.py | 7 passed in 3.56s |
+| python -m pytest -q tests/integration/test_recovery_storage.py | 42 passed in 31.27s |
+| python -m pytest -q tests/integration/test_recovery_manager.py | 15 passed in 9.76s |
+| python -m pytest -q tests/integration/test_recovery_continuation.py | 24 passed in 19.81s |
+| python -m pytest -q tests/integration/test_recovery_crash.py | 22 passed in 20.30s |
+| python -m pytest -q tests/experiments/test_recovery_baseline.py | 4 passed in 6.82s |
+| python -m pytest -q tests/integration/test_hard_crash.py | 1 passed in 0.41s |
+| python -m pytest -q tests/integration/test_inspector_crash.py | 6 passed in 2.13s |
+| python -m pytest -q tests/integration/test_skill_guided_crash.py | 5 passed in 1.71s |
+| python -m pytest -q tests/integration/test_agent_loop_crash.py | 7 passed in 2.82s |
+| python -m pytest -q tests/integration/test_checkpoint_storage.py | 25 passed in 12.91s |
+| python -m pytest -q tests/integration/test_checkpoint_consistency.py | 37 passed in 19.79s |
+| python -m pytest -q tests/fault_injection/test_fault_matrix.py | 12 passed in 6.03s |
+| python -m pytest -q tests/experiments/test_agent_baseline.py | 11 passed in 11.91s |
+| python -m pytest -q tests/integration/test_recovery_storage.py | 45 passed in 33.05s |
+| python -m pytest -q | 1695 passed, 14 skipped in 228.13s (0:03:48) |
+
+补充专项（同事务publicationtrigger验证与最终assetguard）：python -m pytest -q tests/integration/test_recovery_storage.py → 45 passed in33.05s。
+完整收集1709；通过1695；失败0；errors0；skip14；pytest warnings reported=False。
+新增140cases。只有Reporting环境PYTEST_ADDOPTS=-ra --junitxml=<local.gitpath>；没有新增warning过滤。
+13项Windows symlink privilege限制+1项POSIX FIFO不可用，未把skip记pass。本机未跑Linux。旧PureWindowsPath.is_reserved潜在Linux弃用warning未通过修改冻结文件压制。
+
+## 完整skip
+
+- `tests.integration.test_agent_episode::test_external_seed_symlink_is_rejected_before_episode_persistence`: Creating symlinks requires OS support and Windows symlink privilege
+- `tests.integration.test_agent_episode::test_episode_workspace_symlink_redirection_is_rejected_before_dispatch`: Creating symlinks requires OS support and Windows symlink privilege
+- `tests.integration.test_runner::test_external_symlink_assertion_preflight_blocks_mutating_plan`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_assertio0\\outside.txt' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_assertio0\\task_assets\\seed\\external_link.txt'
+- `tests.unit.test_checkpoint_manager::test_symlink_capture_rejected[external_file]`: Symlink creation unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_symlink_capture_rejected_0\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_symlink_capture_rejected_0\\work\\link'
+- `tests.unit.test_checkpoint_manager::test_symlink_capture_rejected[internal_file]`: Symlink creation unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_symlink_capture_rejected_1\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_symlink_capture_rejected_1\\work\\link'
+- `tests.unit.test_checkpoint_manager::test_symlink_capture_rejected[ancestor]`: Symlink creation unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_symlink_capture_rejected_2\\work' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_symlink_capture_rejected_2\\alias'
+- `tests.unit.test_checkpoint_manager::test_fifo_rejected_without_blocking`: POSIX FIFO is unavailable on Windows
+- `tests.unit.test_inspector::test_external_symlink_is_not_followed_for_comparison[target]`: OS symlink privilege unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_is_not_f0\\outside\\config.json' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_is_not_f0\\workspace\\config.json'
+- `tests.unit.test_inspector::test_external_symlink_is_not_followed_for_comparison[parent]`: OS symlink privilege unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_is_not_f1\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_is_not_f1\\workspace\\parent'
+- `tests.unit.test_inspector::test_external_symlink_is_not_followed_for_comparison[root]`: OS symlink privilege unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_is_not_f2\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_is_not_f2\\workspace'
+- `tests.unit.test_sandbox::test_external_symlink_target_is_rejected`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_target_i0\\secret.txt' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_target_i0\\workspace\\link.txt'
+- `tests.unit.test_sandbox::test_external_symlink_parent_blocks_existing_and_new_files`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_parent_b0\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_external_symlink_parent_b0\\workspace\\link'
+- `tests.unit.test_sandbox::test_internal_symlink_is_allowed`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_internal_symlink_is_allow0\\workspace\\target.txt' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_internal_symlink_is_allow0\\workspace\\link.txt'
+- `tests.unit.test_sandbox::test_seed_copy_preserves_external_symlink_without_copying_target`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_seed_copy_preserves_exter0\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-159\\test_seed_copy_preserves_exter0\\seed\\link'
+
+## 工程证据
+
+77冻结文件SHA完全一致。所有旧关键回归与full通过。新tests覆盖strictfilepolicy、immutableSQL、triggerABORT/IGNORE、COMMITdenial、callerTxn、stale/corruptapproval、concurrency、actualRunner、query_only、R0–R11真实subprocess、AgentEpisode独立lineage、无.git真实运行及父进程bytes/entryledgerOracle。
+12sourceexit70、8recoveryexit70；两个可完成场景2/2成功；unsafe_retry/duplicate/source_trace_mutation/approval_bypass/unjustified_completion/Oracle mismatch均0。每个source仍缺1个TOOL_RESULT。
+Recovery仅支持受控文件、一个相邻pending写操作exactafter与完整树吻合、非空suffix、显式digest批准；不实现Commerce、Trust或Skill演化。无真实provider测试，无断电实验。
+本地全源码审查ZIP包含tests/fixtures/reports；Git仅推送production/config/docs与测试结果，tests/报告/ZIP不上传。
+
+实际ZIP解压至无.git临时目录：python -m pytest -q -p no:cacheprovider tests/experiments/test_recovery_baseline.py::test_recovery_baseline_completes_only_approved_verified_suffix tests/experiments/test_recovery_baseline.py::test_recovery_experiment_runs_from_source_copy_without_git_metadata → 2 passed in 3.07s
+
+---
+
+## 历史验证记录
+
 # Phase 3 / Step 1 验证结果
 
 日期：2026-10-09；Windows-11-10.0.22631-SP0；Python 3.12.10；SQLite 3.49.1。
