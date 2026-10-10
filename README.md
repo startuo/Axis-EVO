@@ -14,7 +14,7 @@ and explicitly approved continuation from reconciled local file state.
 
 记录“准备做什么、观察到什么、实际持久化了什么”，为后续技能使用、演化与中断恢复建立可审查的基础。
 
-当前实现到 **Phase 3 / Step 2 — Evidence-based Recovery Manager**。
+当前实现到 **Phase 3 / Step 3 — Security Hardening + Evidence-based Skill Trust**。
 调用方显式选择 TRUSTED 的不可变 Skill 版本，模型只提出计划；Core 严格校验并持久化提案，
 调用方确认精确 Plan digest 后，原有 Skill-bound Runner 才执行。正常失败且证据完整时，
 可基于事实反馈提出新的独立计划，每次都重新审批、使用原始 seed 创建新工作区。Recovery 是独立链路，从核验后当前状态派生输入；旧 API 保持兼容。
@@ -33,7 +33,7 @@ and explicitly approved continuation from reconciled local file state.
 - **技能版本是否可追溯？** 每个 Skill 由稳定身份和整数版本定位，内容不可变，来源明确，生命周期历史只追加。
 
 Runner 只执行已经确定的计划。每次 attempt 只有一次规划请求；不在执行中的 Run 内重新规划。
-文件型恢复通过独立审批和新的派生任务执行；信任评估与技能自动演化尚未实现。
+文件型恢复通过独立审批和新的派生任务执行；证据评估仅产生审查建议，技能自动演化尚未实现。
 
 ## 已实现能力
 
@@ -49,6 +49,7 @@ Runner 只执行已经确定的计划。每次 attempt 只有一次规划请求�
 | Bounded Agent / Baseline | 固定 Task/seed/Skill/model、最多 5 次独立 attempt、核验反馈、新审批和工作区、UNKNOWN 停机、离线独立评估 |
 | Checkpoint | 不可变事件前缀、精确 Skill/Plan 身份、有界文件 BLOB、分维度只读核验 |
 | Recovery | 受控文件状态对账、显式状态采纳、精确 digest 审批、单次 durable dispatch、派生任务与原 Runner 续跑 |
+| Skill Trust | 历史证据分类、无生产权限的 SHADOW 内存模拟、隐藏 Oracle 配对比较、不可变审查建议 |
 
 Sandbox 提供工作区路径约束和文件观察；当前没有容器或操作系统级进程隔离。
 `run_tests` 是受限 pytest 子进程入口，PluginRegistry 只负责显式注册和检索。
@@ -143,7 +144,7 @@ DERIVED source 的固定形状为 `{"kind":"DERIVED","skill_id":"config.timeout"
 Card 使用现有 canonical JSON 字节计算 SHA-256；SQLite 触发器阻止既有身份、版本和历史行的修改/删除。
 读取核对规范字节、hash、身份、来源、连续版本及生命周期历史；不一致抛出 `SkillIntegrityError`，不静默修复。
 
-`TRUSTED` 当前只是显式生命周期状态，没有证据评分或 Trust Evaluator。
+`TRUSTED` 是显式生命周期状态。Trust Evaluator 的证据建议独立保存，不自动改变该状态，也不保证 Skill 正确。
 Card instructions 原文作为规划请求中的任务数据；执行授权仍由精确 SkillRef 和 allowed_tools 决定。
 模型是否理解或遵循自然语言 instructions，不能由请求存在或任务成功推断。
 
@@ -848,15 +849,15 @@ Inspector 支持 `query_only=ON`，不写事实、不迁移、不运行工具、
 孤立 staging、部分复制、预约但无 Run、Run 无事件都是合法故障前缀，保留现场且不自动清理。
 只支持受信任本地 fixture；Sandbox 不提供恶意代码的 OS 隔离。进程 hard exit 不证明断电耐久性。
 只读的未来操作协议见 [Recovery Operation Contract v0](docs/RECOVERY_OPERATION_CONTRACT.md)，
-未实现真实电商、外部 exactly-once、Trust Evaluator 或 Skill 自动演化。
+上述 Step 2 未实现真实电商、外部 exactly-once 或 Skill 自动演化；Step 3 的独立证据评估见下文。
 
 ## 验证记录
 
-当前 Windows / Python 3.12.10 / SQLite 3.49.1 的本地完整回归结果：
+Phase 3 / Step 3：Windows / Python 3.12.10 / SQLite 3.49.1 的本地完整回归结果：
 
 ```text
 python -m pytest -q
-1695 passed, 14 skipped in 228.13s (0:03:48)
+1991 passed, 14 skipped in 397.47s (0:06:37)
 ```
 
 失败 0；pytest 未报告 warnings。14 个 skip 包含13项 Windows `WinError 1314` 符号链接权限限制及1项 POSIX FIFO 不可用，
@@ -883,11 +884,70 @@ python -m pytest -q
 | Phase 2 / Step 3 — Skill-guided Planning + Immutable Plan Provenance | 已完成；旧 v1 字节与执行协议兼容 |
 | Phase 2 / Step 4 — Bounded Coding Agent Loop + Reproducible Baseline | 已完成、冻结 |
 | Phase 3 / Step 1 — Verifiable Checkpoint + Deterministic Fault Injection | 已完成、冻结 |
-| Phase 3 / Step 2 — Evidence-based Recovery Manager | 当前里程碑；严格受控文件型恢复 |
+| Phase 3 / Step 2 — Evidence-based Recovery Manager | 已实现、冻结；严格受控文件型恢复 |
+| Phase 3 / Step 3 — Security Hardening + Skill Trust | 当前里程碑；证据分类、受控 SHADOW 与不可变建议 |
 | 自动技能选择及演化 | 后续计划，尚未实现 |
-| Trust Evaluator、外部业务恢复、多轮 LLM Tool Loop | 后续计划，尚未实现 |
+| 外部业务恢复、多轮 LLM Tool Loop | 后续计划，尚未实现 |
 
 当前版本没有自动技能选择、LLM 生成演化、trust score、故障归因、自动 retry/compensation 或 UI。
 后续变更需要遵守已经冻结的执行证据和数据语义；新里程碑应独立实现、验证和审查。
 
 项目维护：[startuo](https://github.com/startuo)。
+
+
+## Phase 3 / Step 3：安全修正与 Skill 证据评估
+
+历史 Run 只按精确 SkillRef/Card SHA、绑定、Plan、Acceptance 和恢复链归属。
+Tool 失败或 timeout 不证明 Skill 有缺陷；Source 的 Crash Window B UNKNOWN
+在 Recovery Child 成功后仍保持 UNKNOWN。Run、恢复链、业务任务、Shadow Trial 分母分别记录。
+
+SHADOW 使用独立 Trial：Intent COMMIT → 单次模型请求 → 严格 Plan 校验 → 内存模拟
+→ 公共文件验收与隐藏 Oracle → Result COMMIT。它不调用生产 Runner、ToolPlugin、
+Sandbox 或 pytest，不写生产 Run/events/bindings，不改变 Skill 生命周期。
+缺失 Result 是 TRIAL_OUTCOME_UNKNOWN，不自动复用 ID 或重新调用模型。
+
+初始化需按原顺序完成001–007，再显式调用：
+
+```python
+from axis_evo.skill_trust_storage import initialize_skill_trust_schema
+initialize_skill_trust_schema(connection)
+```
+
+008 是兼容冻结 schema 的旧重复事实审计；009 安装七个独立追加式评估表。
+后者核验精确 DDL、canonical JSON/SHA、FK、闭合 manifest 与语义关联，拒绝
+UPDATE/DELETE/REPLACE。Result 回读重跑 Plan/simulator/Oracle；Assessment 重算历史分类、
+分母和建议。query_only=ON 支持检查；读取不迁移、不修复、不调用模型。
+
+主要 API 在 `axis_evo.shadow_evaluation`、`axis_evo.skill_evidence`、`axis_evo.skill_trust`：
+`create_shadow_suite`、`create_shadow_trial`、`record_shadow_trial_result`、
+`inspect_skill_evidence`、`create_skill_comparison`、`create_trust_assessment`、
+`get_trust_assessment`、`inspect_skill_trust`。精确配对指定完整 suite 每个 case 的两个 Trial ID。
+只比较 exact TRUSTED reference 与有来源的 SHADOW candidate；能力不一致记 INCOMPARABLE。
+
+模拟器仅支持 read_file/write_file/patch_file。UTF-8、CRLF、覆写、重叠匹配和失败停止均有明确语义；
+不确定的文件名别名、资源上限或 pytest 验收记 UNSUPPORTED，绝不回退真实工具。
+限额：32 cases、64 files、64KiB/file、256KiB state；规划沿用10 steps、64KiB response、
+32KiB Plan、128KiB complete request、16KiB textual argument。Oracle v1 是独立的完整 bytes/
+存在性/禁止额外文件/保留无关内容数据，不执行代码，内容不进入模型请求。
+
+建议只有 INSUFFICIENT_EVIDENCE / NO_REGRESSION_OBSERVED / REGRESSION_OBSERVED /
+REVIEW_REQUIRED / INTEGRITY_BLOCKED / INCOMPARABLE。它们不是生命周期状态。
+旧建议不可改写；合法追加证据标 NEW_EVIDENCE_AVAILABLE，损坏证据阻断核验。
+构造静态响应的配对实验可以证明回归检测有效，不能证明真实模型遵循 Skill 或 Skill 的因果质量。
+传入 planning_parameters 是固定请求上下文；现有 OpenAI-compatible transport 不将 temperature/seed
+翻译成 provider wire 采样选项。未运行 live-provider 试验，token/billing 未测量。
+
+安全修正拒绝支持文件边界内的 hard-link 访问，验证实际打开的 descriptor 并限制 parent 变更；
+同 run/tool_call_id 的 admission 在 BEGIN IMMEDIATE 内检查并提交第一条 PRE/INTENT，避免两个
+当前 coordinator 并发执行。PRE-only 中断会消耗 ID，但不证明工具执行。
+Windows 冷启动 WAL 协商对 SQLITE_BUSY（含扩展码）采用单一5秒预算，保留 WAL/FULL/FK/busy_timeout。
+SQLite 与文件系统仍不是原子事务，工具执行不在 transaction 中，Crash Window B 保留。
+
+这是研究原型：文件 wrapper 不是 OS 隔离，恶意并发文件系统 ABA/硬链接竞态、任意 Python
+插件/pytest/adapter 以及完整数据库一致重写仍不由本机制全面防御。配置 adapter 身份和本地 SHA
+不认证远程 provider，也不证明外部 exactly-once。
+
+公开复现使用 [consumer example](examples/consumer.py) 和 [verification plan](PUBLIC_VERIFICATION_PLAN.md)。
+私有测试、fixture、隐藏 Oracle、交付报告与 review ZIP 按项目规则不发布；公开测试结果在
+[TEST_RESULTS](docs/TEST_RESULTS.md)。当前没有已验证 GitHub Actions CI，尚未选择 LICENSE。
+Phase 3 / Step 4 未开始。

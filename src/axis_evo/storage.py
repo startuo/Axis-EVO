@@ -6,6 +6,7 @@ from importlib.resources import files
 import json
 from pathlib import Path
 import sqlite3
+from time import monotonic, sleep
 from typing import Any, Iterator
 from uuid import uuid4
 
@@ -15,13 +16,33 @@ from .models import Run, RunStatus, TaskSpec
 from .task_spec import task_spec_from_dict
 
 
+def _enable_wal(connection):
+    # SQLite may return BUSY immediately during concurrent initial WAL mode
+    # negotiation, even with its busy handler. Retry only this idempotent PRAGMA
+    # for at most the existing five-second connection timeout; never tool I/O.
+    busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
+    connection.execute("PRAGMA busy_timeout = 0")
+    deadline = monotonic() + 5.0
+    try:
+        while True:
+            try:
+                return connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+            except sqlite3.OperationalError as error:
+                code = getattr(error, "sqlite_errorcode", None)
+                if code is None or code & 0xff != sqlite3.SQLITE_BUSY or monotonic() >= deadline:
+                    raise
+                sleep(min(0.01, max(0, deadline - monotonic())))
+    finally:
+        connection.execute(f"PRAGMA busy_timeout = {busy_timeout}")
+
+
 def connect_database(path: str | Path) -> sqlite3.Connection:
     """Open a file-backed database, apply durability settings and initialize schema."""
     connection = sqlite3.connect(str(path), timeout=5.0, isolation_level=None)
     connection.row_factory = sqlite3.Row
     try:
         connection.execute("PRAGMA foreign_keys = ON")
-        mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+        mode = _enable_wal(connection)
         if mode.lower() != "wal":
             raise sqlite3.OperationalError("Axis-Evo requires a file-backed WAL database")
         connection.execute("PRAGMA synchronous = FULL")
@@ -29,12 +50,25 @@ def connect_database(path: str | Path) -> sqlite3.Connection:
         schema = files("axis_evo").joinpath("migrations", "001_phase1.sql").read_text(
             encoding="utf-8"
         )
-        connection.executescript("BEGIN IMMEDIATE;\n" + schema + "\nCOMMIT;")
+        connection.executescript("BEGIN IMMEDIATE;\n" + schema)
+        validate_safety_history(connection)
+        connection.commit()
     except BaseException:
         connection.rollback()
         connection.close()
         raise
     return connection
+
+
+def validate_safety_history(connection: sqlite3.Connection) -> None:
+    """Audit 008 without repairing history or changing the frozen old schema."""
+    if connection.execute("SELECT 1 FROM temp.sqlite_master WHERE type IN ('table','view') "
+            "AND name COLLATE NOCASE IN ('runs','events') LIMIT 1").fetchone():
+        raise sqlite3.IntegrityError("execution rejects TEMP shadowing of persistent facts")
+    audit = files("axis_evo").joinpath("migrations", "008_phase3_safety_hardening.sql").read_text(encoding="utf-8")
+    duplicate = connection.execute(audit).fetchone()
+    if duplicate is not None:
+        raise sqlite3.IntegrityError(f"duplicate historical {duplicate[2]} invocation identity; no repair applied")
 
 
 @contextmanager
@@ -95,6 +129,7 @@ def append_event(
     tool_call_id: str | None = None,
     event_id: str | None = None,
     occurred_at: str | None = None,
+    _admission: tuple[str, dict[str, Any]] | None = None,
 ) -> Event:
     """Allocate a per-run seq inside the write transaction and durably append."""
     event_type = EventType(event_type)
@@ -102,6 +137,18 @@ def append_event(
         raise TypeError("event payload must be a JSON object")
     payload_json = canonical_json_bytes(payload).decode("utf-8")
     with _write_transaction(connection):
+        if _admission is not None:
+            if connection.execute("SELECT 1 FROM temp.sqlite_master WHERE type IN ('table','view') "
+                    "AND name COLLATE NOCASE IN ('runs','events') LIMIT 1").fetchone():
+                raise sqlite3.IntegrityError("execution rejects TEMP shadowing of persistent facts")
+            existing = connection.execute(
+                "SELECT event_type,step_id,payload_json FROM main.events WHERE run_id=? AND tool_call_id=?",
+                (run_id, tool_call_id)).fetchall()
+            if existing and (len(existing) != 1 or existing[0][0] != EventType.STEP_PLANNED
+                    or existing[0][1] != step_id
+                    or canonical_json_bytes(json.loads(existing[0][2])) != canonical_json_bytes({
+                        "tool_name": _admission[0], "arguments": _admission[1]})):
+                raise ValueError("tool_call_id has already been used within this run")
         run = connection.execute(
             "SELECT task_id FROM runs WHERE run_id = ?", (run_id,)
         ).fetchone()
@@ -121,7 +168,7 @@ def append_event(
             occurred_at=occurred_at if occurred_at is not None else utc_now(),
             payload=json.loads(payload_json),
         )
-        connection.execute(
+        inserted = connection.execute(
             """INSERT INTO events (
                 event_id, schema_version, run_id, task_id, seq, event_type,
                 step_id, tool_call_id, occurred_at, payload_json
@@ -132,7 +179,21 @@ def append_event(
                 event.occurred_at, payload_json,
             ),
         )
+        if _admission is not None and inserted.rowcount != 1:
+            raise sqlite3.IntegrityError("invocation admission event insertion was not applied")
     return event
+
+
+def _claim_tool_invocation(connection, run_id, step_id, tool_call_id, tool_name, arguments,
+                           event_type, payload):
+    """Commit the first PRE fact (or non-mutating INTENT) as durable admission.
+
+    A committed PRE-only prefix consumes the ID without claiming execution.
+    No new reservation event or table is introduced. Ordinary direct SQL and
+    old binaries are outside this coordinator's admission guarantee.
+    """
+    return append_event(connection, run_id, event_type, payload, step_id=step_id,
+                        tool_call_id=tool_call_id, _admission=(tool_name, arguments))
 
 
 def finish_run(

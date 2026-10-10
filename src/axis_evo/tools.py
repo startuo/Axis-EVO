@@ -16,7 +16,7 @@ from .events import EventType
 from .hashing import canonical_json_bytes
 from .models import PlanStep, ToolResult
 from .sandbox import Sandbox
-from .storage import append_event
+from .storage import _claim_tool_invocation, append_event
 
 
 TEST_TIMEOUT_SECONDS = 60
@@ -108,11 +108,14 @@ class PatchFileTool:
         start = perf_counter()
         try:
             target = sandbox.resolve(arguments["path"])
-            content = target.read_bytes().decode("utf-8")
-            matches = len(re.findall("(?=" + re.escape(arguments["old"]) + ")", content))
-            if matches != 1:
-                return _result(start, "FAILED", "old text must occur exactly once", {"matches": matches})
-            target.write_bytes(content.replace(arguments["old"], arguments["new"], 1).encode("utf-8"))
+            with target.open("r+b") as stream:
+                content = stream.read().decode("utf-8")
+                matches = len(re.findall("(?=" + re.escape(arguments["old"]) + ")", content))
+                if matches != 1:
+                    return _result(start, "FAILED", "old text must occur exactly once", {"matches": matches})
+                stream.seek(0)
+                stream.write(content.replace(arguments["old"], arguments["new"], 1).encode("utf-8"))
+                stream.truncate()
         except (OSError, UnicodeError) as error:
             return _result(start, "FAILED", str(error))
         return _result(start, "SUCCESS", "File patched", {"matches": 1})
@@ -204,6 +207,9 @@ def execute_tool_call(
     """
     if connection.in_transaction:
         raise ValueError("tool execution requires a connection without an active transaction")
+    if connection.execute("SELECT 1 FROM temp.sqlite_master WHERE type IN ('table','view') "
+            "AND name COLLATE NOCASE IN ('runs','events') LIMIT 1").fetchone():
+        raise sqlite3.IntegrityError("execution rejects TEMP shadowing of persistent facts")
     run = connection.execute(
         "SELECT workspace_path FROM runs WHERE run_id = ?", (run_id,),
     ).fetchone()
@@ -253,11 +259,18 @@ def execute_tool_call(
 
     observations = [sandbox.observe_file(path) for path in targets]
     event_fields = {"step_id": step.step_id, "tool_call_id": tool_call_id}
+    admitted = False
     for observation in observations:
-        append_event(connection, run_id, EventType.FILE_OBSERVED, {
+        payload = {
             "reason": "PRE_TOOL", **asdict(observation),
-        }, **event_fields)
-    append_event(connection, run_id, EventType.TOOL_INTENT, {
+        }
+        if not admitted:
+            _claim_tool_invocation(connection, run_id, step.step_id, tool_call_id, tool.name,
+                                   arguments, EventType.FILE_OBSERVED, payload)
+            admitted = True
+        else:
+            append_event(connection, run_id, EventType.FILE_OBSERVED, payload, **event_fields)
+    intent = {
         "tool_name": tool.name,
         "arguments": arguments,
         "mutating": tool.mutating,
@@ -265,7 +278,12 @@ def execute_tool_call(
             "path": observation.path, "exists": observation.exists,
             "before_sha256": observation.sha256, "size_bytes": observation.size_bytes,
         } for observation in observations],
-    }, **event_fields)
+    }
+    if admitted:
+        append_event(connection, run_id, EventType.TOOL_INTENT, intent, **event_fields)
+    else:
+        _claim_tool_invocation(connection, run_id, step.step_id, tool_call_id, tool.name,
+                               arguments, EventType.TOOL_INTENT, intent)
 
     # append_event returned after COMMIT. There is no enclosing SQLite transaction.
     result = tool.execute(sandbox, arguments)
