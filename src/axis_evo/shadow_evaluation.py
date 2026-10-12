@@ -2,7 +2,7 @@
 
 import base64
 import binascii
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import re
 from time import monotonic
 from uuid import uuid4
@@ -12,7 +12,7 @@ from .hashing import canonical_json_bytes
 from .planning_adapter import PlanningResponse, PlanningTransportError, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, _strict_json, _text
 from .skill_card import SkillRef
 from .skill_manager import SkillManager
-from .skill_planner import _build_request, _tool_schema, _static_path, _validated_plan
+from .skill_planner import MAX_PLAN_BYTES, _arguments, _build_request, _tool_schema, _static_path, _validated_plan
 from .skill_storage import _check_write_context, _skill_transaction
 from .skill_binding import _read_snapshot, _rows, _ref
 from .task_spec import task_spec_from_dict
@@ -42,14 +42,60 @@ def _keys(value, names):
         raise TrustIntegrityError('Unexpected evaluation protocol fields')
 
 
+def _validation_path(value):
+    """A validation-only spelling; original nonportable paths never execute.
+
+    Keep separators, traversal, drives, streams and device checks in the frozen
+    validator. Substitutions preserve UTF-8 length, so argument limits still
+    apply to the original path on every supported Python version.
+    """
+    _text(value)
+    parts = re.split(r'([\\/])', value)
+    for index, part in enumerate(parts):
+        checked = ''.join('_' if c in '<>"|?*' or ord(c) < 32 else c for c in part)
+        if checked not in ('', '.', '..') and checked.rstrip(' .') != checked:
+            if checked.rstrip(' ') == '..':
+                _static_path('..')
+            trimmed = checked.rstrip(' .')
+            # Do not disguise NUL., COM1<space>, or a parent traversal alias.
+            _static_path(trimmed or '_')
+            checked = trimmed + '_' * (len(checked) - len(trimmed))
+        parts[index] = checked
+    return ''.join(parts)
+
+
 def _path(value):
-    _static_path(value)
-    if any(c in '<>"|?*' or ord(c) < 32 for c in value):
+    checked = _validation_path(value)
+    _static_path(checked)
+    if checked != value:
         raise SimulationUnsupported('Nonportable filename character')
     parts = value.replace('\\', '/').split('/')
     if any(not p or p == '.' or p.rstrip(' .') != p for p in parts):
         raise SimulationUnsupported('Nonportable path alias')
     return '/'.join(parts)
+
+
+def _validation_arguments(name, arguments):
+    if name in FILE_TOOLS and type(arguments) is dict and type(arguments.get('path')) is str:
+        return {**arguments, 'path': _validation_path(arguments['path'])}
+    return arguments
+
+
+def _validated_shadow_plan(parsed, catalog):
+    """Validate the whole protocol before classifying simulator limitations."""
+    canonical = canonical_json_bytes(parsed)
+    if len(canonical) > MAX_PLAN_BYTES:
+        raise ValueError('Canonical Plan exceeds byte limit')
+    validation = snapshot(parsed)
+    if type(validation) is dict and type(validation.get('steps')) is list:
+        for step in validation['steps']:
+            if type(step) is dict and 'arguments' in step:
+                step['arguments'] = _validation_arguments(step.get('tool_name'), step.get('arguments'))
+    _, steps = _validated_plan(canonical_json_bytes(validation).decode('utf-8'), catalog, registry=None)
+    # Projection is neither execution data nor persisted evidence.
+    original = tuple(replace(step, arguments=snapshot(item['arguments']))
+                     for step, item in zip(steps, parsed['steps']))
+    return canonical.decode('utf-8'), original
 
 
 def _decode_files(value):
@@ -119,8 +165,7 @@ def simulate_file_plan(initial_files, steps):
         name, args = step['tool_name'], step['arguments']
         if name not in FILE_TOOLS:
             raise SimulationUnsupported('Unsupported simulator tool')
-        from .skill_planner import _arguments
-        _arguments(name, args)
+        _arguments(name, _validation_arguments(name, args))
         path = _path(args['path'])
         # Case aliases cannot be represented faithfully on all supported hosts.
         if any(p.casefold() == path.casefold() and p != path for p in files.keys() | dirs):
@@ -385,7 +430,7 @@ def _evaluate(intent, case, response, transport_category, invalid_response):
         value.update(outcome='PLANNING_INVALID', failure_kind='MALFORMED_JSON')
         return value
     try:
-        plan_json, steps = _validated_plan(response['response_text'], catalog, registry=None)
+        plan_json, steps = _validated_shadow_plan(parsed, catalog)
     except (ValueError, TypeError, UnicodeError, RecursionError):
         value['outcome'] = 'PLANNING_INVALID'
         steps = parsed.get('steps', []) if type(parsed) is dict else []
