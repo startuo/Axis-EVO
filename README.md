@@ -10,11 +10,12 @@ Axis-Evo is a research prototype for durable agent execution facts, deterministi
 acceptance, crash-state inspection, immutable skill versioning, explicit
 skill authorization, auditable Skill-conditioned model planning, and bounded
 independent coding attempts with factual feedback, verifiable checkpoints,
-and explicitly approved continuation from reconciled local file state.
+explicitly approved continuation from reconciled local file state, and
+evidence-gated Skill revisions with atomic authorized promotion and explicit version selection.
 
 记录“准备做什么、观察到什么、实际持久化了什么”，为后续技能使用、演化与中断恢复建立可审查的基础。
 
-当前实现到 **Phase 3 / Step 3 — Security Hardening + Evidence-based Skill Trust**。
+当前实现到 **Phase 3 / Step 4 — Evidence-gated Skill Evolution**。
 调用方显式选择 TRUSTED 的不可变 Skill 版本，模型只提出计划；Core 严格校验并持久化提案，
 调用方确认精确 Plan digest 后，原有 Skill-bound Runner 才执行。正常失败且证据完整时，
 可基于事实反馈提出新的独立计划，每次都重新审批、使用原始 seed 创建新工作区。Recovery 是独立链路，从核验后当前状态派生输入；旧 API 保持兼容。
@@ -33,7 +34,8 @@ and explicitly approved continuation from reconciled local file state.
 - **技能版本是否可追溯？** 每个 Skill 由稳定身份和整数版本定位，内容不可变，来源明确，生命周期历史只追加。
 
 Runner 只执行已经确定的计划。每次 attempt 只有一次规划请求；不在执行中的 Run 内重新规划。
-文件型恢复通过独立审批和新的派生任务执行；证据评估仅产生审查建议，技能自动演化尚未实现。
+文件型恢复通过独立审批和新的派生任务执行；Trust Assessment 产生审查建议。
+Skill 修订、候选创建、晋升和版本激活各有显式授权边界，不进行自主技能演化。
 
 ## 已实现能力
 
@@ -50,9 +52,18 @@ Runner 只执行已经确定的计划。每次 attempt 只有一次规划请求�
 | Checkpoint | 不可变事件前缀、精确 Skill/Plan 身份、有界文件 BLOB、分维度只读核验 |
 | Recovery | 受控文件状态对账、显式状态采纳、精确 digest 审批、单次 durable dispatch、派生任务与原 Runner 续跑 |
 | Skill Trust | 历史证据分类、无生产权限的 SHADOW 内存模拟、隐藏 Oracle 配对比较、不可变审查建议 |
+| Skill Evolution | 证据绑定的不可变修订、精确审批、闭合五例门禁、原子 TRUSTED 事件与收据、追加式版本激活与选择回退 |
 
 Sandbox 提供工作区路径约束和文件观察；当前没有容器或操作系统级进程隔离。
 `run_tests` 是受限 pytest 子进程入口，PluginRegistry 只负责显式注册和检索。
+
+演化门禁需要显式初始化 migration 010 并启用 `EVIDENCE_GATED`；默认 legacy
+行为保持兼容。启用后，直接调用 `SkillManager.promote(..., "TRUSTED")` 也必须提供
+持久化的精确提案与审批。Gate 重验完整 Trial 集合和当前证据，推荐字符串不能替代授权。
+候选创建与收据、TRUSTED 事件与晋升收据分别在原有 SQLite 事务内原子提交。
+首版只接受有界的确定性调用方修订；未实现模型辅助修订或自主权限扩张。
+详见 [演化协议与 API](docs/SKILL_EVOLUTION.md) 和
+[公开复现说明](docs/SKILL_EVOLUTION.md#public-verification-and-reproduction)。
 
 ## 核心工程契约
 
@@ -885,7 +896,8 @@ python -m pytest -q
 | Phase 2 / Step 4 — Bounded Coding Agent Loop + Reproducible Baseline | 已完成、冻结 |
 | Phase 3 / Step 1 — Verifiable Checkpoint + Deterministic Fault Injection | 已完成、冻结 |
 | Phase 3 / Step 2 — Evidence-based Recovery Manager | 已实现、冻结；严格受控文件型恢复 |
-| Phase 3 / Step 3 — Security Hardening + Skill Trust | 当前里程碑；证据分类、受控 SHADOW 与不可变建议 |
+| Phase 3 / Step 3 — Security Hardening + Skill Trust | 已完成、冻结；证据分类、受控 SHADOW 与不可变建议 |
+| Phase 3 / Step 4 — Evidence-gated Skill Evolution | 当前里程碑；确定性修订、显式审批、原子晋升与版本选择 |
 | 自动技能选择及演化 | 后续计划，尚未实现 |
 | 外部业务恢复、多轮 LLM Tool Loop | 后续计划，尚未实现 |
 
@@ -947,7 +959,7 @@ SQLite 与文件系统仍不是原子事务，工具执行不在 transaction 中
 插件/pytest/adapter 以及完整数据库一致重写仍不由本机制全面防御。配置 adapter 身份和本地 SHA
 不认证远程 provider，也不证明外部 exactly-once。
 
-公开复现使用 [consumer example](examples/consumer.py) 和 [verification plan](PUBLIC_VERIFICATION_PLAN.md)。
+公开复现使用 [consumer example](examples/consumer.py) 和 [演化复现说明](docs/SKILL_EVOLUTION.md#public-verification-and-reproduction)。
 私有测试、fixture、隐藏 Oracle、交付报告与 review ZIP 按项目规则不发布；公开测试结果在
 [TEST_RESULTS](docs/TEST_RESULTS.md)。当前没有已验证 GitHub Actions CI，尚未选择 LICENSE。
-Phase 3 / Step 4 未开始。
+以上为冻结 Step 3 的能力边界；当前 Step 4 演化门禁与验证见 [协议](docs/SKILL_EVOLUTION.md)。

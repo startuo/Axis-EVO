@@ -136,10 +136,15 @@ class SkillManager:
         return self.get_state_history(skill_id, skill_version)[-1].state
 
     def create_version(self, skill_id: str, *, name: str, description: str, instructions: str,
-                       allowed_tools: list[str], source: SkillSource = SkillSource("MANUAL")) -> SkillCard:
+                       allowed_tools: list[str], source: SkillSource = SkillSource("MANUAL"),
+                       _evolution_revision_id=None) -> SkillCard:
         # Snapshot every caller-owned value before waiting for the write lock.
         draft = SkillCard(skill_id, 1, name, description, instructions, allowed_tools, source)
         with _skill_transaction(self.connection):
+            revision = None
+            if _evolution_revision_id is not None:
+                from .skill_revision import _prepare_candidate
+                revision = _prepare_candidate(self.connection, _evolution_revision_id, draft)
             exists = bool(self._rows("SELECT 1 FROM skills WHERE skill_id=?", (skill_id,)))
             count, maximum = self._rows(
                 "SELECT COUNT(*), COALESCE(MAX(skill_version), 0) FROM skill_versions WHERE skill_id=?", (skill_id,))[0]
@@ -168,13 +173,22 @@ class SkillManager:
             _insert_one(self.connection, """INSERT INTO skill_state_events
                 (skill_id, skill_version, transition_seq, state, occurred_at) VALUES (?, ?, 1, 'CANDIDATE', ?)""",
                 (skill_id, version, created_at))
+            if revision is not None:
+                from .skill_revision import _record_candidate
+                _record_candidate(self.connection, revision, card, created_at)
         return card
 
-    def promote(self, skill_id: str, skill_version: int, target_state: str) -> SkillStateEvent:
+    def promote(self, skill_id: str, skill_version: int, target_state: str, *,
+                evolution_authorization=None) -> SkillStateEvent:
         ref = SkillRef(skill_id, skill_version)
         if type(target_state) is not str or target_state not in _STATES:
             raise ValueError("target_state must be CANDIDATE, SHADOW or TRUSTED")
+        from .skill_evolution_promotion import _prepare_authorization, _preflight_promotion, _record_promotion
+        from .skill_trust_storage import snapshot
+        authorization = snapshot(evolution_authorization) if evolution_authorization is not None else None
+        prepared = _prepare_authorization(self.connection, authorization)
         with _skill_transaction(self.connection):
+            proposal = _preflight_promotion(self.connection, ref, target_state, authorization, prepared)
             self.get_version(skill_id, skill_version)
             history = self._history(ref)
             if len(history) == len(_STATES) or target_state != _STATES[len(history)]:
@@ -183,4 +197,6 @@ class SkillManager:
             _insert_one(self.connection, """INSERT INTO skill_state_events
                 (skill_id, skill_version, transition_seq, state, occurred_at) VALUES (?, ?, ?, ?, ?)""",
                 (skill_id, skill_version, event.transition_seq, event.state, event.occurred_at))
+            if proposal is not None:
+                _record_promotion(self.connection, proposal, event)
         return event

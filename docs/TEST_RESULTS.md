@@ -1,3 +1,48 @@
+# Phase 3 / Step 4 验证结果 — 2026-10-12
+
+Baseline / execution-time HEAD: `c9a83b6912f130a2cefe978995ada8cc272da389`。Tested source: `Working-tree bytes verified; commit identity assigned after validation`。
+测试在包含本轮源文件的working tree执行；每次full记录完整source/test SHA。发布commit及其后documentation-only commit须与这些bytes核对。Production SHA manifest digest: `5fb38711706dbbd2e2dcdaf437d88c5e16ceb0225a5fecfd681a41a4cec684bc`。
+
+| Run | Environment | Collected / passed / failed / skipped | Warnings | Exact pytest summary |
+|---|---|---|---:|---|
+| focused312 | Python 3.12.10, SQLite 3.49.1 | 291 / 291 / 0 / 0 | 0 | 291 passed in 400.88s (0:06:40) |
+| focused313 | Python 3.13.5, SQLite 3.49.1 | 293 / 293 / 0 / 0 | 5067949 | 293 passed, 5067949 warnings in 378.74s (0:06:18) |
+| metrics312 | Python 3.12.10, SQLite 3.49.1 | 1 / 1 / 0 / 0 | 0 | 1 passed in 10.44s |
+| metrics313 | Python 3.13.5, SQLite 3.49.1 | 1 / 1 / 0 / 0 | 178486 | 1 passed, 178486 warnings in 13.87s |
+| full312 | Python 3.12.10, SQLite 3.49.1 | 2345 / 2331 / 0 / 14 | 0 | 2331 passed, 14 skipped in 693.65s (0:11:33) |
+| full313 | Python 3.13.5, SQLite 3.49.1 | 2345 / 2331 / 0 / 14 | 5310662 | 2331 passed, 14 skipped, 5310662 warnings in 759.45s (0:12:39) |
+
+Full command: `python -m pytest -q`，分别使用Windows Python3.12.10和3.13.5；SQLite3.49.1、pytest9.1.1。原2051是历史baseline。
+报告选项仅`PYTEST_ADDOPTS=-ra --junitxml=...`、`PYTHONIOENCODING=utf-8`，未新增warning filters。3.13 warnings为冻结skill_planner.py:121、sandbox.py:166、validators.py:38的PurePath.is_reserved弃用，实际总数完整保留。
+首轮focused312在report字段补充前；其后3inspection tests通过、focused313及两full验证最终source；metric实验两环境各1项通过。
+
+两full均14skip，13项Windows创建symlink缺权限、1项POSIX FIFO不可用；未把skip计pass，无本轮Linux/remote CI结果。
+- `tests.integration.test_agent_episode::test_external_seed_symlink_is_rejected_before_episode_persistence`: Creating symlinks requires OS support and Windows symlink privilege
+- `tests.integration.test_agent_episode::test_episode_workspace_symlink_redirection_is_rejected_before_dispatch`: Creating symlinks requires OS support and Windows symlink privilege
+- `tests.integration.test_runner::test_external_symlink_assertion_preflight_blocks_mutating_plan`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_assertio0\\outside.txt' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_assertio0\\task_assets\\seed\\external_link.txt'
+- `tests.unit.test_checkpoint_manager::test_symlink_capture_rejected[external_file]`: Symlink creation unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_symlink_capture_rejected_0\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_symlink_capture_rejected_0\\work\\link'
+- `tests.unit.test_checkpoint_manager::test_symlink_capture_rejected[internal_file]`: Symlink creation unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_symlink_capture_rejected_1\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_symlink_capture_rejected_1\\work\\link'
+- `tests.unit.test_checkpoint_manager::test_symlink_capture_rejected[ancestor]`: Symlink creation unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_symlink_capture_rejected_2\\work' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_symlink_capture_rejected_2\\alias'
+- `tests.unit.test_checkpoint_manager::test_fifo_rejected_without_blocking`: POSIX FIFO is unavailable on Windows
+- `tests.unit.test_inspector::test_external_symlink_is_not_followed_for_comparison[target]`: OS symlink privilege unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_is_not_f0\\outside\\config.json' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_is_not_f0\\workspace\\config.json'
+- `tests.unit.test_inspector::test_external_symlink_is_not_followed_for_comparison[parent]`: OS symlink privilege unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_is_not_f1\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_is_not_f1\\workspace\\parent'
+- `tests.unit.test_inspector::test_external_symlink_is_not_followed_for_comparison[root]`: OS symlink privilege unavailable: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_is_not_f2\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_is_not_f2\\workspace'
+- `tests.unit.test_sandbox::test_external_symlink_target_is_rejected`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_target_i0\\secret.txt' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_target_i0\\workspace\\link.txt'
+- `tests.unit.test_sandbox::test_external_symlink_parent_blocks_existing_and_new_files`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_parent_b0\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_external_symlink_parent_b0\\workspace\\link'
+- `tests.unit.test_sandbox::test_internal_symlink_is_allowed`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_internal_symlink_is_allow0\\workspace\\target.txt' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_internal_symlink_is_allow0\\workspace\\link.txt'
+- `tests.unit.test_sandbox::test_seed_copy_preserves_external_symlink_without_copying_target`: OS cannot create the symlink required by this subcase: [WinError 1314] 客户端没有所需的特权。: 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_seed_copy_preserves_exter0\\outside' -> 'C:\\Users\\lenovo\\AppData\\Local\\Temp\\pytest-of-lenovo\\pytest-215\\test_seed_copy_preserves_exter0\\seed\\link'
+
+公开examples/skill_evolution.py两版本均COMPLETED/exact_output=true/direct_promotion_blocked=true/integrity_issues=[]。
+新增294cases（实际JUnit按新增module计数），原全部tests/fixtures未改。冻结ledger104项：103unchanged；仅授权SkillManager固定hook18add2del；001–009/其余旧production/pyproject未变。010有12new tables/39new triggers，无旧表新对象。
+
+DemoA完成真实approved v2生产执行；DemoB回归阻断；DemoC四例/UNKNOWN/UNSUPPORTED阻断；DemoD保留CrashB未知且不归因；DemoE显式v2→v1routing。E0 normal control，E1–14真实exit70，E15–17普通race/stale/corruption另标。
+Baseline A=真实旧src+caller promotion，B=governed，C=独立naive control；B合格1/1成功，不合格2/2阻断，无把C描述为旧自动行为。
+CALLER deterministic revisions/offline plan doubles only，live provider=0、token_usage=null；不证明自主演化或Skill因果改善。受支持API gate不抵抗任意SQLite owner/runtime替换。
+
+全部私有test/fixture/hidden Oracle/raw/report纳入axis-evo-phase3-step4-review.zip，公开仓库不含这些源码。具体重放见docs/SKILL_EVOLUTION.md；原fault harness需要Git clone。保留远端f8a7cf1删除旧PUBLIC_VERIFICATION_PLAN.md的改动。
+
+---
+
 # Phase 3 / Step 2 验证结果
 
 日期2026-10-10；Windows-11-10.0.22631-SP0；Python3.12.10；SQLite3.49.1。
