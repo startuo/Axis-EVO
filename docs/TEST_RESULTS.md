@@ -1,6 +1,6 @@
 # Phase 3 / Step 4 验证结果 — 2026-10-12
 
-Baseline / execution-time HEAD: `c9a83b6912f130a2cefe978995ada8cc272da389`。Tested source: `Working-tree bytes verified; commit identity assigned after validation`。
+Baseline / execution-time HEAD: `c9a83b6912f130a2cefe978995ada8cc272da389`。Tested source: `15c7903a1eca8553ef06da45b191a335c93e3ea4`。
 测试在包含本轮源文件的working tree执行；每次full记录完整source/test SHA。发布commit及其后documentation-only commit须与这些bytes核对。Production SHA manifest digest: `5fb38711706dbbd2e2dcdaf437d88c5e16ceb0225a5fecfd681a41a4cec684bc`。
 
 | Run | Environment | Collected / passed / failed / skipped | Warnings | Exact pytest summary |

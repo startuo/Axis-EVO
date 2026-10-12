@@ -223,4 +223,3 @@ is claimed. Tested Python versions and actual measured counts are in
 Arbitrary SQLite-owner fabrication, replaced binaries and hostile OS escape are
 outside this application boundary. UNKNOWN does not imply causality, Skill blame,
 retry permission or automatic revocation. The step adds no new Recovery decision.
-
