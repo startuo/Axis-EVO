@@ -1,3 +1,33 @@
+# Phase 4 / Step 1 验证结果 — 2026-10-13
+
+Baseline: `e8b398aaaa2e2ab8a8fadb246b0f25a07c6e2a03`。
+Tested source commit: `700d1532d2ef675635763797a6ff98feb3be44b2`。
+测试在对应工作树执行，提交时逐项核对相同 source bytes；其后本次验证文档更新不修改实现。私有 SHA manifest、JUnit/JSON、完整日志及截图随源码审查 ZIP 本地保存。
+
+| 验证 | 实际结果 |
+|---|---|
+| `npm run typecheck` | 通过 |
+| `npm run lint` | 通过，0 errors / warnings；公共 checkout 缺少私有 tests 时仍校验 src |
+| `npm run build` | 通过；React 19.3.0 / TypeScript 5.9.3 / Vite 8.3.4；Node 24.14.0 / npm 11.9.0 |
+| `npm test` | 7 files / **110 passed**，8.35s，0 warnings |
+| `npm run test:e2e` | **20 passed**，25.3s，0 skipped / flaky；Windows Edge 155.0.4283.45 |
+| axe / 响应式 / 人工截图 | 9 states 0 violations；1920、1440、1366、1024、390px 首页与任务页通过；10 张截图人工复核 |
+| `python -m pytest -q web_api/tests -ra --junitxml=web_api/tests/results/backend312.xml` | Python 3.12.10 / SQLite 3.49.1：**79 passed**，4.80s，0 skipped / warnings |
+| 同一后端命令，Python 3.13.5 | **79 passed**，4.76s，0 skipped / **199 warnings** |
+| `python -m pytest -q -ra --junitxml=review_evidence/workbench/core-regression.xml` | Python 3.12.10 / SQLite 3.49.1：2345 collected，**2331 passed, 14 skipped**，866.63s，0 warnings |
+| `npm audit --json` | 当前锁定依赖：0 reported vulnerabilities；不等于完整安全证明 |
+| 冻结检查 | **118 / 118** Core / 既有 tests / fixtures 原始 SHA-256 相同；pyproject 与本地 PUBLIC_VERIFICATION_PLAN.md 也未改 |
+
+Playwright 保留 2 条 Node 环境警告：`NO_COLOR` 被 `FORCE_COLOR` 忽略。Python 3.13 后端 199 条均为冻结 `PurePath.is_reserved()` 弃用：`skill_planner.py:121` 157 条、`sandbox.py:166` 42 条，没有过滤。完整 Core 回归的 14 项跳过为 13 项 Windows symlink 权限不可用及 1 项 POSIX FIFO 不可用；没有将 skips 算为 passes。本轮没有重新执行 Python 3.13 全 Core suite，上一阶段记录保持历史身份。
+
+另有独立真实浏览器链路：事先用 `examples/consumer.py` 生成真实 Core/SQLite 运行，再由 production React → loopback GET-only HTTP → Core 读取；Intent、Result、Acceptance PASSED 可见，手工计划批准保持 NOT_RECORDED。数据库 schema/逻辑表及工作区前后 SHA-256 一致。该证据与前端 intercepted-HTTP 测试分开，不声称浏览器执行了工具或调用了模型。
+
+Demo 记录持续标注为预设示例。Connected 不使用 Demo 补齐失败；现场文件内容、需 live filesystem 的高阶检查、真正执行/审批/Provider 测试明确不可用或 UNSUPPORTED。Backend 使用 mode=ro 提交快照、内存 query_only 与 authorizer，无 schema 或事实写入。
+
+发布仅包含授权实现、必要文档、锁文件及本测试结果；私有测试、真实临时数据库、工作区、报告、日志、截图和 review ZIP 不推送。未进入 Phase 4 / Step 2、模型执行或 EXE 打包。启动与完整边界见 [WORKBENCH_SETUP.md](WORKBENCH_SETUP.md)。
+
+---
+
 # Phase 3 / Step 4 验证结果 — 2026-10-12
 
 Baseline / execution-time HEAD: `c9a83b6912f130a2cefe978995ada8cc272da389`。Tested source: `15c7903a1eca8553ef06da45b191a335c93e3ea4`。
