@@ -69,3 +69,13 @@ Thumbs.db
 /SKILL_EVOLUTION_EXPERIMENT_REPORT.md
 /EVOLUTION_SECURITY_AUDIT.md
 /EVOLUTION_ENFORCEMENT_BLOCKER.md
+
+# Phase 4 Web dependencies and private validation
+node_modules/
+/web/tests/
+/web_api/tests/
+/web/playwright-report/
+/web/test-results/
+/WEB_WORKBENCH_UI_SPEC.md
+/WEB_CORE_INTEGRATION_REVIEW.md
+/WEB_VISUAL_QA_REPORT.md
