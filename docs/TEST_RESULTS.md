@@ -1,7 +1,7 @@
 # Phase 4 / Step 1 验证结果 — 2026-10-13
 
 Baseline: `e8b398aaaa2e2ab8a8fadb246b0f25a07c6e2a03`。
-Tested source commit: `700d1532d2ef675635763797a6ff98feb3be44b2`。
+Tested source commit: `1fc2b29d87747fcd63871aac0aec9076e92b65ab`。
 测试在对应工作树执行，提交时逐项核对相同 source bytes；其后本次验证文档更新不修改实现。私有 SHA manifest、JUnit/JSON、完整日志及截图随源码审查 ZIP 本地保存。
 
 | 验证 | 实际结果 |
@@ -9,9 +9,9 @@ Tested source commit: `700d1532d2ef675635763797a6ff98feb3be44b2`。
 | `npm run typecheck` | 通过 |
 | `npm run lint` | 通过，0 errors / warnings；公共 checkout 缺少私有 tests 时仍校验 src |
 | `npm run build` | 通过；React 19.3.0 / TypeScript 5.9.3 / Vite 8.3.4；Node 24.14.0 / npm 11.9.0 |
-| `npm test` | 7 files / **110 passed**，8.35s，0 warnings |
-| `npm run test:e2e` | **20 passed**，25.3s，0 skipped / flaky；Windows Edge 155.0.4283.45 |
-| axe / 响应式 / 人工截图 | 9 states 0 violations；1920、1440、1366、1024、390px 首页与任务页通过；10 张截图人工复核 |
+| `npm test` | 7 files / **115 passed**，37.01s，0 warnings |
+| `npm run test:e2e` | **25 passed**，30.9s，0 skipped / flaky；Windows Edge 155.0.4283.45 |
+| axe / 响应式 / 人工截图 | 9 states 0 violations；1920、1440、1366、1280、1024、390px 首页与任务页通过；12 张截图人工复核 |
 | `python -m pytest -q web_api/tests -ra --junitxml=web_api/tests/results/backend312.xml` | Python 3.12.10 / SQLite 3.49.1：**79 passed**，4.80s，0 skipped / warnings |
 | 同一后端命令，Python 3.13.5 | **79 passed**，4.76s，0 skipped / **199 warnings** |
 | `python -m pytest -q -ra --junitxml=review_evidence/workbench/core-regression.xml` | Python 3.12.10 / SQLite 3.49.1：2345 collected，**2331 passed, 14 skipped**，866.63s，0 warnings |
