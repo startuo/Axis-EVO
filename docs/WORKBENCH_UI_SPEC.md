@@ -20,6 +20,8 @@ Demo 的数据源提示持续可见，示例 hash 和证据均不表示真实运
 
 事件按 `seq` 排序，Intent 与 Result 分列。任务完成依据已存终态和独立验收，不依据工具 SUCCESS。`UNKNOWN` 与独立 Recovery Child 的完成状态并列，后者不改写 Source。无 checkpoint 不补造；SHADOW 不显示为生产准入。
 
+计划卡的提案入口打开同一运行的 Inspector 计划页。Skill 详情只链接 source SkillRef 精确匹配的演化 Case；缺少计划 SkillRef 不推断整个 Run 未绑定。Demo 快照逐行显示增加、删除及上下文，不称作 Git diff 或工具因果。草稿框显示工作区和配置草稿身份，与历史 Run 的模型记录分别展示。
+
 Trust Assessment、gate eligibility、approval、TRUSTED receipt、preferred-version activation 是不同事实。Demo 展示完整预设链；Core 展示实际可用投影，明确 unsupported / metadata-only，不宣称全部阶段均已核验。
 
 ## 屏幕与交互

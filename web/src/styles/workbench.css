@@ -2038,3 +2038,23 @@ dialog::backdrop {
   color: var(--error);
   font-size: 12px;
 }
+
+.diff-removed {
+  background: var(--error-bg);
+  color: var(--error);
+}
+.composer-context {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.composer-context > span {
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

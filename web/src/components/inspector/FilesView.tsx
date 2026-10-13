@@ -10,6 +10,29 @@ export function FilesView({ files, mode }: { files: FileView[]; mode: Mode }) {
     return (
       <EmptyState title="没有文件观察">此任务尚未记录文件证据。</EmptyState>
     );
+  const beforeLines = file.before?.split("\n") ?? [];
+  const afterLines = file.content?.split("\n") ?? [];
+  const comparison: {
+    kind: "removed" | "added" | "context";
+    line: number;
+    text: string;
+  }[] = [];
+  if (mode === "demo" && diff) {
+    for (let i = 0; i < Math.max(beforeLines.length, afterLines.length); i++) {
+      if (beforeLines[i] === afterLines[i])
+        comparison.push({ kind: "context", line: i + 1, text: afterLines[i] });
+      else {
+        if (i < beforeLines.length)
+          comparison.push({
+            kind: "removed",
+            line: i + 1,
+            text: beforeLines[i],
+          });
+        if (i < afterLines.length)
+          comparison.push({ kind: "added", line: i + 1, text: afterLines[i] });
+      }
+    }
+  }
   return (
     <section className="file-view">
       <label className="field-label">
@@ -50,25 +73,24 @@ export function FilesView({ files, mode }: { files: FileView[]; mode: Mode }) {
           </div>
           {diff && file.before !== undefined ? (
             <div className="diff-view" aria-label="演示快照对比">
-              {file.content.split("\n").map((line, i) => (
+              {comparison.map((row) => (
                 <div
-                  key={i}
-                  className={
-                    file.before!.split("\n")[i] !== line ? "diff-added" : ""
-                  }
+                  key={`${row.kind}-${row.line}`}
+                  className={`diff-${row.kind}`}
                 >
-                  <span>{i + 1}</span>
+                  <span>{row.line}</span>
                   <code>
-                    {file.before!.split("\n")[i] !== line ? "+ " : "  "}
-                    {line}
+                    {row.kind === "removed"
+                      ? "- "
+                      : row.kind === "added"
+                        ? "+ "
+                        : "  "}
+                    {row.text}
                   </code>
                 </div>
               ))}
               <p className="caption">
-                原行：
-                {file.before
-                  .split("\n")
-                  .find((line, i) => line !== file.content!.split("\n")[i])}
+                逐行比较演示快照；不表示已验证的工具因果。
               </p>
             </div>
           ) : (

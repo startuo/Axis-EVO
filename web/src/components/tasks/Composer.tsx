@@ -4,10 +4,14 @@ export function Composer({
   scope,
   notify,
   visible = true,
+  workspaceName,
+  profileName,
 }: {
   scope: string;
   notify: (message: string) => void;
   visible?: boolean;
+  workspaceName?: string;
+  profileName?: string;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const value = drafts[scope] ?? "";
@@ -22,6 +26,14 @@ export function Composer({
       aria-label="草稿编辑区"
     >
       <div className="composer-box">
+        {workspaceName && (
+          <div className="composer-context">
+            <span title={workspaceName}>工作区 · {workspaceName}</span>
+            <span title={profileName}>
+              配置草稿 · {profileName ?? "未选择"}
+            </span>
+          </div>
+        )}
         <textarea
           aria-label="任务草稿"
           placeholder="描述你想完成的工作…"

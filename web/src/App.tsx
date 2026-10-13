@@ -122,9 +122,11 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
         navigate("/workbench");
-        document
-          .querySelector<HTMLTextAreaElement>('[aria-label="任务草稿"]')
-          ?.focus();
+        window.requestAnimationFrame(() =>
+          document
+            .querySelector<HTMLTextAreaElement>('[aria-label="任务草稿"]')
+            ?.focus(),
+        );
       }
     };
     window.addEventListener("keydown", handler);
@@ -467,7 +469,13 @@ export default function App() {
                   skills={data.catalog.data.skills}
                   read={data.readSkill}
                   navigate={navigate}
-                  caseId={data.catalog.data.evolutions[0]?.id}
+                  caseForSkill={(id, version) =>
+                    data.catalog.data.evolutions.find(
+                      (item) =>
+                        item.sourceSkillRef.skill_id === id &&
+                        item.sourceSkillRef.skill_version === version,
+                    )?.id
+                  }
                 />
               )}
               {evolutionId && (
@@ -529,6 +537,11 @@ export default function App() {
         </div>
         <Composer
           visible={route === "/workbench" || !!runId}
+          workspaceName={
+            data.projects.data.find((project) => project.id === projectId)
+              ?.name ?? "未选择工作区"
+          }
+          profileName={profiles.find((item) => item.id === profile)?.name}
           scope={`${mode}:${projectId}:${runId ?? "new"}`}
           notify={notify}
         />
@@ -611,10 +624,10 @@ function TaskView({
           {run.events.length} / {run.eventCount} 条可见事件
         </span>
         <span>
-          精确版本 ·{" "}
+          计划版本 ·{" "}
           {run.plan?.skillRef
             ? `v${run.plan.skillRef.skill_version}`
-            : "未绑定"}
+            : "未记录"}
         </span>
       </div>
       {run.inspection.traceConsistent === false && (
@@ -656,7 +669,7 @@ function TaskView({
         <strong>结构化执行事实</strong>
         <span>系统活动 · 非对话转写</span>
       </div>
-      <PlanCard plan={run.plan} />
+      <PlanCard plan={run.plan} inspectProposal={() => inspect("计划")} />
       <div className="section-heading execution-heading">
         <h2>执行记录</h2>
         <button className="text-button" onClick={() => inspect("事件")}>

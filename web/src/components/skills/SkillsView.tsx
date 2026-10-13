@@ -13,7 +13,7 @@ export function SkillsView({
   skills,
   read,
   navigate,
-  caseId,
+  caseForSkill,
 }: {
   skills: SkillView[];
   read: (
@@ -22,11 +22,11 @@ export function SkillsView({
     signal: AbortSignal,
   ) => Promise<SkillView>;
   navigate: (path: string) => void;
-  caseId?: string;
+  caseForSkill?: (id: string, version: number) => string | undefined;
 }) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const [detail, setDetail] = useState<SkillView | null>(null);
+  const [loadedDetail, setDetail] = useState<SkillView | null>(null);
   const [error, setError] = useState(false);
   const filtered = skills.filter((s) =>
     `${s.name} ${s.id} ${s.state}`.toLowerCase().includes(search.toLowerCase()),
@@ -35,6 +35,11 @@ export function SkillsView({
     skills.find((s) => `${s.id}@${s.version}` === selected) ?? filtered[0];
   const id = current?.id;
   const version = current?.version;
+  const detail =
+    loadedDetail?.id === id && loadedDetail?.version === version
+      ? loadedDetail
+      : null;
+  const caseId = detail ? caseForSkill?.(detail.id, detail.version) : undefined;
   useEffect(() => {
     if (!id || version === undefined) {
       setDetail(null);

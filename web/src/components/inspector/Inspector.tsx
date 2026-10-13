@@ -202,7 +202,9 @@ export function Inspector({
                       />
                       <Field label="恢复记录" value={recovery.status} />
                       <p className="notice">
-                        Child 完成不会把原始 Source UNKNOWN 改写为成功。
+                        {recovery.sourceOutcome === "UNKNOWN"
+                          ? "Child 完成不会把原始 Source UNKNOWN 改写为成功。"
+                          : "Source 结果保持独立；Child 完成不证明历史调用因果。"}
                       </p>
                     </section>
                   ))
@@ -223,7 +225,7 @@ export function Inspector({
                 <Field label="记录模型" value={run.model.modelId} />
                 <Field label="Adapter" value={run.model.adapterName} />
                 <Field
-                  label="SkillRef"
+                  label="计划 SkillRef"
                   value={
                     run.plan?.skillRef
                       ? `${run.plan.skillRef.skill_id}@${run.plan.skillRef.skill_version}`

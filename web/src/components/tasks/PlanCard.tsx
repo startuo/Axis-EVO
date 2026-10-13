@@ -2,7 +2,13 @@ import { ChevronDown, FileCode2, ListChecks, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import type { PlanView } from "../../lib/types";
 import { Badge, CopyButton, EmptyState, Field } from "../ui/Primitives";
-export function PlanCard({ plan }: { plan: PlanView | null }) {
+export function PlanCard({
+  plan,
+  inspectProposal,
+}: {
+  plan: PlanView | null;
+  inspectProposal?: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   if (!plan)
     return (
@@ -73,8 +79,17 @@ export function PlanCard({ plan }: { plan: PlanView | null }) {
         <span>
           {plan.skillRef
             ? `${plan.skillRef.skill_id} · v${plan.skillRef.skill_version}`
-            : "未绑定 Skill 版本"}
+            : "此计划未记录 SkillRef"}
         </span>
+        {plan.proposalId && inspectProposal && (
+          <button
+            className="text-button"
+            onClick={inspectProposal}
+            title={`Proposal ${plan.proposalId}`}
+          >
+            查看关联提案
+          </button>
+        )}
         <span className="digest-short">
           {plan.planSha256?.slice(0, 12) ?? "无计划摘要"}
         </span>
