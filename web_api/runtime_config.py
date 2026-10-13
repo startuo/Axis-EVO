@@ -1,0 +1,139 @@
+"""Backend-only runtime admission policy; browser input cannot create authority."""
+
+from dataclasses import dataclass
+import ipaddress
+from pathlib import Path
+import re
+from types import MappingProxyType
+from urllib.parse import urlsplit
+
+from axis_evo.skill_card import SkillRef
+
+from .schemas import ApiError, MAX_CONFIG_BYTES, no_redirected_parents, public_text, strict_json
+
+
+DEFAULT_ENDPOINTS = ("https://api.openai.com/v1/chat/completions",
+                     "https://api.deepseek.com/chat/completions")
+_ALIAS = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,63}\Z")
+_ENV = re.compile(r"(?:AXIS_EVO_[A-Z0-9_]{1,80}|[A-Z][A-Z0-9_]{0,60}_API_KEY)\Z")
+_HOST = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\Z")
+
+
+def validate_endpoint(value):
+    """Validate a complete configured endpoint, never guess or normalize it."""
+    if (type(value) is not str or not 1 <= len(value) <= 512
+            or public_text(value, 512) != value
+            or any(c.isspace() or ord(c) < 32 for c in value)):
+        raise ValueError("Invalid endpoint")
+    parsed = urlsplit(value)
+    host = parsed.hostname
+    if (parsed.scheme != "https" or not host or host != host.lower()
+            or not _HOST.fullmatch(host) or "." not in host or host.endswith(".")
+            or parsed.username or parsed.password or parsed.port not in (None, 443)
+            or parsed.query or parsed.fragment or "%" in value or "\\" in value
+            or parsed.path not in ("/chat/completions", "/v1/chat/completions")
+            or parsed.netloc != host and parsed.netloc != host + ":443"):
+        raise ValueError("Invalid endpoint")
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("IP endpoints are unsupported")
+    return value
+
+
+def _path(value, *, existing=False, directory=False):
+    if type(value) is not str or not value or not Path(value).is_absolute():
+        raise ValueError("An explicit absolute local path is required")
+    path = Path(value)
+    no_redirected_parents(path)
+    path = path.resolve(strict=existing)
+    if path == Path(path.anchor):
+        raise ValueError("A scoped local path is required")
+    if existing and (not path.is_dir() if directory else not path.is_file()):
+        raise ValueError("The configured local path is unavailable")
+    if not existing and path.exists() and not path.is_dir():
+        raise ValueError("A local data directory is required")
+    return path
+
+
+@dataclass(frozen=True)
+class RuntimeProject:
+    id: str
+    task_spec_path: Path
+    skill_refs: tuple[SkillRef, ...]
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    data_dir: Path
+    projects: tuple[RuntimeProject, ...]
+    credentials: dict[str, str]
+    endpoints: tuple[str, ...] = DEFAULT_ENDPOINTS
+
+    def __post_init__(self):
+        # A frozen dataclass alone does not freeze nested configuration objects.
+        object.__setattr__(self, "credentials", MappingProxyType(dict(self.credentials)))
+        object.__setattr__(self, "projects", tuple(self.projects))
+        object.__setattr__(self, "endpoints", tuple(self.endpoints))
+
+    @classmethod
+    def from_file(cls, path, workbench_config):
+        try:
+            source = Path(path).absolute()
+            no_redirected_parents(source)
+            with source.open("rb") as stream:
+                value = strict_json(stream.read(MAX_CONFIG_BYTES + 1))
+            required = {"data_dir", "projects", "credentials"}
+            if type(value) is not dict or not required <= value.keys() <= required | {"endpoints"}:
+                raise ValueError("Unexpected runtime configuration")
+            data_dir = _path(value["data_dir"])
+            if type(value["projects"]) is not list or not 1 <= len(value["projects"]) <= 16:
+                raise ValueError("Invalid runtime project count")
+            projects, seen = [], set()
+            for item in value["projects"]:
+                if type(item) is not dict or item.keys() != {"id", "task_spec_path", "skill_refs"}:
+                    raise ValueError("Unexpected runtime project fields")
+                project = workbench_config.project(item["id"])
+                if project.id in seen:
+                    raise ValueError("Duplicate runtime project")
+                seen.add(project.id)
+                # Workbench workspace_roots are admission containers, not
+                # actual Sandbox roots. RuntimeService checks its generated
+                # thread/workspace directory against the configured container;
+                # metadata may be a sibling outside that actual Sandbox root.
+                refs = item["skill_refs"]
+                if type(refs) is not list or not 1 <= len(refs) <= 16:
+                    raise ValueError("Invalid configured Skill references")
+                parsed_refs = []
+                for ref in refs:
+                    if type(ref) is not dict or ref.keys() != {"skill_id", "skill_version"}:
+                        raise ValueError("Invalid configured Skill reference")
+                    parsed_refs.append(SkillRef(ref["skill_id"], ref["skill_version"]))
+                if len(set(parsed_refs)) != len(parsed_refs):
+                    raise ValueError("Duplicate configured Skill reference")
+                projects.append(RuntimeProject(project.id, _path(item["task_spec_path"], existing=True),
+                                               tuple(parsed_refs)))
+            credentials = value["credentials"]
+            if type(credentials) is not dict or not 1 <= len(credentials) <= 16:
+                raise ValueError("Explicit credential aliases are required")
+            for alias, env in credentials.items():
+                if (type(alias) is not str or not _ALIAS.fullmatch(alias)
+                        or public_text(alias, 64) != alias or type(env) is not str or not _ENV.fullmatch(env)):
+                    raise ValueError("Invalid credential reference")
+            endpoints = value.get("endpoints", list(DEFAULT_ENDPOINTS))
+            if type(endpoints) is not list or not 1 <= len(endpoints) <= 16:
+                raise ValueError("Invalid endpoint allowlist")
+            endpoints = tuple(validate_endpoint(endpoint) for endpoint in endpoints)
+            if len(set(endpoints)) != len(endpoints):
+                raise ValueError("Duplicate configured endpoint")
+            return cls(data_dir, tuple(projects), dict(credentials), endpoints)
+        except (ApiError, OSError, ValueError, TypeError, KeyError, RuntimeError, UnicodeError):
+            raise ApiError("INVALID_RUNTIME_CONFIG", "The backend runtime configuration is invalid.") from None
+
+    def project(self, project_id):
+        for project in self.projects:
+            if project.id == project_id:
+                return project
+        raise ApiError("RUNTIME_PROJECT_UNAVAILABLE", "Runtime is unavailable for this configured project.", 403)

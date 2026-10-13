@@ -254,6 +254,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Axis-Evo read-only local Web Workbench")
     parser.add_argument("--config", type=Path, help="Explicit local project JSON; never publish credentials")
+    parser.add_argument("--runtime-config", type=Path, help="Explicit opt-in runtime configuration; backend credential references only")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--web-root", type=Path, default=Path("web/dist"), help="Built frontend assets only")
     args = parser.parse_args(argv)
@@ -262,10 +263,22 @@ def main(argv=None):
     try:
         config = WorkbenchConfig.from_file(args.config) if args.config else WorkbenchConfig()
         root = args.web_root if args.web_root.is_dir() else None
-        server = WorkbenchServer(("127.0.0.1", args.port), ReadFacade(config), web_root=root)
+        if args.runtime_config:
+            from .runtime_config import RuntimeConfig
+            from .provider_store import ProviderStore
+            from .runtime_service import RuntimeService
+            from .runtime_http import RuntimeServer
+            runtime_config = RuntimeConfig.from_file(args.runtime_config, config)
+            runtime = RuntimeService(runtime_config, config, ProviderStore(runtime_config))
+            server = RuntimeServer(("127.0.0.1", args.port), ReadFacade(config), runtime, web_root=root)
+        else:
+            server = WorkbenchServer(("127.0.0.1", args.port), ReadFacade(config), web_root=root)
     except (ApiError, OSError, ValueError):
         parser.error("The explicit local configuration, frontend or loopback port is unavailable")
     print(f"Axis-Evo read-only bridge: {server.origin}; configured projects: {len(config.projects)}")
+    if args.runtime_config:
+        print("Runtime explicitly enabled. Enter this one-use local session code in Runtime permissions:",
+              server.sessions.bootstrap_code)
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
