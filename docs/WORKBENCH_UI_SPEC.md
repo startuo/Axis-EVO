@@ -1,35 +1,35 @@
 # Workbench UI 约定
 
-工作台借鉴 [Codex app](https://openai.com/index/introducing-the-codex-app/) 的项目导航、中央任务空间和邻接审查面板。使用 Axis-Evo 自有标记、颜色和信息结构，没有复制 OpenAI 资产。
+工作台借鉴项目/线程侧栏、中央工作区、邻接审查面板的组织方式。使用 Axis 自有标志、铜色/石墨中性色和黑体字体，不复制参考产品文字品牌、官方图标或专有插画。没有指定旧版本截图，验收针对信息结构、比例、密度、空态与交互，不声称像素级 1:1。
 
-## 布局与视觉
+## 布局
 
-- 桌面：260px 项目/任务侧栏、弹性中央工作区、380px Inspector；宽屏 Inspector 400px。收起侧栏为 68px。
-- 1200px 以下 Inspector 改为右侧模态面板；760px 以下导航改为左侧抽屉，页面单列。抽屉与 Inspector 不同时打开。
-- 顶栏 52px；内容区域独立滚动，任务草稿保持在底部。技能、演化及设置页使用独立内容布局。
-- 暖白、低饱和绿与细边框；dark theme 使用同一语义 token。系统字体，无网络字体；正文 14px，标题 20–28px，辅助元数据至少 12px。
-- 颜色不是唯一状态来源。状态使用文字与图标，长 hash 可以折行并复制。
+Runtime 桌面使用 248px sidebar、弹性中央空间、376px Inspector；Inspector 可用 pointer 或方向键在320–520px调整。收起sidebar为68px，顶栏48px。1200px以下审查为模态sheet，760px以下导航为抽屉，二者不同时打开。设置/权限页默认不占空白Inspector。
 
-`web/src/styles/tokens.css` 定义背景、表面、边界、文字、accent 与 success/warning/error；`workbench.css` 定义布局、间距、焦点、响应式及 reduced-motion。
+正文14px，Runtime密集正文13px，元数据10–12px；长hash允许换行和复制。字体为 PingFang SC / Hiragino Sans GB / Microsoft YaHei / Noto Sans CJK SC / Source Han Sans SC / system sans-serif；标识和hash使用monospace。没有网络字体、宣传hero或无依据动效。composer按内容增长并设上限，不遮挡当前线程；固定计划执行中的线程不显示续聊输入。
 
-## 事实语义
+浅/深色分别使用原样 Axis 亮.png / Axis 暗.png，保持透明度及纵横比，不裁切、不重绘、不滤色。语义绿/黄/红只表达状态，并同时提供文字。原离线Demo与Core页面保留，但使用相同Axis色彩/标志。
 
-Demo 的数据源提示持续可见，示例 hash 和证据均不表示真实运行。Core 模式只显示明确配置的本地数据源；错误和不支持保留原状态，不以 Demo 填补。
+## 三种数据源
 
-`PROPOSED` 与 `APPROVED` 分别展示；只有明确批准状态及相同的存储/批准摘要才使用 APPROVED。手工 Runner 的 `STEP_PLANNED` 投影使用 `NOT_RECORDED`，不补造模型提案或批准。
+- DEMO：明确预设场景，不发模型请求、不执行、不审批。
+- CORE · 只读：明确配置的已有数据库投影，UNSUPPORTED/metadata-only保留，不用Demo填补。
+- RUNTIME · 本地执行：后台会话授权后的真实请求/计划/审批/执行。Thread ID与Run ID分开；规划中或待审批时尚无Core Run。Provider transport测试double只存在于私有测试harness。
 
-事件按 `seq` 排序，Intent 与 Result 分列。任务完成依据已存终态和独立验收，不依据工具 SUCCESS。`UNKNOWN` 与独立 Recovery Child 的完成状态并列，后者不改写 Source。无 checkpoint 不补造；SHADOW 不显示为生产准入。
+## 执行与审查语义
 
-计划卡的提案入口打开同一运行的 Inspector 计划页。Skill 详情只链接 source SkillRef 精确匹配的演化 Case；缺少计划 SkillRef 不推断整个 Run 未绑定。Demo 快照逐行显示增加、删除及上下文，不称作 Git diff 或工具因果。草稿框显示工作区和配置草稿身份，与历史 Run 的模型记录分别展示。
+主线程显示实际用户prompt、模型请求状态、完整Plan arguments、精确digest审批、Core seq事件和独立Validation。模型响应不是思考流。Web状态不分配Core seq，Web FINISHED不冒充RUN_COMPLETED，Tool SUCCESS不等于Validation PASSED。
 
-Trust Assessment、gate eligibility、approval、TRUSTED receipt、preferred-version activation 是不同事实。Demo 展示完整预设链；Core 展示实际可用投影，明确 unsupported / metadata-only，不宣称全部阶段均已核验。
+计划卡完整显示JSON arguments；批准checkbox与按钮提交准确proposal ID + plan SHA-256，不允许替换计划。审批只能由后端核验成功确认。UNKNOWN持续可见，Source与Recovery Child分别展示，没有重试/恢复按钮抹除未知。事件按events.seq，不按模型时间排序。
 
-## 屏幕与交互
+Skill版本、Trust Assessment、gate eligibility、promotion approval、TRUSTED receipt和preferred activation分别呈现。Runtime入口到Skills明确切回Demo/Core只读数据模式；不把预设Skill卡当运行时准入。Inspector的审查/事件/文件/证据分开；文件页面只有持久观察，未知现场不补文件内容或因果。
 
-工作台首页、任务/Timeline、Inspector/Recovery、Skills、Evolution、Provider Settings 构成六类主屏，另有活动页。项目/任务搜索、版本选择、证据 tab、seq 筛选、计划展开、文件元数据/演示快照、主题与面板切换均可操作。
+## Provider 与权限
 
-`Ctrl/⌘ K` 打开命令面板，方向键和 Enter 导航；`Ctrl/⌘ N` 返回新草稿；`Ctrl/⌘ Enter` 保存会话草稿。草稿按模式/项目/任务隔离，刷新清除，不发模型请求。Provider 设置同样是会话草稿，不保存凭据值、不模拟连接成功。
+Provider配置版本在后端持久保存；页面不接受API Key，只选择后台批准的credential reference与完整HTTPS Endpoint。编辑创建新revision。测试按钮发真实固定请求，仅显示对应revision实际测试记录，不把保存配置当连接成功。Reasoning/Retry明确不支持。既有线程显示自己的版本快照，不跟随当前默认模型。
 
-使用原生 button、select、details、dialog；可见 focus、skip link、tab roving focus、dialog Escape/焦点恢复；遵守 reduced-motion。没有 Markdown/HTML 直接注入或动态代码执行。
+权限页显示后端file-only模式、blocked run_tests、固定Acceptance、seed/junction/输出预算与会话状态。不能通过客户端开关提升工具权限或增加任意主机路径。
 
-执行、上传、恢复审批及 Provider 测试保持 disabled 并说明原因。Web 只读桥接的安全和数据预算见 [WORKBENCH_SETUP.md](WORKBENCH_SETUP.md)。
+## 可访问性与交互
+
+保留原生button/select/dialog、skip link、可见focus、tab roving focus、Escape及焦点边界。Inspector splitter可键盘操作。Ctrl/⌘ N新任务；Ctrl/⌘ K搜索线程；Ctrl/⌘ Enter在Runtime仅生成计划，在旧Demo只保存草稿。轮询不抢焦点，不自动重发mutation。草稿和CSRF仅页面内存；HttpOnly session可在同源刷新后恢复。响应式、深色、键盘、axe、完整参数和真实审批链由实际浏览器验收。

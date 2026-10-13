@@ -1,10 +1,10 @@
 # Web Workbench
 
-Phase 4 / Step 1 提供本地浏览器工作台。Demo 是明确标注的预设示例；Core 模式通过只读桥接展示已有 SQLite 事实。工作台没有任务执行、模型连接、审批、恢复、晋升或激活端点。
+Phase 4 / Step 2 提供三个明确分开的数据模式：离线 Demo、Core 只读审查、显式开启的本地 Runtime。Runtime 使用现有 Skill planner、不可变 Plan Proposal、精确摘要审批、Runner 与独立 Acceptance，不另写工具执行循环。
 
-## 启动
+## 启动 Demo / 只读模式
 
-从仓库根目录运行，要求 Python 3.11+、Node.js 22.12+ 与 npm：
+从仓库根目录运行，要求 Python 3.11+、Node.js 22.12+：
 
 ```powershell
 python -m pip install -e .
@@ -15,56 +15,77 @@ Set-Location ..
 python -m web_api.app --port 8765 --web-root web/dist
 ```
 
-打开 `http://127.0.0.1:8765`。默认进入离线 Demo，无需数据库、API Key 或模型请求。依赖安装需要访问包仓库；已构建的应用运行时不依赖 CDN。
+打开 `http://127.0.0.1:8765`。默认 Demo 不需要 API Key，不调用模型。`--config .local/workbench.json` 可启用已有事实的只读投影。配置只接受绝对路径，数据库和 workspace 授权容器须已存在：
 
-开发时在另一终端运行 `cd web; npm run dev`，打开 `http://127.0.0.1:5173`。Vite 仅把 `/api` 代理到本地 `127.0.0.1:8765`。更改端口需同步调整明确允许的 loopback origin 和开发代理。
+```json
+{"projects":[{"id":"configuration","name":"Local configuration","database":"C:/absolute/core.sqlite3","workspace_roots":["C:/absolute/data"]}],"allowed_origins":[]}
+```
 
-## 连接已有 Core 记录
+原 GET-only 服务继续只读。它以 `mode=ro` 取得有界提交快照，再以 `query_only=ON` 调用 Core；不迁移、不执行、不联系模型。SQLite 内部 WAL/SHM 协调遵守逻辑只读定义，不使用 `immutable=1`。文件页只有已存路径/hash/大小，原始工具输出不会下发。
 
-在本机创建一个不提交到 Git 的配置文件，例如 `.local/workbench.json`。所有路径必须是绝对路径；数据库必须已经存在，工作区根目录必须已经存在。浏览器不能传入数据库路径。
+## 开启受控 Runtime
+
+可先显式创建一个全新的配置示例；命令拒绝覆盖已有目录：
+
+```powershell
+python -m examples.workbench_runtime --admit-example-skill
+```
+
+该标志明确通过现有 **legacy caller-controlled** 生命周期准入示例 Skill，不是 Trust Assessment、governed promotion 或安全证明。生产项目应由项目所有者预先准备准确的 TRUSTED SkillRef 和初始化到 migration 004 的 WAL 数据库；Web 不自动创建或晋升 Skill。
+
+在启动服务的终端环境配置所选 Provider 的凭据变量。不要把密钥写入配置 JSON、浏览器、命令历史、仓库或审查材料。示例使用 `AXIS_EVO_API_KEY` / `AXIS_EVO_DEEPSEEK_API_KEY`；此文档不提供包含真实密钥的命令。
+
+```powershell
+python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime-config .local/workbench-runtime/runtime.json --port 8765 --web-root web/dist
+```
+
+打开工作台的“真实运行”，在权限页输入终端显示的一次性本地会话代码。代码有效期 10 分钟；会话有效期 1 小时。刷新可凭 HttpOnly cookie 恢复页面内存中的 CSRF token；重启服务后需要新的代码。应用不使用 localStorage/sessionStorage 保存授权值。
+
+在 Provider 配置页创建模型配置，选择后台允许的 Endpoint 与凭据引用，填写明确 model ID。保存、编辑、设为默认和测试连接都会调用真实后端；编辑创建新 revision。连接测试发送一次固定无任务数据请求，成功只表示该版本完成一次响应。未支持的 Reasoning/Retry 不生效；没有自动重试。
+
+在 Runtime 首页选择项目、Provider revision 与准确 SkillRef，输入“将 config.txt 的 timeout=10 修改为 timeout=20”。“生成计划”只请求规划。审查全部步骤、原样 arguments 和 Plan SHA-256 后，勾选明确批准并执行。Core 重新核验持久化 proposal/Skill/TaskSpec，只有独立 Acceptance 通过才可能 RUN_COMPLETED。
+
+服务只监听 `127.0.0.1`，mutation 需要精确 Host/Origin、origin-bound session、HttpOnly SameSite=Strict cookie 和自定义 CSRF header。本地 HTTP 不宣称 TLS 或 OS 进程隔离；不要将此服务反向代理到公网。
+
+## 后台 Runtime 配置
 
 ```json
 {
-  "projects": [
-    {
-      "id": "my-project",
-      "name": "My local project",
-      "database": "C:/absolute/application-data/facts.sqlite3",
-      "workspace_roots": ["C:/absolute/application-data/workspace"]
-    }
-  ],
-  "allowed_origins": []
+  "data_dir": "C:/absolute/data",
+  "projects": [{"id":"configuration","task_spec_path":"C:/absolute/assets/task.json","skill_refs":[{"skill_id":"configuration.patch","skill_version":1}]}],
+  "credentials": {"primary":"AXIS_EVO_API_KEY","deepseek":"AXIS_EVO_DEEPSEEK_API_KEY"}
 }
 ```
 
+`projects.id` 引用只读配置中的项目。`data_dir` 必须处于该项目的一个 `workspace_roots` 授权容器内；它是管理容器，不是实际 Sandbox root。Web metadata 位于 `data_dir/runtime.sqlite3`，各任务实际 Sandbox 位于 `data_dir/threads/<server-generated-id>/workspace`，Core 禁止向上访问 metadata。浏览器不提交任何这些主机路径。
+
+TaskSpec 模板提供固定 seed 和 Acceptance；用户 prompt 只成为本次 TaskSpec 的 goal/title，不能修改 Acceptance。每次规划先复制有界私有 seed，并记录 TaskSpec/seed 身份；批准和执行前重新检查。原始 seed 不修改，也不会递归上传到 Provider。请求只含 TaskSpec、准确 Skill Card、可信工具 schema 和限制。
+
+默认 Endpoint 是完整 HTTPS 地址 `https://api.openai.com/v1/chat/completions` 与 `https://api.deepseek.com/chat/completions`。可在后台配置 `endpoints` exact allowlist；只接受可信的 HTTPS 443 域名和上述路径形状，不能由浏览器任意添加。自定义域名的运营者是信任边界。DNS 私网检查不是 pinned-IP 连接：冻结 transport 会再次解析 DNS，不能声称消除 rebinding。协议依据 [Chat Completions 文档](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 与 [DeepSeek 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，具体 model ID 由调用方配置，不保证所有兼容服务或模型均支持本适配器。
+
+## 当前安全门禁与预算
+
+- Runtime 只注册 `read_file` / `write_file` / `patch_file`。`run_tests` 与 pytest Acceptance 禁用，避免冻结实现继承服务凭据、无限捕获 subprocess 输出。没有任意 shell、子进程工具、取消、自动重规划或恢复端点。
+- seed 仅 UTF-8 普通文件；拒绝 symlink、Windows junction/reparse、硬链、非普通文件、常见凭据路径/扩展名、已知批准凭据值和明确 private-key 标记。检测不是综合 DLP，项目所有者仍须提供无秘密的任务数据。
+- 单文件 64 KiB、seed 合计 1 MiB、128 文件/128目录、8 层。所有复核/复制读取先限字节。最多 10 PlanSteps；Core request 128 KiB、provider response 64 KiB、canonical Plan 32 KiB、单文本参数 16 KiB。Web mutation 64 KiB、响应 1 MiB、prompt 8192 字符。
+- 1 个 worker、最多 8 个待处理任务、历史最多 200 threads。Provider socket timeout 1–300 秒，不是硬总 DNS deadline。网络期间没有 SQLite write transaction；无隐式重试。
+- approval 绑定精确 lowercase Plan hash；Web compare-and-set reservation 和 Core 一 proposal/一 Run 约束防止重复消费。历史线程固定 profile revision/config hash/SkillRef/TaskSpec。默认模型切换不改写历史。
+- Web job 不是 Core event。工作进程丢失后 Web 状态为 UNKNOWN；既有 Run/TOOL_INTENT/缺失 TOOL_RESULT 保持原样。文件变化不证明工具因果，UNKNOWN 不表示可安全重试。
+- 只读桥预算继续生效：64 MiB 数据库/逻辑快照、64应用表、20,000行、每 Run 5,000事件、详情最多500条。非 Runtime 私有 workspace 的现场检查仍可能 UNSUPPORTED；不补造证据。
+
+## 验证与审查
+
+公共仓库按 AGENTS.md 发布实现、说明和 `docs/TEST_RESULTS.md`，不发布私有测试、fixture、报告和 ZIP。完整本地审查包提供这些材料；历史 baseline 测试需要完整 Git clone 历史，将审查包覆盖到该 checkout 后运行：
+
 ```powershell
-python -m web_api.app --config .local/workbench.json --port 8765 --web-root web/dist
-```
-
-切换顶栏到 **CORE · 只读**。连接失败会显示错误，不会退回或混入 Demo 记录。未配置任何项目时显示空列表。项目和记录身份均通过固定 GET 路由传递，不充当文件路径。
-
-## 当前边界
-
-- 读取 `mode=ro` 的提交快照到有界内存 SQLite，再以 `query_only=ON` 调用现有 Core 读接口。不迁移、不写入事实。SQLite WAL/SHM 内部协调遵守既有逻辑只读定义。
-- 不读取现场工作区文件。文件页展示已持久化的路径、hash、大小和观察原因；原始参数、工具输出、模型请求/响应及完整路径不下发。
-- 未闭合且带文件目标的 invocation 会使 Core Inspector 投影显示 `UNSUPPORTED`，因为冻结 Inspector 的该路径需要现场文件读取。不会代替它推断 `EXTERNAL_STATE_CHANGED`。
-- Checkpoint 核验不比较当前工作区。Recovery 只展示存储的关系元数据，明确未核验，不重新解释 source outcome。Trust / Evolution 的高层检查若需要跨越现场文件边界，也显示 `UNSUPPORTED`。
-- 最大响应 1 MiB；数据库主文件与逻辑快照各限 64 MiB；最多 64 张应用表、总计 20,000 行，每 run 5,000 事件；列表最多 100 项，运行详情最多 500 条可见事件。界面区分总事件数与已加载事件数，不补造未加载事实。
-- 配置草稿只包含非秘密元数据与凭据环境变量名称，保存在 React 会话内存中，刷新清除。没有 API Key 输入框或连接测试；草稿不能改变历史 Run 的 Provider 身份。
-- 草稿编辑、导航、筛选、查看与复制可用；执行、上传、审批恢复、生产 Provider 测试均明确不可用。
-- Web 桥接仅面向受控的本地应用数据。字段过滤不等于任意文本的完整秘密检测；不要把秘密写入任务标题、Skill 指令或其他展示元数据。
-
-本轮没有扩大冻结 Core 的执行安全边界。既有 Windows seed junction、子进程环境继承/输出预算等执行侧限制需在独立授权里程碑处理，工作台不会调用这些执行路径。
-
-## 验证与源码审查
-
-```powershell
-cd web
+python -m pytest -q
+python -m pytest -q web_api/tests
+Set-Location web
 npm run typecheck
 npm run lint
+npm test
 npm run build
+npm run test:e2e
 ```
 
-私有审查包另外包含 `web/tests`、`web_api/tests` 与原有 Core 测试；在完整审查树中可运行 `npm test`、`npm run test:e2e`、`python -m pytest -q web_api/tests` 和 `python -m pytest -q`。浏览器测试使用已安装的 Microsoft Edge，不会下载浏览器或调用模型。公共仓库按 `AGENTS.md` 只发布测试结果，不能将缺少私有测试的公共 checkout 当作完整测试集。
-
-当前验证见 [TEST_RESULTS.md](TEST_RESULTS.md)，设计约定见 [WORKBENCH_UI_SPEC.md](WORKBENCH_UI_SPEC.md)。本阶段没有 Windows EXE；静态前端与独立 loopback 服务为以后封装保留边界，尚未验证桌面安装包。
+单独的 Runtime browser integration 使用私有 `review_evidence/runtime/browser_server.py` 与 `web/runtime.playwright.config.ts`；该 harness 仅拦截 Provider transport，不模拟 Runner、SQLite、文件副作用或 Acceptance。它不随公共仓库发布，也不是可选择的生产 Provider。默认测试没有真实外网模型调用。运行结果见 [TEST_RESULTS.md](TEST_RESULTS.md)，布局约定见 [WORKBENCH_UI_SPEC.md](WORKBENCH_UI_SPEC.md)。目前没有 Windows EXE 或桌面安装包。

@@ -1,6 +1,8 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
+  // Runtime E2E owns a separate, explicitly offline Core/transport harness.
+  testIgnore: "**/runtime-integration.spec.ts",
   fullyParallel: false,
   workers: 1,
   reporter: [

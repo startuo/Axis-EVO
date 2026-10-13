@@ -34,6 +34,8 @@ import { Timeline } from "./components/tasks/Timeline";
 import { ProviderSettings } from "./components/providers/ProviderSettings";
 import { SkillsView } from "./components/skills/SkillsView";
 import { EvolutionView } from "./components/skills/EvolutionView";
+import { RuntimeWorkbench } from "./components/runtime/RuntimeWorkbench";
+import { AxisLogo } from "./components/ui/AxisLogo";
 import {
   Badge,
   EmptyState,
@@ -113,6 +115,7 @@ export default function App() {
   }, [mode, data.projects, projectId]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (window.location.hash.startsWith("#/runtime")) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setDrawer(false);
@@ -184,12 +187,13 @@ export default function App() {
   }
   const runs = data.catalog.data.runs;
   const run = runId ? data.run.data : null;
+  const inspectorContext = route === "/workbench" || !!runId;
   const commands: Command[] = [
     { label: "工作台", run: () => navigate("/workbench") },
     { label: "Skills", run: () => navigate("/skills") },
     { label: "活动", run: () => navigate("/activity") },
     { label: "设置", run: () => navigate("/settings") },
-    { label: "切换检查面板", run: toggleInspector },
+    ...(inspectorContext ? [{ label: "切换检查面板", run: toggleInspector }] : []),
     { label: "切换主题", run: () => setDark((value) => !value) },
     ...runs.map((r) => ({
       label: r.title,
@@ -233,9 +237,12 @@ export default function App() {
       : data.catalog.state === "error"
         ? data.catalog.error
         : undefined;
+  if (route === "/runtime" || route.startsWith("/runtime/")) {
+    return <RuntimeWorkbench route={route} navigate={navigate} dark={dark} setDark={setDark} />;
+  }
   return (
     <div
-      className={`app-shell ${compact ? "sidebar-compact" : ""} ${inspector && !narrow ? "with-inspector" : ""}`}
+      className={`app-shell ${compact ? "sidebar-compact" : ""} ${inspector && inspectorContext && !narrow ? "with-inspector" : ""}`}
     >
       <a
         className="skip-link"
@@ -282,6 +289,7 @@ export default function App() {
           </span>
         </div>
         <div className="toolbar-actions">
+          <button className="button secondary runtime-entry-button" aria-label="进入真实运行" onClick={() => navigate("/runtime")}>真实运行</button>
           <span className="model-label">
             {run?.model.modelId ?? "模型未连接"}
           </span>
@@ -303,14 +311,14 @@ export default function App() {
           >
             {dark ? <Sun size={17} /> : <Moon size={17} />}
           </button>
-          <button
+          {(inspectorContext || narrow) && <button
             className="icon-button"
             aria-label="切换检查面板"
             aria-expanded={narrow ? sheet : inspector}
             onClick={toggleInspector}
           >
             <PanelRight size={17} />
-          </button>
+          </button>}
         </div>
       </header>
       <main id="main-content" tabIndex={-1} className="main-workspace">
@@ -388,7 +396,7 @@ export default function App() {
               {route === "/workbench" && (
                 <div className="home-page">
                   <div className="home-brand">
-                    <img src="/axis.svg" width="42" height="42" alt="" />
+                    <AxisLogo size={40} />
                   </div>
                   <div className="page-eyebrow">AXIS-EVO WORKBENCH</div>
                   <h1>让每一步，都有据可循。</h1>
@@ -546,7 +554,7 @@ export default function App() {
           notify={notify}
         />
       </main>
-      {!narrow && inspector && (
+      {!narrow && inspector && inspectorContext && (
         <aside className="inspector-pane" aria-label="检查面板">
           {inspectorPanel}
         </aside>
@@ -639,7 +647,7 @@ function TaskView({
         </section>
       )}
       <section className="objective-block">
-        <span className="avatar">你</span>
+        <span className="avatar">目标</span>
         <div>
           <span className="objective-label">任务目标</span>
           <p>
@@ -665,7 +673,7 @@ function TaskView({
         </section>
       )}
       <div className="core-activity-label">
-        <img src="/axis.svg" alt="" width="23" height="23" />
+        <AxisLogo size={22} />
         <strong>结构化执行事实</strong>
         <span>系统活动 · 非对话转写</span>
       </div>

@@ -11,6 +11,7 @@ import {
   SquareTerminal,
 } from "lucide-react";
 import type { Mode, ProjectView, RunSummary } from "../../lib/types";
+import { AxisLogo } from "../ui/AxisLogo";
 export function Sidebar({
   projects,
   projectId,
@@ -43,7 +44,7 @@ export function Sidebar({
   return (
     <div className={`sidebar-content ${compact ? "compact" : ""}`}>
       <header className="brand-row">
-        <img src="/axis.svg" alt="" width="28" height="28" />
+        <AxisLogo size={28} />
         <strong>
           Axis<span>—</span>Evo
         </strong>
