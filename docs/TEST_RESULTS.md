@@ -1,3 +1,33 @@
+# Phase 4 / Step 2 验证结果 — 2026-10-13
+
+Baseline Commit: `537f28b7656d0e81fba85b8a853af78b797c8e69`
+Tested Source Commit: `ef0523a035de74b20a89528304b4ee37faac025c`
+Final remote verification is recorded in the local delivery manifest.
+Branch / remote: `main` / `origin` (`https://github.com/startuo/Axis-EVO.git`).
+
+Python 3.12.10 / 3.13.5; SQLite 3.49.1; Node 24.14.0 / npm 11.9.0; Edge 155.0.4283.45.
+
+| Check | Exact final result |
+|---|---|
+| Core `python -m pytest -q tests` | 2331 passed, 14 skipped in 634.80s (0:10:34); 0 warnings |
+| Web `python -m pytest -q web_api/tests -ra` | 188 passed in 20.67s; 0 skipped / warnings |
+| Web Python 3.13.5, same command | 188 passed, 478 warnings in 20.76s; 0 skipped |
+| Frontend typecheck / lint / build | passed; 0 lint warnings; 338 kB JS, about 104 kB gzip |
+| Vitest `npm test` | 9 files / 137 passed; 0 warnings |
+| Existing Playwright `npm run test:e2e` | 25 passed (28.6s) |
+| Runtime Playwright `npx playwright test --config runtime.playwright.config.ts` | 1 passed (21.8s) |
+| Accessibility | existing 9 + runtime 12 states; 0 axe violations |
+| Runtime browser console / external requests | 0 errors or warnings / 0 external requests |
+| Freeze audit | 131 historical Core/config/test files byte-identical; 001–010 and dependencies unchanged |
+
+3.13's 478 warnings are unsuppressed `PurePath.is_reserved()` deprecations in frozen `skill_planner.py` / `sandbox.py`. Core was fully run on Windows/Python 3.12; no new Linux or Python 3.13 full-Core claim. The 14 Windows skips are 13 unavailable symlink-privilege cases and one POSIX FIFO; fresh exact reasons are in `review_evidence/runtime/platform-skips.txt`. The real Windows junction test passes. Node Playwright emits 3 runner color-environment warnings across the two commands (`NO_COLOR` / `FORCE_COLOR`); these are separate from the observed clean application console.
+
+本轮新增109个后端用例和22个前端用例；真实Runtime浏览器场景另计1项，旧25项保留。完整源码/fixture/日志/报告仅保留本地审查包。当前报告不宣称live provider测试、模型服从、工具因果或OS隔离；运行边界见WORKBENCH_SETUP.md。
+
+---
+
+历史记录：
+
 # Phase 4 / Step 1 验证结果 — 2026-10-13
 
 Baseline: `e8b398aaaa2e2ab8a8fadb246b0f25a07c6e2a03`。
