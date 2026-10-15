@@ -2,7 +2,7 @@
 
 ## Phase 4 / Step 3 — 当前验证
 
-Baseline: `2b74de73150cb6f97db5bf2619ff0be0fa7af6e1`。Tested source: `TESTED_WORKTREE_SOURCE`。最终发布身份以 GitHub main 与本地 publication.json 的独立核验为准。
+Baseline: `2b74de73150cb6f97db5bf2619ff0be0fa7af6e1`。Tested source: `a28a700b02a3c8d2aeabdf8dd01050ecf596dbba`。最终发布身份以 GitHub main 与本地 publication.json 的独立核验为准。
 
 | 原始记录 | 实际结果 |
 |---|---|
