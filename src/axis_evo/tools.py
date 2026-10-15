@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import re
 import sqlite3
-import subprocess
 import sys
 from time import perf_counter
 from typing import Any, Protocol
@@ -17,6 +16,9 @@ from .hashing import canonical_json_bytes
 from .models import PlanStep, ToolResult
 from .sandbox import Sandbox
 from .storage import _claim_tool_invocation, append_event
+from .process_limits import BoundedSubprocess, OutputLimitExceeded, child_environment
+
+subprocess = BoundedSubprocess()
 
 
 TEST_TIMEOUT_SECONDS = 60
@@ -155,15 +157,7 @@ class RunTestsTool:
                 raise ValueError(f"pytest target does not exist: {path}")
             args.append(target.relative_to(sandbox.root).as_posix() + "".join("::" + node for node in nodes))
 
-        env = os.environ.copy()
-        env.update(
-            PYTHONDONTWRITEBYTECODE="1",
-            PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
-            PYTEST_ADDOPTS="",
-            PYTHONIOENCODING="utf-8",
-        )
-        env.pop("PYTEST_PLUGINS", None)
-        env.pop("PYTHONPATH", None)
+        env = child_environment()
         command = [
             sys.executable, "-m", "pytest", "-p", "no:cacheprovider",
             # Fixed empty configuration: do not inherit workspace/ancestor addopts.
@@ -180,6 +174,11 @@ class RunTestsTool:
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=TEST_TIMEOUT_SECONDS, check=False,
             )
+        except OutputLimitExceeded as error:
+            return _result(start, "FAILED", "pytest output limit exceeded", {
+                "exit_code": None, "reason": "OUTPUT_LIMIT_EXCEEDED",
+                "stdout": error.stdout, "stderr": error.stderr,
+            })
         except subprocess.TimeoutExpired as error:
             def text(value: str | bytes | None) -> str:
                 return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""

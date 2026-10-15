@@ -4,13 +4,15 @@ This is not an OS sandbox. Only backend configured, bounded text seeds are
 admitted. No subprocess-capable tool or pytest Acceptance enters this path.
 """
 from dataclasses import asdict
+from contextlib import contextmanager
 import hashlib
 import os
 from pathlib import Path
 import stat
 
 from axis_evo.hashing import canonical_json_bytes
-from axis_evo.sandbox import Sandbox
+from axis_evo.sandbox import Sandbox, WorkspacePathResolver, _identity, _pin_windows_parents
+from axis_evo.seed_copy import _create_directory, cleanup_created_tree
 from axis_evo.task_spec import task_spec_from_dict
 from axis_evo.validators import preflight_acceptance
 
@@ -140,34 +142,65 @@ def load_template(task_path, check_text):
     return task, seed, manifest
 
 
+@contextmanager
+def _snapshot_destination(destination):
+    no_redirected_parents(destination)
+    parents = WorkspacePathResolver._directories(destination.parent)
+    close, handles, identity = None, [], None
+    files, directories = [], []
+    try:
+        if os.name == 'nt':
+            close, handles = _pin_windows_parents(parents)
+        destination.mkdir(parents=False, exist_ok=False)
+        chain = WorkspacePathResolver._directories(destination)
+        identity = _identity(destination.lstat())
+        if os.name == 'nt':
+            _, root_handles = _pin_windows_parents(chain)
+            handles.extend(root_handles)
+        resolver = WorkspacePathResolver(destination)
+        if resolver._root_chain != chain:
+            fail('SEED_CHANGED')
+        yield resolver, handles, files, directories
+    except BaseException:
+        if close:
+            for handle in reversed(handles):
+                close(handle)
+            handles = []
+        cleanup_created_tree(destination, identity, files, directories)
+        raise
+    finally:
+        if close:
+            for handle in reversed(handles):
+                close(handle)
+
+
 def snapshot_task(task_path, destination, prompt, thread_id, check_text):
     task, seed, manifest = load_template(task_path, check_text)
     destination = Path(destination).absolute()
-    no_redirected_parents(destination)
-    destination.mkdir(parents=False, exist_ok=False)
-    private_seed = destination / "seed"
-    private_seed.mkdir()
-    for directory in manifest["directories"]:
-        (private_seed / directory).mkdir(parents=True, exist_ok=True)
-    source = Sandbox(seed)
-    for relative, expected in manifest["files"].items():
-        raw = _bounded_bytes(source.resolve(relative), expected)
-        target = private_seed / relative
-        no_redirected_parents(target)
-        with target.open("xb") as stream:
-            stream.write(raw)
-    value = asdict(task)
-    value.update(task_id=thread_id, title=prompt.strip().splitlines()[0][:80], goal=prompt)
-    value["workspace"] = {"seed_dir": "seed"}
-    encoded = canonical_json_bytes(value)
-    if len(encoded) > MAX_FILE_BYTES:
-        fail("TASK_LIMIT")
-    check_text(encoded.decode("utf-8"))
-    private_task = destination / "task.json"
-    with private_task.open("xb") as stream:
-        stream.write(encoded)
-    return {"seed": manifest, "taskSha256": hashlib.sha256(encoded).hexdigest()}
-
+    with _snapshot_destination(destination) as (target_root, pinned_handles, created_files, created_directories):
+        private_seed = destination / "seed"
+        created_directories.append((private_seed, _create_directory(target_root, "seed", pinned_handles)))
+        for directory in sorted(manifest["directories"], key=lambda p: (len(Path(p).parts), p)):
+            created_directories.append((private_seed / directory, _create_directory(target_root, Path("seed") / directory, pinned_handles)))
+        source = Sandbox(seed)
+        for relative, expected in manifest["files"].items():
+            raw = _bounded_bytes(source.resolve(relative), expected)
+            target = target_root.resolve("seed/" + relative)
+            with target.open("xb") as stream:
+                created_files.append((Path(target), _identity(os.fstat(stream.fileno()))))
+                stream.write(raw)
+        value = asdict(task)
+        value.update(task_id=thread_id, title=prompt.strip().splitlines()[0][:80], goal=prompt)
+        value["workspace"] = {"seed_dir": "seed"}
+        encoded = canonical_json_bytes(value)
+        if len(encoded) > MAX_FILE_BYTES:
+            fail("TASK_LIMIT")
+        check_text(encoded.decode("utf-8"))
+        private_task = target_root.resolve("task.json")
+        with private_task.open("xb") as stream:
+            created_files.append((Path(private_task), _identity(os.fstat(stream.fileno()))))
+            stream.write(encoded)
+        return {"seed": manifest, "taskSha256": hashlib.sha256(encoded).hexdigest()}
 
 def verify_snapshot(directory, expected, check_text):
     directory = Path(directory)

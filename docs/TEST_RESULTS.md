@@ -1,3 +1,42 @@
+# 测试结果
+
+## Phase 4 / Step 3 — 当前验证
+
+Baseline: `2b74de73150cb6f97db5bf2619ff0be0fa7af6e1`。Tested source: `TESTED_WORKTREE_SOURCE`。最终发布身份以 GitHub main 与本地 publication.json 的独立核验为准。
+
+| 原始记录 | 实际结果 |
+|---|---|
+| `final-full-py312.txt` | 2566 passed, 14 skipped in 934.33s (0:15:34) |
+| `final-safety-process-py312.txt` | 47 passed in 75.02s (0:01:15) |
+| `final-safety-process-py313.txt` | 47 passed, 590 warnings in 69.73s (0:01:09) |
+| `final-full-py313-filtered.txt` | 2566 passed, 14 skipped in 935.33s (0:15:35) |
+| `adversarial-fixes-2.txt` | 46 passed in 61.71s (0:01:01) |
+| `service-http-focused.txt` | 39 passed in 18.57s |
+| `frontend-unit-final.txt` | Tests  165 passed (165) |
+| `browser-runtime-legacy-final.txt` | 1 passed (23.9s) |
+| `browser-legacy-workbench.txt` | 25 passed (30.2s) |
+| `browser-process-visual.txt` | 6 passed (2.0m) |
+| `final-reviewed-source-focused.txt` | 75 passed in 88.15s (0:01:28) |
+
+Typecheck / lint / build 均通过，lint 0 warnings；bundle 344.54 kB / gzip 105.64 kB。npm production audit 0 vulnerabilities。前端实际源与依赖锁已核对。
+最终两版完整结果均为 **2566 passed、14 skipped、2580 collected，0 failed / 0 errors**。Python 完整范围是 `tests web_api/tests`，未把 skip 算为 pass。SYSTEMDRIVE 最后修正前，两版完整测试均为 2579 collected /2565 passed/14 skipped；原日志和 XML 独立保留，不代替最终源码复验。
+最终完整命令分别为 `python -m pytest -q tests web_api/tests -ra --junitxml=review_evidence/phase4_step3/final-full-py312.xml`，以及 `.git/compat-venv313/Scripts/python.exe -m pytest -q tests web_api/tests -ra -W 'ignore:pathlib.PurePath.is_reserved():DeprecationWarning' --junitxml=review_evidence/phase4_step3/final-full-py313-filtered.xml`。
+Python 3.13 focused 最终未过滤结果为47 passed /590 warnings（sandbox394、validators2、skill_planner194）；对应命令只选择 `tests/integration/test_runtime_core_hardening.py web_api/tests/test_runtime_process.py`。此前46 passed/591 warnings（sandbox393、validators2、skill_planner196）的原始记录仍保留，轮询次数可影响警告总数。
+本轮第一次 Python 3.13 unfiltered 全量仅保留到 97% 的进度日志，工具 handle 后续不存在，没有 terminal summary / XML；原因未证实，不宣称通过。
+为避免已知大量弃用记录影响独立执行，最终完整运行仅通过命令行 `-W 'ignore:pathlib.PurePath.is_reserved():DeprecationWarning'` 过滤这一类告警，配置与测试断言未改；结果单独标识，不能称为无告警的 unfiltered 运行。原始 partial log、此前591条与最终590条focused警告摘要均保留。3.12最终完整日志没有pytest warnings汇总。
+Windows 14 skips 为 13 个 symlink 权限 WinError1314 和 1 个 POSIX FIFO；真实 `mklink /J` 与硬链接通过。Linux / Docker daemon 本机不可用，未跑 Linux。Playwright Node `NO_COLOR` / `FORCE_COLOR` 环境警告另列在各原始日志；应用 browser console 0 errors/warnings。
+
+
+初始Step2全套baseline保留1个oversizedHTTPbody/TCPreset失败，最终boundeddrain+现有HTTP安全门禁回归通过，未删除旧assertion。最终Windowsjunction、credentialenv、boundedoutput、predictablepreflight、durableSQLfailures/approvalraces、11个真实hardexit窗口、HTTPserver存活与serverhardkill/restart均有原始记录。R0–R20 offlineoracles测得duplicateadmittedexecution0、unauthorizedexecution0、restartsourcefactmutation0；不是exactly-once外部效果保证。
+
+Core仅runner/sandbox/tools/validators四个授权冻结例外；SQL001–010、execute_tool_call、Inspector/Checkpoint/Recovery/Skill及历史断言字节不变。新增011只作用WebruntimeDB，未更新依赖。
+
+6尺寸真实截图覆盖idle/planning/approval/executing/completed/failed/interrupted/UNKNOWN/providerhistory/dark/mobile，应用console0、外部requests0、稳定axe0violations。两种旧浏览器回归25+1通过，新进程QA6通过。真实Provider/DeepSeek测试 **LIVE_PROVIDER_VERIFICATION_PENDING**；仅离线wire与官方协议审查，未使用真实key或声称远端成功。
+
+协议、liveopt-in命令及平台限制见[RUNTIME_PROCESS_PROTOCOL.md](RUNTIME_PROCESS_PROTOCOL.md)。审查材料本地保存，不push tests/fixtures/reports/ZIP。Phase4Step4/EXE未开始。
+
+<!-- PHASE4_STEP3_CURRENT_END -->
+
 # Phase 4 / Step 2 验证结果 — 2026-10-13
 
 Baseline Commit: `537f28b7656d0e81fba85b8a853af78b797c8e69`

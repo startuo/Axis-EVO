@@ -4,9 +4,10 @@ import { AxisLogo } from "../ui/AxisLogo";
 import { Badge, Field, runTone } from "../ui/Primitives";
 import { Timeline } from "../tasks/Timeline";
 import { RuntimeProposalReview } from "./RuntimeProposal";
+import { RuntimeSupervisionPanel } from "./RuntimeSupervision";
 
 export const threadLabels: Record<RuntimeThread["status"], string> = {
-  QUEUED: "等待规划", PLANNING: "模型请求中", AWAITING_APPROVAL: "等待批准", EXECUTING: "执行中", FINISHED: "Web 任务已结束", FAILED: "Web 任务失败", UNKNOWN: "结果不确定",
+  QUEUED: "等待规划", PLANNING: "模型请求中", AWAITING_APPROVAL: "等待批准", DISPATCH_RESERVED: "派发已保留", EXECUTING: "执行中", FINISHED: "Web 任务已结束", FAILED: "Web 任务失败", UNKNOWN: "结果不确定",
 };
 
 export function RuntimeThreadView({ thread, busy, canAct, approve, openReview }: { thread: RuntimeThread; busy: boolean; canAct: boolean; approve: () => void; openReview: () => void }) {
@@ -22,6 +23,7 @@ export function RuntimeThreadView({ thread, busy, canAct, approve, openReview }:
     <section className="runtime-planning-status" aria-live="polite"><CircleDot size={16} /><div><strong>{threadLabels[thread.status]}</strong><p>{thread.status === "QUEUED" || thread.status === "PLANNING" ? "正在请求所选 Provider 生成计划。尚未批准，不执行文件工具。" : thread.proposal ? "模型返回内容已由 Core 严格解析；计划提案与执行授权分别记录。" : "没有已接受的计划提案，不展示或执行未验证的模型输出。"}</p>{thread.errorCode && <code>{thread.errorCode}</code>}</div></section>
     {unknown && <section className="unknown-callout"><CircleDot size={19} /><div><h2>执行结果尚不确定</h2><p>连接或进程停止不能证明工具未执行。以已持久化的 Core 事实为准，不自动重试。</p><span>{missingResult ? "EXECUTION_RESULT_UNKNOWN · Source outcome: UNKNOWN" : "Web Runtime: UNKNOWN · 不代替 Core Inspector 分类"}</span></div></section>}
     <RuntimeProposalReview thread={thread} busy={busy} canAct={canAct} onApprove={approve} />
+    <RuntimeSupervisionPanel thread={thread} />
     {run ? <>
       <div className="section-heading runtime-events-heading"><h2>Core 执行事实</h2><Badge tone={runTone(run.status)}>{run.status}</Badge></div>
       <p className="caption">Run {run.id} · Web 线程状态与 Core 存储终态分别展示。</p>

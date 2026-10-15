@@ -1,7 +1,9 @@
 """Opt-in orchestration around the existing planner and Runner, never a tool loop."""
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from dataclasses import asdict
 from functools import lru_cache
+import hashlib
 import re
 import sqlite3
 import threading
@@ -19,9 +21,11 @@ from axis_evo.skill_planner import generate_skill_plan, execute_approved_skill_p
 from axis_evo.tools import ReadFileTool, WriteFileTool, PatchFileTool
 
 from .read_facade import ReadFacade, committed_snapshot
-from .runtime_policy import (FILE_TOOLS, MAX_PROMPT_CHARS, load_template, snapshot_task,
-                             preflight_plan, seed_manifest)
+from .runtime_policy import (FILE_TOOLS, MAX_PROMPT_CHARS, MAX_FILE_BYTES, load_template, snapshot_task,
+                             preflight_plan, seed_manifest, verify_snapshot)
 from .schemas import ApiError, MAX_DATABASE_BYTES, no_redirected_parents, strict_json
+from . import runtime_jobs
+from .runtime_process import CoordinatorLock, ProcessSupervisor
 
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _THREAD = re.compile(r"thread_[0-9a-f]{32}\Z")
@@ -71,11 +75,17 @@ def registry():
 
 
 class RuntimeService:
-    def __init__(self, config, workbench_config, providers, *, adapter_factory=None):
+    def __init__(self, config, workbench_config, providers, *, adapter_factory=None,
+                 worker_mode=False, worker_launcher=None):
         self.config, self.workbench, self.providers = config, workbench_config, providers
         self.facade = ReadFacade(workbench_config)
         self._adapter_factory = adapter_factory or providers.adapter
-        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="axis-runtime")
+        # Explicit adapter injection is a legacy in-process testing API only.
+        # The HTTP constructor/config cannot select it. Normal runtime uses Popen.
+        self._isolated, self._worker_mode = adapter_factory is None, worker_mode
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="axis-test-runtime") if adapter_factory else None
+        self._coordinator_lock = None
+        self._supervisor = None
         self._slots = threading.BoundedSemaphore(8)
         self._futures = {}
         self._closed = False
@@ -89,10 +99,24 @@ class RuntimeService:
             c.executescript("BEGIN IMMEDIATE;" + _SCHEMA)
             if _schema_objects(c) != _expected_schema():
                 raise ApiError("RUNTIME_STORE_INTEGRITY", "Runtime history schema is unexpected.", 422)
-            # A lost worker is not evidence of tool failure or permission to retry.
-            c.execute("UPDATE runtime_threads SET status='UNKNOWN', error_code='WORKER_INTERRUPTED', updated_at=? "
-                      "WHERE status IN ('QUEUED','PLANNING','EXECUTING')", (utc_now(),))
             c.commit()
+            runtime_jobs.initialize(c)
+        if self._isolated and not worker_mode:
+            self._coordinator_lock = CoordinatorLock(config.data_dir)
+        if not worker_mode:
+            with self._web() as c, runtime_jobs.transaction(c):
+                for row in c.execute("SELECT job_id FROM main.runtime_jobs WHERE state IN ('QUEUED','PLANNING','DISPATCH_RESERVED','EXECUTING')").fetchall():
+                    runtime_jobs.observation(c, row[0], None, 'SUPERVISION_LOST', {'reason': 'COORDINATOR_RESTART'})
+                    runtime_jobs.transition(c, row[0], 'OUTCOME_UNKNOWN')
+            # A lost worker is not evidence of tool failure or permission to retry.
+                c.execute("UPDATE runtime_threads SET status='UNKNOWN', error_code='WORKER_INTERRUPTED', updated_at=? "
+                          "WHERE status IN ('QUEUED','PLANNING','DISPATCH_RESERVED','EXECUTING')", (utc_now(),))
+        if self._isolated and not worker_mode:
+            self._supervisor = ProcessSupervisor(self, worker_launcher)
+            with self._web() as c:
+                interrupted = c.execute("SELECT job_id FROM main.runtime_jobs WHERE state='OUTCOME_UNKNOWN'").fetchall()
+            for row in interrupted:
+                self._reconcile(row[0])
 
     @contextmanager
     def _web(self):
@@ -135,12 +159,20 @@ class RuntimeService:
             "projects": [{"id": p.id, "name": self.workbench.project(p.id).name,
                           "skills": [s.to_dict() for s in p.skill_refs]} for p in self.config.projects],
             "allowedTools": list(FILE_TOOLS), "blockedTools": ["run_tests"],
+            "executionMode": "process-isolated" if self._isolated else "in-process-test-injection",
             "limitations": ["File-only runtime; pytest Acceptance is disabled.",
                 "Seeds are bounded UTF-8 files; symlinks, junctions, hard links and protected files are rejected.",
                 "Acceptance is fixed by the backend TaskSpec template; model output cannot change it.",
                 "No shell, child tool process, automatic retry, re-planning or recovery.",
-                "Loopback session authorization is not OS process isolation.",
-                "Provider requests have socket timeouts, not a hard total DNS deadline."]}
+                "Separate credential-scoped planning and execution processes; no OS security sandbox.",
+                "Process deadlines are supervised; host scheduling is not a real-time guarantee."]}
+
+    def _row_unscoped(self, thread_id):
+        with self._web() as c:
+            row = c.execute('SELECT * FROM main.runtime_threads WHERE id=?', (thread_id,)).fetchone()
+        if row is None:
+            raise ValueError('runtime thread does not exist')
+        return dict(row)
 
     def _row(self, project_id, thread_id):
         self._project(project_id)
@@ -212,6 +244,10 @@ class RuntimeService:
         result.update(prompt=row["prompt"], errorCode=row["error_code"],
             profileSnapshot=strict_json(row["profile_json"]), skillRef=strict_json(row["skill_json"]),
             proposal=None, run=None)
+        with self._web() as c:
+            result['supervision'] = runtime_jobs.snapshot(c, thread_id)
+        if result['supervision'] is not None:
+            self._verify_job(row)
         with self._core(project) as c:
             proposal = self._proposal(row, c)
             if proposal:
@@ -243,6 +279,19 @@ class RuntimeService:
                 except (ApiError, OSError, ValueError, sqlite3.Error, KeyError):
                     pass  # bounded observation unavailable; do not fabricate a classification
             result["run"] = run
+        supervision = result['supervision']
+        if supervision is not None:
+            inspection = result['run']['inspection'] if result['run'] else {}
+            terminal_facts = [event for event in result['run']['events'] if event['type'] in ('RUN_COMPLETED','RUN_FAILED')] if result['run'] else []
+            terminal_observed = bool(result['run'] and result['run']['status'] in ('COMPLETED','FAILED') and
+                len(terminal_facts) == 1 and terminal_facts[0]['type'] == 'RUN_' + result['run']['status'] and
+                terminal_facts[0]['timestamp'] == result['run']['endedAt'])
+            supervision.update(coordinatorAvailable=not self._closed,
+                coreRunExists=bool(result['run']), coreTerminalObserved=terminal_observed,
+                pendingIntentCount=len(inspection.get('pendingInvocations', [])),
+                outcomeUnresolved=row['status'] == 'UNKNOWN',
+                recoveryAvailable=bool(result['run'] and result['run'].get('recovery')),
+                workerRunning=bool(self._supervisor and self._supervisor.running(thread_id, supervision['workerIdentity'])))
         return result
 
     def _status(self, thread_id, status, error=None, proposal_id=None):
@@ -252,6 +301,7 @@ class RuntimeService:
                 "updated_at=? WHERE id=?", (status, error, proposal_id, utc_now(), thread_id))
             if cursor.rowcount != 1:
                 raise sqlite3.IntegrityError("runtime state was not applied")
+            runtime_jobs.transition(c, thread_id, 'OUTCOME_UNKNOWN' if status == 'UNKNOWN' else status)
             c.commit()
 
     def _submit(self, thread_id, operation):
@@ -289,13 +339,19 @@ class RuntimeService:
             if manager.get_current_state(ref.skill_id, ref.skill_version) != "TRUSTED":
                 raise ApiError("SKILL_NOT_TRUSTED", "The exact Skill must remain TRUSTED.", 422)
             self.providers.check_text(card.canonical_bytes().decode("utf-8"))
-        load_template(runtime.task_spec_path, self.providers.check_text)
+        template, _, seed_facts = load_template(runtime.task_spec_path, self.providers.check_text)
         if self._closed or not self._slots.acquire(blocking=False):
             raise ApiError("RUNTIME_BUSY", "The bounded runtime queue is full.", 429)
         thread_id, run_id = "thread_" + uuid4().hex, "run_" + uuid4().hex
         try:
-            manifest = snapshot_task(runtime.task_spec_path, self._directory(thread_id), prompt, thread_id,
-                                     self.providers.check_text)
+            task_value = asdict(template)
+            task_value.update(task_id=thread_id, title=prompt.strip().splitlines()[0][:80], goal=prompt)
+            task_value['workspace'] = {'seed_dir': 'seed'}
+            encoded = canonical_json_bytes(task_value)
+            if len(encoded) > MAX_FILE_BYTES:
+                raise ApiError('TASK_LIMIT', 'The task exceeds its byte budget.', 422)
+            self.providers.check_text(encoded.decode('utf-8'))
+            manifest = {'seed': seed_facts, 'taskSha256': hashlib.sha256(encoded).hexdigest()}
             now = utc_now()
             with self._web() as c:
                 c.execute("BEGIN IMMEDIATE")
@@ -307,24 +363,83 @@ class RuntimeService:
                      now, now, "QUEUED", run_id))
                 if cursor.rowcount != 1:
                     raise sqlite3.IntegrityError("thread insertion was not applied")
+                runtime_jobs.admission(c, thread_id, {
+                    'projectId': project_id, 'skillRef': ref.to_dict(),
+                    'cardSha256': hashlib.sha256(card.canonical_bytes()).hexdigest(),
+                    'providerProfileId': profile['id'], 'providerRevision': profile['revision'],
+                    'providerConfigSha256': profile['configSha256'], 'modelId': profile['modelId'],
+                    'taskSpecSha256': manifest['taskSha256'],
+                    'seedManifestSha256': hashlib.sha256(canonical_json_bytes(manifest['seed'])).hexdigest(),
+                    'reservedRunId': run_id})
                 c.commit()
         except BaseException:
             self._slots.release()
             raise
-        def plan():
+        # Capacity and immutable identity COMMIT precede private file creation.
+        # Failed copies remain bounded, attributable FAILED jobs, not orphans.
+        try:
+            copied = snapshot_task(runtime.task_spec_path, self._directory(thread_id), prompt, thread_id,
+                                   self.providers.check_text)
+            if copied != manifest:
+                raise ApiError('SEED_CHANGED', 'The admitted snapshot changed.', 422)
+            if self._supervisor:
+                self._futures[thread_id] = self._supervisor.submit(thread_id, 'planning')
+            else:
+                self._submit(thread_id, lambda: self._plan(self._row_unscoped(thread_id)))
+        except BaseException:
             try:
-                self._status(thread_id, "PLANNING")
-                adapter = self._adapter_factory(profile, thread_id)
-                with self._core(project) as c:
-                    proposal = generate_skill_plan(c, self._directory(thread_id) / "task.json", ref, registry(), adapter)
-                preflight_plan(self._directory(thread_id), proposal, manifest, self.providers.check_text)
-                self._status(thread_id, "AWAITING_APPROVAL", proposal_id=proposal.proposal_id)
-            except PlanningTransportError as error:
-                self._status(thread_id, "FAILED", "PROVIDER_" + error.category.upper())
-            except Exception:
-                self._status(thread_id, "FAILED", "PLANNING_REJECTED")
-        self._submit(thread_id, plan)
+                self._status(thread_id, 'FAILED', 'SNAPSHOT_OR_ADMISSION_REJECTED')
+            finally:
+                self._slots.release()
+            raise
         return self.get_thread(project_id, thread_id)
+
+    def _verify_job(self, row):
+        profile, manifest, ref = (strict_json(row[key]) for key in ('profile_json', 'manifest_json', 'skill_json'))
+        with self._web() as c:
+            job = runtime_jobs.snapshot(c, row['id'])
+        # Legacy pre-Step-3 pending proposals have no job and cannot be consumed.
+        if job is None:
+            raise ApiError('JOB_IDENTITY_MISMATCH', 'This historical thread has no execution job.', 409)
+        project, _ = self._project(row['project_id'])
+        with self._core(project) as c:
+            manager = SkillManager(c)
+            try:
+                card = manager.get_version(ref['skill_id'], ref['skill_version'])
+                if manager.get_current_state(ref['skill_id'], ref['skill_version']) != 'TRUSTED':
+                    raise ValueError('exact Skill is not TRUSTED')
+            except (KeyError, TypeError, ValueError):
+                raise ApiError('JOB_IDENTITY_MISMATCH', 'Pinned Skill cannot be verified.', 422) from None
+        expected = {'projectId': row['project_id'], 'skillRef': ref,
+            'cardSha256': hashlib.sha256(card.canonical_bytes()).hexdigest(),
+            'providerProfileId': profile['id'], 'providerRevision': profile['revision'],
+            'providerConfigSha256': profile['configSha256'], 'modelId': profile['modelId'],
+            'taskSpecSha256': manifest['taskSha256'],
+            'seedManifestSha256': hashlib.sha256(canonical_json_bytes(manifest['seed'])).hexdigest(),
+            'reservedRunId': row['reserved_run_id']}
+        current = self.providers.get(profile['id'], profile['revision'])
+        if job['identity'] != expected or current['configSha256'] != profile['configSha256']:
+            raise ApiError('JOB_IDENTITY_MISMATCH', 'Pinned job identity cannot be verified.', 422)
+        return job
+
+    def _plan(self, row):
+        thread_id = row['id']
+        try:
+            self._verify_job(row)
+            self._status(thread_id, 'PLANNING')
+            manifest, profile = strict_json(row['manifest_json']), strict_json(row['profile_json'])
+            verify_snapshot(self._directory(thread_id), manifest, self.providers.check_text)
+            project, _ = self._project(row['project_id'])
+            adapter = self._adapter_factory(profile, thread_id)
+            with self._core(project) as c:
+                proposal = generate_skill_plan(c, self._directory(thread_id) / 'task.json',
+                    SkillRef(**strict_json(row['skill_json'])), registry(), adapter)
+            preflight_plan(self._directory(thread_id), proposal, manifest, self.providers.check_text)
+            self._status(thread_id, 'AWAITING_APPROVAL', proposal_id=proposal.proposal_id)
+        except PlanningTransportError as error:
+            self._status(thread_id, 'FAILED', 'PROVIDER_' + error.category.upper())
+        except Exception:
+            self._status(thread_id, 'FAILED', 'PLANNING_REJECTED')
 
     def approve(self, project_id, thread_id, body):
         row = self._row(project_id, thread_id)
@@ -333,6 +448,7 @@ class RuntimeService:
                 or type(body["approvedPlanSha256"]) is not str or not _DIGEST.fullmatch(body["approvedPlanSha256"])
                 or row["status"] != "AWAITING_APPROVAL" or body["proposalId"] != row["proposal_id"]):
             raise ApiError("APPROVAL_REJECTED", "Approve the exact pending proposal digest.", 409)
+        self._verify_job(row)
         with self._core(project) as c:
             proposal = self._proposal(row, c)
             if body["approvedPlanSha256"] != proposal.plan_sha256:
@@ -349,29 +465,61 @@ class RuntimeService:
         try:
             with self._web() as c:
                 c.execute("BEGIN IMMEDIATE")
-                cursor = c.execute("UPDATE runtime_threads SET status='EXECUTING', approved_digest=?, updated_at=? "
+                cursor = c.execute("UPDATE runtime_threads SET status='DISPATCH_RESERVED', approved_digest=?, updated_at=? "
                     "WHERE id=? AND status='AWAITING_APPROVAL' AND approved_digest IS NULL",
                     (proposal.plan_sha256, utc_now(), thread_id))
                 if cursor.rowcount != 1:
                     raise ApiError("APPROVAL_REJECTED", "This proposal already has an execution reservation.", 409)
+                dispatch, worker = runtime_jobs.reserve(c, row, proposal)
                 c.commit()
         except BaseException:
             self._slots.release()
             raise
-        def execute():
+        try:
+            if self._supervisor:
+                self._futures[thread_id] = self._supervisor.submit(thread_id, 'execution', dispatch, worker)
+            else:
+                self._submit(thread_id, lambda: self._execute(self._row_unscoped(thread_id)))
+        except BaseException:
             try:
-                preflight_plan(self._directory(thread_id), proposal, strict_json(row["manifest_json"]), self.providers.check_text)
-                with self._core(project) as c:
-                    execute_approved_skill_plan(c, proposal.proposal_id, proposal.plan_sha256,
-                        self._directory(thread_id) / "task.json", self._directory(thread_id) / "workspace",
-                        registry(), run_id=row["reserved_run_id"])
-                self._status(thread_id, "FINISHED")
-            except Exception:
-                with self._core(project) as c:
-                    exists = c.execute("SELECT 1 FROM runs WHERE run_id=?", (row["reserved_run_id"],)).fetchone()
-                self._status(thread_id, "UNKNOWN" if exists else "FAILED", "EXECUTION_INTERRUPTED" if exists else "EXECUTION_REJECTED")
-        self._submit(thread_id, execute)
+                self._status(thread_id, 'UNKNOWN', 'DISPATCH_RESERVED_NOT_STARTED')
+            finally:
+                self._slots.release()
+            raise
         return self.get_thread(project_id, thread_id)
+
+    def _execute(self, row):
+        thread_id = row['id']
+        project, _ = self._project(row['project_id'])
+        try:
+            self._verify_job(row)
+            self._status(thread_id, 'EXECUTING')
+            with self._core(project) as c:
+                proposal = self._proposal(row, c)
+                with self._web() as web:
+                    dispatch = web.execute('SELECT * FROM main.runtime_dispatches WHERE job_id=?', (thread_id,)).fetchone()
+                if not dispatch or (dispatch['proposal_id'], dispatch['approved_plan_sha256'], dispatch['reserved_run_id']) != (proposal.proposal_id, proposal.plan_sha256, row['reserved_run_id']):
+                    raise ValueError('dispatch evidence mismatch')
+                preflight_plan(self._directory(thread_id), proposal, strict_json(row['manifest_json']), self.providers.check_text)
+                execute_approved_skill_plan(c, proposal.proposal_id, row['approved_digest'],
+                    self._directory(thread_id) / 'task.json', self._directory(thread_id) / 'workspace',
+                    registry(), run_id=row['reserved_run_id'])
+            self._status(thread_id, 'FINISHED')
+        except Exception:
+            with self._core(project) as c:
+                exists = c.execute('SELECT 1 FROM runs WHERE run_id=?', (row['reserved_run_id'],)).fetchone()
+            self._status(thread_id, 'UNKNOWN' if exists else 'FAILED', 'EXECUTION_INTERRUPTED' if exists else 'EXECUTION_REJECTED')
+
+    def _reconcile(self, thread_id, phase=None):
+        row = self._row_unscoped(thread_id)
+        project, _ = self._project(row['project_id'])
+        with self._core(project) as c:
+            run = c.execute('SELECT status,ended_at FROM runs WHERE run_id=?', (row['reserved_run_id'],)).fetchone()
+            terminal = c.execute("SELECT event_type,occurred_at FROM events WHERE run_id=? AND event_type IN ('RUN_COMPLETED','RUN_FAILED') ORDER BY seq", (row['reserved_run_id'],)).fetchall()
+        if run and run['status'] in ('COMPLETED','FAILED') and len(terminal) == 1 and tuple(terminal[0]) == ('RUN_' + run['status'], run['ended_at']):
+            self._status(thread_id, 'FINISHED')
+        elif row['status'] in (('QUEUED','PLANNING') if phase == 'planning' else ('DISPATCH_RESERVED','EXECUTING') if phase == 'execution' else ('QUEUED','PLANNING','DISPATCH_RESERVED','EXECUTING')):
+            self._status(thread_id, 'UNKNOWN', 'WORKER_INTERRUPTED')
 
     def wait(self, project_id, thread_id, timeout=10):
         """Deterministic local test/CLI helper; HTTP uses bounded polling."""
@@ -382,4 +530,9 @@ class RuntimeService:
 
     def close(self, *, wait=True):
         self._closed = True
-        self._pool.shutdown(wait=wait, cancel_futures=True)
+        if self._pool:
+            self._pool.shutdown(wait=wait, cancel_futures=True)
+        if self._supervisor:
+            self._supervisor.close(wait)
+        if self._coordinator_lock:
+            self._coordinator_lock.close()

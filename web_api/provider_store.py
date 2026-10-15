@@ -305,6 +305,23 @@ class ProviderStore:
         finally:
             connection.close()
 
+    def history(self, profile_id):
+        """Read all bounded immutable revisions; never return credentials."""
+        self._identity(profile_id)
+        connection = self.connect()
+        try:
+            revisions = connection.execute('SELECT revision FROM provider_profile_revisions WHERE profile_id=? ORDER BY revision LIMIT ?', (profile_id, MAX_PROFILE_REVISIONS + 1)).fetchall()
+            if not revisions:
+                raise ApiError('PROVIDER_NOT_FOUND', 'The provider profile does not exist.', 404)
+            if len(revisions) > MAX_PROFILE_REVISIONS:
+                raise ApiError('PROVIDER_LIMIT', 'The provider history exceeds its budget.', 409)
+            return {'profileId': profile_id, 'revisions': [self._load(connection, profile_id, row[0]) for row in revisions],
+                'wireParameters': {'stream': False, 'n': 1},
+                'inactiveParameters': ['thinking', 'reasoning_effort', 'max_tokens', 'retry'],
+                'providerDefaults': 'Parameters not sent use provider defaults; connection success is not Plan validation.'}
+        finally:
+            connection.close()
+
     def create(self, body):
         raw, digest = self._validated(body)
         profile_id, created_at = "provider_" + uuid4().hex, _now()

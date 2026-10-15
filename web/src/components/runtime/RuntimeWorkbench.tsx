@@ -8,7 +8,7 @@ import { RuntimePermissions } from "./RuntimePermissions";
 import { RuntimeProviders } from "./RuntimeProviders";
 import { RuntimeThreadView, threadLabels } from "./RuntimeThreadView";
 
-const active = (status: string) => ["QUEUED", "PLANNING", "EXECUTING"].includes(status);
+const active = (status: string) => ["QUEUED", "PLANNING", "DISPATCH_RESERVED", "EXECUTING"].includes(status);
 function routeData(route: string) {
   try {
     const url = new URL(route, "http://runtime.local");

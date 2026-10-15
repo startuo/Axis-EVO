@@ -12,13 +12,13 @@ from .events import EventType
 from .hashing import canonical_json_bytes
 from .models import PlanStep, Run, RunStatus
 from .plugins import PluginRegistry
-from .sandbox import Sandbox
+from .sandbox import Sandbox, WorkspacePathResolver
 from .skill_binding import preflight_skill_binding, record_skill_invocation_binding
 from .skill_card import SkillRef
 from .storage import append_event, create_run, finish_run
 from .task_spec import load_task_spec
-from .tools import execute_tool_call
-from .validators import preflight_acceptance, validate_acceptance
+from .tools import execute_tool_call, ReadFileTool, WriteFileTool, PatchFileTool, RunTestsTool, _arguments
+from .validators import preflight_acceptance, validate_acceptance, _pytest_arguments
 
 
 def _validate_json_native(value) -> None:
@@ -70,12 +70,40 @@ def _resolve_seed(task_spec_path: Path, seed_reference: str) -> Path:
     if windows_path.drive or windows_path.root or ":" in seed_reference or "\x00" in seed_reference:
         raise ValueError("seed_dir must be a relative task asset path")
     task_directory = task_spec_path.parent
-    seed = (task_directory / seed_reference.replace("\\", "/")).resolve(strict=True)
+    supplied_seed = task_directory / seed_reference.replace("\\", "/")
+    if supplied_seed.exists() and not supplied_seed.is_dir():
+        raise NotADirectoryError(supplied_seed)
+    WorkspacePathResolver._directories(supplied_seed)
+    seed = supplied_seed.resolve(strict=True)
     if not seed.is_relative_to(task_directory):
         raise ValueError("seed_dir escapes the TaskSpec directory")
     if not seed.is_dir():
         raise NotADirectoryError(seed)
     return seed
+
+
+def _preflight_builtin_paths(steps, registry, seed):
+    """Reject statically known builtin errors without creating execution facts.
+
+    This does not predict future filesystem state or invoke custom Tool callbacks.
+    Dynamic exceptions remain governed by the original incomplete-run contract.
+    """
+    resolver = WorkspacePathResolver(seed)
+    for step in steps:
+        tool = registry.get(step.tool_name)
+        if type(tool) in (ReadFileTool, WriteFileTool, PatchFileTool):
+            required = {"path"} if type(tool) is ReadFileTool else {"path", "content"} if type(tool) is WriteFileTool else {"path", "old", "new"}
+            _arguments(step.arguments, required)
+            if type(tool) is PatchFileTool and not step.arguments["old"]:
+                raise ValueError("old must be nonempty")
+            try:
+                resolver.resolve(step.arguments["path"])
+            except FileNotFoundError:
+                # A previous custom trusted tool may create a safe parent.
+                # The resolver already checked lexical escape before this case.
+                pass
+        elif type(tool) is RunTestsTool:
+            _pytest_arguments(tool._args(step.arguments))
 
 
 def run_task(
@@ -115,6 +143,7 @@ def run_task(
         preflight_plan_proposal(connection, plan_proposal_id, approved_plan_sha256,
                                 task_spec, steps, skill_ref, tool_registry)
     seed = _resolve_seed(task_path, task_spec.workspace["seed_dir"])
+    _preflight_builtin_paths(steps, tool_registry, seed)
     preflight_acceptance(task_spec)
     sandbox = Sandbox.from_seed(seed, workspace_path)
     preflight_acceptance(task_spec, sandbox)

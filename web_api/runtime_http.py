@@ -82,7 +82,25 @@ class RuntimeHandler(WorkbenchHandler):
             return
         lengths = self.headers.get_all("Content-Length", [])
         if (len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdecimal()
-                or len(lengths[0]) > 6 or not 0 <= int(lengths[0]) <= 65536):
+                or len(lengths[0]) > 6):
+            return
+        if int(lengths[0]) > 65536:
+            # Reject oversized framing without waiting for the advertised body.
+            # Consume at most already-arriving bounded bytes so Windows can send
+            # the error response without resetting a small malformed request.
+            previous = self.connection.gettimeout()
+            try:
+                self.connection.settimeout(0.05)
+                remaining = 65536
+                while remaining:
+                    data = self.rfile.read1(min(4096, remaining))
+                    if not data:
+                        break
+                    remaining -= len(data)
+            except (OSError, socket.timeout):
+                pass
+            finally:
+                self.connection.settimeout(previous)
             return
         try:
             self.rfile.read(int(lengths[0]))
@@ -106,6 +124,8 @@ class RuntimeHandler(WorkbenchHandler):
         parts = path.strip("/").split("/")
         if parts == ["api", "runtime", "providers"]:
             return runtime.providers.list()
+        if len(parts) == 5 and parts[:3] == ['api', 'runtime', 'providers'] and parts[4] == 'history':
+            return runtime.providers.history(parts[3])
         if len(parts) >= 5 and parts[:3] == ["api", "runtime", "projects"] and parts[4] == "threads":
             if len(parts) == 5:
                 return runtime.list_threads(parts[3])

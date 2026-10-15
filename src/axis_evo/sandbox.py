@@ -4,7 +4,6 @@ import hashlib
 import io
 import os
 from pathlib import Path, PureWindowsPath
-import shutil
 import stat
 
 from .models import FileObservation
@@ -186,10 +185,15 @@ class Sandbox:
 
     @classmethod
     def from_seed(cls, seed_dir: str | Path, workspace_dir: str | Path) -> "Sandbox":
+        supplied_seed = Path(seed_dir).absolute()
+        if supplied_seed.exists() and not supplied_seed.is_dir():
+            raise NotADirectoryError(supplied_seed)
+        WorkspacePathResolver._directories(supplied_seed)
         seed = Path(seed_dir).resolve(strict=True)
         if not seed.is_dir():
             raise NotADirectoryError(seed)
         supplied_destination = Path(workspace_dir).absolute()
+        WorkspacePathResolver._directories(supplied_destination.parent)
         destination = supplied_destination.resolve()
         if supplied_destination.is_symlink() or destination.exists():
             raise FileExistsError(f"workspace already exists: {workspace_dir}")
@@ -197,7 +201,8 @@ class Sandbox:
             raise ValueError("new workspace must not be inside the seed directory")
         if not destination.parent.is_dir():
             raise FileNotFoundError("workspace parent directory must already exist")
-        shutil.copytree(seed, destination, symlinks=True)
+        from .seed_copy import copy_seed
+        copy_seed(seed, destination)
         return cls(destination)
 
     def resolve(self, relative_path: str) -> Path:

@@ -8,7 +8,7 @@ Axis-Evo 是面向大语言模型智能体的可信技能演化与中断恢复�
 
 项目将模型规划、调用方审批、工具执行和独立验收分开，通过 SQLite 持久化执行事实，将任务、计划、Skill 版本及执行结果关联起来，并支持只读审查、可核验检查点、受控恢复和证据门控的技能演化。
 
-当前实现到 **Phase 4 / Step 2**，本地 Web Workbench 支持离线演示、Core 只读审查，以及明确启用后的模型规划、精确计划审批与受控文件执行。Core 使用 Python 标准库，要求 **Python 3.11+**；前端使用 React / TypeScript。启动方式见 [工作台说明](docs/WORKBENCH_SETUP.md)。
+当前实现到 **Phase 4 / Step 3**，本地 Web Workbench 支持离线演示、只读审查、模型规划、精确计划审批和独立 Worker 文件执行。持久化派发与崩溃监督保留不确定结果；真实 Provider 验证状态见 [测试结果](docs/TEST_RESULTS.md)。Core 使用 Python 标准库，要求 **Python 3.11+**；前端使用 React / TypeScript。启动方式见 [工作台说明](docs/WORKBENCH_SETUP.md)。
 
 ## 项目结构
 
@@ -17,6 +17,7 @@ axis-evo/
 ├── src/axis_evo/
 │   ├── models.py / events.py / storage.py   # 数据模型、事件与持久化
 │   ├── sandbox.py / tools.py               # 工作区边界与受控工具
+│   ├── seed_copy.py / process_limits.py    # 有界复制与子进程资源限制
 │   ├── runner.py / validators.py           # 计划执行与独立验收
 │   ├── inspector.py                        # 执行事实审查
 │   ├── skill_card.py / skill_manager.py     # 不可变技能版本与生命周期
@@ -29,7 +30,7 @@ axis-evo/
 │   └── migrations/                        # SQLite 显式迁移
 ├── examples/                              # 程序化使用示例
 ├── web/                                   # React 工作台、离线演示与样式
-├── web_api/                               # 本地只读桥接、Provider 与可选安全运行时
+├── web_api/                               # 只读桥接、Provider、持久化调度与独立 Worker
 ├── docs/
 │   ├── assets/Axis.png                    # 项目封面
 │   ├── SKILL_EVOLUTION.md                  # 技能演化接口与使用说明

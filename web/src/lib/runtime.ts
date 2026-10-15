@@ -9,6 +9,7 @@ export type RuntimeCapabilities = {
   allowedTools: string[];
   blockedTools: string[];
   limitations: string[];
+  executionMode?: string;
 };
 export type RuntimeProfile = {
   id: string;
@@ -41,7 +42,15 @@ export type RuntimeProposal = {
   approvedPlanSha256: string | null;
   steps: { step_id: string; tool_name: string; arguments: { [key: string]: JsonValue } }[];
 };
-export type ThreadStatus = "QUEUED" | "PLANNING" | "AWAITING_APPROVAL" | "EXECUTING" | "FINISHED" | "FAILED" | "UNKNOWN";
+export type ThreadStatus = "QUEUED" | "PLANNING" | "AWAITING_APPROVAL" | "DISPATCH_RESERVED" | "EXECUTING" | "FINISHED" | "FAILED" | "UNKNOWN";
+export type RuntimeSupervision = {
+  jobId: string; jobState: string; dispatchId: string | null; workerIdentity: string | null;
+  workerAssigned: boolean; workerRunning: boolean; workerExitObserved: boolean; exitCode: number | null;
+  supervisionLost: boolean; coordinatorAvailable: boolean; coreRunExists: boolean;
+  coreTerminalObserved: boolean; pendingIntentCount: number; outcomeUnresolved: boolean;
+  recoveryAvailable: boolean; observations: { kind: string; detail: JsonValue; observedAt: string }[];
+};
+export type ProviderHistory = { profileId: string; revisions: RuntimeProfile[]; wireParameters: { stream: boolean; n: number }; inactiveParameters: string[]; providerDefaults: string };
 export type RuntimeThreadSummary = {
   id: string;
   projectId: string;
@@ -59,6 +68,7 @@ export type RuntimeThread = RuntimeThreadSummary & {
   skillRef: SkillRef;
   proposal: RuntimeProposal | null;
   run: RunView | null;
+  supervision?: RuntimeSupervision | null;
 };
 
 const RESPONSE_LIMIT = 1024 * 1024;
@@ -69,7 +79,7 @@ const integer = (v: unknown): v is number => typeof v === "number" && Number.isS
 const hash = (v: unknown) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
 const nullableText = (v: unknown) => v === null || text(v);
 const skillRef = (v: unknown) => object(v) && text(v.skill_id) && integer(v.skill_version) && v.skill_version > 0;
-const states: ThreadStatus[] = ["QUEUED", "PLANNING", "AWAITING_APPROVAL", "EXECUTING", "FINISHED", "FAILED", "UNKNOWN"];
+const states: ThreadStatus[] = ["QUEUED", "PLANNING", "AWAITING_APPROVAL", "DISPATCH_RESERVED", "EXECUTING", "FINISHED", "FAILED", "UNKNOWN"];
 const profile = (v: unknown) => object(v) && text(v.id) && integer(v.revision) && v.revision > 0 && hash(v.configSha256) && text(v.name) && ["openai-compatible", "deepseek-compatible"].includes(String(v.protocol)) && text(v.endpoint) && text(v.modelId) && text(v.credentialRef) && integer(v.timeout) && v.timeout > 0 && typeof v.credentialConfigured === "boolean" && text(v.testStatus) && nullableText(v.testedAt);
 const summary = (v: unknown) => object(v) && text(v.id) && text(v.projectId) && text(v.title) && text(v.createdAt) && text(v.updatedAt) && states.includes(v.status as ThreadStatus) && nullableText(v.proposalId) && nullableText(v.runId);
 function jsonTree(value: unknown, depth = 0): boolean {
@@ -107,14 +117,25 @@ export function validateRuntimeData(path: string, data: unknown, mutating = fals
     if (!object(data) || typeof data.csrfToken !== "string" || data.csrfToken.length < 16 || data.csrfToken.length > 256) reject();
   } else if (path === "/providers" && !mutating) {
     if (!object(data) || !list(data.profiles) || !data.profiles.every(profile) || !nullableText(data.activeProfileId) || !list(data.endpoints) || !data.endpoints.every(text) || !list(data.credentialRefs) || !data.credentialRefs.every((ref) => object(ref) && text(ref.id) && typeof ref.configured === "boolean") || !list(data.unsupportedOptions) || !data.unsupportedOptions.every(text)) reject();
+  } else if (/^\/providers\/[^/]+\/history$/.test(path)) {
+    if (!object(data) || !text(data.profileId) || !list(data.revisions) || !data.revisions.every(profile) || !object(data.wireParameters) || data.wireParameters.stream !== false || data.wireParameters.n !== 1 || !list(data.inactiveParameters) || !data.inactiveParameters.every(text) || !text(data.providerDefaults)) reject();
+    if (object(data) && text(data.profileId) && list(data.revisions) && (encodeURIComponent(data.profileId) !== path.split('/')[2] || data.revisions.length < 1 || data.revisions.length > 100 || !data.revisions.every((revision, index) => object(revision) && revision.id === data.profileId && revision.revision === index + 1))) reject();
   } else if (path === "/providers" || /^\/providers\/[^/]+\/(?:revisions|activate)$/.test(path)) {
     if (!profile(data)) reject();
   } else if (/^\/providers\/[^/]+\/revisions\/\d+\/test$/.test(path)) {
     if (!object(data) || !text(data.id) || !integer(data.revision) || !hash(data.configSha256) || !["CONNECTED", "FAILED"].includes(String(data.testStatus)) || !text(data.testedAt) || !text(data.category) || !(data.httpStatus === null || integer(data.httpStatus))) reject();
-  } else if (/\/threads$/.test(path) && Array.isArray(data)) {
-    if (!data.every(summary)) reject();
+  } else if (/\/threads$/.test(path) && !mutating) {
+    const project = path.split('/')[2];
+    if (!list(data) || !data.every((item) => summary(item) && object(item) && encodeURIComponent(String(item.projectId)) === project)) reject();
   } else if (/\/threads(?:\/|$)/.test(path)) {
     if (!summary(data) || !object(data) || !text(data.prompt) || !nullableText(data.errorCode) || !profile(data.profileSnapshot) || !skillRef(data.skillRef) || !(data.proposal === null || proposal(data.proposal)) || !(data.run === null || object(data.run))) { reject(); return; }
+    const route = path.split('/');
+    if (encodeURIComponent(String(data.projectId)) !== route[2] || route[4] !== undefined && encodeURIComponent(String(data.id)) !== route[4]) reject();
+    const health = data.supervision;
+    if (health !== undefined && health !== null && (!object(health) || !text(health.jobId) || !text(health.jobState) || !nullableText(health.dispatchId) || !nullableText(health.workerIdentity) || !['workerAssigned', 'workerRunning', 'workerExitObserved', 'supervisionLost', 'coordinatorAvailable', 'coreRunExists', 'coreTerminalObserved', 'outcomeUnresolved', 'recoveryAvailable'].every((key) => typeof health[key] === 'boolean') || !integer(health.pendingIntentCount) || !(health.exitCode === null || Number.isSafeInteger(health.exitCode)) || !list(health.observations) || !health.observations.every((o) => object(o) && text(o.kind) && text(o.observedAt) && jsonTree(o.detail)))) reject();
+    if (object(health) && (health.jobId !== data.id || ![...states, 'OUTCOME_UNKNOWN'].includes(String(health.jobState)) || health.coreRunExists !== (data.run !== null) || health.workerExitObserved === false && health.exitCode !== null)) reject();
+    if (object(health) && (health.workerRunning === true && health.workerExitObserved === true || health.coreTerminalObserved === true && (!object(data.run) || !['COMPLETED', 'FAILED'].includes(String(data.run.status))))) reject();
+    if (object(health) && (health.workerAssigned !== (typeof health.workerIdentity === 'string' && health.workerIdentity.length > 0) || (health.workerRunning === true || health.workerExitObserved === true) && health.workerAssigned !== true || health.workerExitObserved === true && health.exitCode === null)) reject();
     if (data.run !== null) {
       try { validateCoreData(`/projects/selected/runs/${String(data.runId)}`, data.run); }
       catch { reject(); }
@@ -168,6 +189,7 @@ export const runtimeApi = {
   session: (code: string) => runtimeRequest<{ csrfToken: string }>("/session", { body: { code } }),
   restoreSession: (signal?: AbortSignal) => runtimeRequest<{ csrfToken: string }>("/session", { signal }),
   profiles: (signal?: AbortSignal) => runtimeRequest<RuntimeProfiles>("/providers", { signal }),
+  profileHistory: (id: string, signal?: AbortSignal) => runtimeRequest<ProviderHistory>(`/providers/${encoded(id)}/history`, { signal }),
   saveProfile: (input: ProfileInput, token: string, id?: string) => runtimeRequest<RuntimeProfile>(id ? `/providers/${encoded(id)}/revisions` : "/providers", { body: input, csrfToken: token }),
   activateProfile: (id: string, token: string) => runtimeRequest<RuntimeProfile>(`/providers/${encoded(id)}/activate`, { body: {}, csrfToken: token }),
   testProfile: (profile: RuntimeProfile, token: string) => runtimeRequest<unknown>(`/providers/${encoded(profile.id)}/revisions/${profile.revision}/test`, { body: {}, csrfToken: token, timeoutMs: Math.min(305000, (profile.timeout + 5) * 1000) }),

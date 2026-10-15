@@ -6,7 +6,6 @@ import os
 from pathlib import Path, PureWindowsPath
 import re
 import sqlite3
-import subprocess
 import sys
 from time import perf_counter
 from typing import Any
@@ -15,6 +14,9 @@ from .events import EventType
 from .models import TaskSpec, ValidationResult
 from .sandbox import Sandbox
 from .storage import append_event
+from .process_limits import BoundedSubprocess, OutputLimitExceeded, child_environment
+
+subprocess = BoundedSubprocess()
 
 
 VALIDATION_TIMEOUT_SECONDS = 60
@@ -69,13 +71,7 @@ def _run_pytest(sandbox: Sandbox, arguments: list[str]) -> dict[str, Any]:
         args = _pytest_arguments(arguments, sandbox)
     except (OSError, ValueError) as error:
         return {"enabled": True, "executed": False, "passed": False, "reason": str(error)}
-    env = os.environ.copy()
-    env.update(
-        PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
-        PYTEST_ADDOPTS="", PYTHONIOENCODING="utf-8",
-    )
-    env.pop("PYTEST_PLUGINS", None)
-    env.pop("PYTHONPATH", None)
+    env = child_environment()
     command = [
         sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-c", os.devnull,
         "--rootdir=" + str(sandbox.root), "--confcutdir=" + str(sandbox.root), *args,
@@ -90,6 +86,9 @@ def _run_pytest(sandbox: Sandbox, arguments: list[str]) -> dict[str, Any]:
             "passed": completed.returncode == 0, "exit_code": completed.returncode,
             "stdout": completed.stdout, "stderr": completed.stderr,
         }
+    except OutputLimitExceeded as error:
+        outcome = {"passed": False, "exit_code": None, "reason": "OUTPUT_LIMIT_EXCEEDED",
+                   "stdout": error.stdout, "stderr": error.stderr}
     except subprocess.TimeoutExpired as error:
         def text(value: str | bytes | None) -> str:
             return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
