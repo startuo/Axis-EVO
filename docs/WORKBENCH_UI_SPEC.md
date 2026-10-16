@@ -1,35 +1,39 @@
 # Workbench UI 约定
 
-工作台借鉴项目/线程侧栏、中央工作区、邻接审查面板的组织方式。使用 Axis 自有标志、铜色/石墨中性色和黑体字体，不复制参考产品文字品牌、官方图标或专有插画。没有指定旧版本截图，验收针对信息结构、比例、密度、空态与交互，不声称像素级 1:1。
+## 参考与实现范围
 
-## 布局
+界面基于 Caho1/open-claude-ui 固定提交 `2834bc158a4849f21c97cbb2e0b10525f6e646f1` 的公开 CDS 主题、组件和 Storybook 重构，保留 AXIS 标志及简体中文。参考提供组件展示而非完整应用；新对话整体布局采用本项目确定的欢迎语与居中输入框。源码许可见仓库 `THIRD_PARTY_NOTICES.md`。
 
-Runtime 桌面使用 248px sidebar、弹性中央空间、376px Inspector；Inspector 可用 pointer 或方向键在320–520px调整。收起sidebar为68px，顶栏48px。1200px以下审查为模态sheet，760px以下导航为抽屉，二者不同时打开。设置/权限页默认不占空白Inspector。
+React 19 / TypeScript / Vite 保持现状；framer-motion 固定为 11.18.2。Inter、Newsreader、JetBrains Mono 与各自 OFL 在本地提供，中文使用系统回退字体。运行时字体和品牌资源不访问 CDN。为兼容现有四路连接预算，字体在标志就绪后依次注册，标志仅请求当前主题版本。不引入桌面窗口、附件、多轮追问、模拟流式回复或其他未实现服务。
 
-正文14px，Runtime密集正文13px，元数据10–12px；长hash允许换行和复制。字体为 PingFang SC / Hiragino Sans GB / Microsoft YaHei / Noto Sans CJK SC / Source Han Sans SC / system sans-serif；标识和hash使用monospace。没有网络字体、宣传hero或无依据动效。composer按内容增长并设上限，不遮挡当前线程；固定计划执行中的线程不显示续聊输入。
+## 共用框架与新对话
 
-浅/深色分别使用原样 Axis 亮.png / Axis 暗.png，保持透明度及纵横比，不裁切、不重绘、不滤色。语义绿/黄/红只表达状态，并同时提供文字。原离线Demo与Core页面保留，但使用相同Axis色彩/标志。
+Runtime、Demo 与 Core 只读共用 WorkbenchShell、WorkbenchSidebar、弹出选择器与审查容器，业务控制器按当前路由单独挂载。默认入口 `#/runtime`；既有 task、Skills、Evolution、settings 等深链接保留。
 
-## 三种数据源
+桌面侧栏 288px，收起 64px，顶栏 46px。中央输入区最大宽 768px，输入框圆角 20px、用户气泡 18px、面板 10px，使用参考四层低对比表面和陶土色 `#d97757`。760px 以下导航为抽屉，1200px 以下审查为模态 sheet。桌面审查面板默认 376px，可拖拽或键盘在 320–520px 间调整。
 
-- DEMO：明确预设场景，不发模型请求、不执行、不审批。
-- CORE · 只读：明确配置的已有数据库投影，UNSUPPORTED/metadata-only保留，不用Demo填补。
-- RUNTIME · 本地执行：后台会话授权后的真实请求/计划/审批/执行。Thread ID与Run ID分开；规划中或待审批时尚无Core Run。Provider transport测试double只存在于私有测试harness。
+首页主体仅有“今天，想完成什么？”与输入框，整体居中略上移。最近记录留在侧栏；项目、模型和精确 Skill 选择收进输入工具栏。首页不展示项目摘要、最近列表、安全说明条或空审查面板。Runtime 未连接、未授权或配置缺失时保留这一结构，展示简短状态与设置入口，生成计划保持禁用。
 
-## 执行与审查语义
+侧栏新对话按钮与 Ctrl/⌘ N 调用同一重置入口：清空当前草稿，关闭所有弹窗/菜单/审查面板、旧提示并重置滚动与输入焦点；项目、模型和已明确选择的 Skill 保留。使用独立视图会话标识隔离在途请求，旧响应不能改写新草稿或将路由跳回旧任务。已提交的后台任务仍保留在历史中。
 
-主线程显示实际用户prompt、模型请求状态、完整Plan arguments、精确digest审批、Core seq事件和独立Validation。模型响应不是思考流。Web状态不分配Core seq，Web FINISHED不冒充RUN_COMPLETED，Tool SUCCESS不等于Validation PASSED。
+Enter 提交、Shift+Enter 换行、Ctrl/⌘ Enter 保留；中文输入法组合期间的 Enter 不提交。输入框按内容增长至上限。固定计划线程不显示续聊输入。主题及侧栏收起偏好可以保存；草稿、会话代码及 CSRF 不写入浏览器持久存储。
 
-计划卡完整显示JSON arguments；批准checkbox与按钮提交准确proposal ID + plan SHA-256，不允许替换计划。审批只能由后端核验成功确认。UNKNOWN持续可见，Source与Recovery Child分别展示，没有重试/恢复按钮抹除未知。事件按events.seq，不按模型时间排序。
+## 数据来源与执行事实
 
-Skill版本、Trust Assessment、gate eligibility、promotion approval、TRUSTED receipt和preferred activation分别呈现。Runtime入口到Skills明确切回Demo/Core只读数据模式；不把预设Skill卡当运行时准入。Inspector的审查/事件/文件/证据分开；文件页面只有持久观察，未知现场不补文件内容或因果。
+- DEMO：明确的预设场景，仅保存本地草稿，不发模型请求、不执行、不审批。
+- CORE · 只读：已有数据库的只读投影，保留 UNSUPPORTED/metadata-only，不以 Demo 填补缺失事实。
+- RUNTIME · 本地执行：会话授权后的真实请求、规划、明确审批与执行。Thread ID 与 Run ID 分开；规划及待审批期间尚无 Core Run。测试 Provider double 只存在于本地私有 harness。
 
-## Provider 与权限
+待审批计划默认完整展开：全部步骤、JSON arguments、精确 Plan digest、审阅勾选和批准按钮直接可见。次要身份摘要可按需展开，但不能替换或隐藏待批准的计划参数。审批仍提交准确的 proposal ID 与 plan SHA-256。
 
-Provider配置版本在后端持久保存；页面不接受API Key，只选择后台批准的credential reference与完整HTTPS Endpoint。编辑创建新revision。测试按钮发真实固定请求，仅显示对应revision实际测试记录，不把保存配置当连接成功。Reasoning/Retry明确不支持。既有线程显示自己的版本快照，不跟随当前默认模型。
+Core 事件、Worker 监督与文件证据可折叠；UNKNOWN、失败、轨迹不一致和独立 Validation 必须直接可见。Web FINISHED 不代替 Core RUN_COMPLETED，Tool SUCCESS 不等于 Validation PASSED。事件依 Core seq 排序。Source 与 Recovery Child 分别呈现，不提供自动重试、取消或恢复操作。
 
-权限页显示后端file-only模式、blocked run_tests、固定Acceptance、seed/junction/输出预算与会话状态。不能通过客户端开关提升工具权限或增加任意主机路径。
+Inspector 默认关闭，只在任务上下文提供，通过查看证据或顶栏按钮打开；审查/事件/文件/证据分开。文件页仅展示持久化观察，不推断现场内容或工具因果。Skill 信任、gate eligibility、promotion approval、receipt 与 preferred activation 保持原有区别。
 
-## 可访问性与交互
+## 配置、权限与交互
 
-保留原生button/select/dialog、skip link、可见focus、tab roving focus、Escape及焦点边界。Inspector splitter可键盘操作。Ctrl/⌘ N新任务；Ctrl/⌘ K搜索线程；Ctrl/⌘ Enter在Runtime仅生成计划，在旧Demo只保存草稿。轮询不抢焦点，不自动重发mutation。草稿和CSRF仅页面内存；HttpOnly session可在同源刷新后恢复。响应式、深色、键盘、axe、完整参数和真实审批链由实际浏览器验收。
+Provider 配置仍由后端保存，编辑创建独立 revision；旧线程使用原始模型快照。页面只选择允许的 credential reference 与 HTTPS Endpoint。连接测试仅证明该版本本次请求的响应，不证明任务或工具成功。权限和允许工具由后端决定。
+
+所有控制可键盘访问；保留 skip link、可见焦点、弹窗焦点边界、Escape、Inspector 标签方向键与 splitter 键盘操作。弹出选择器支持方向键、Home/End、Enter、Escape、外部点击关闭。轮询不抢焦点、不自动重发 mutation。动效使用参考物理参数，并遵循 prefers-reduced-motion。
+
+验收涵盖类型/静态检查、前端回归、真实 HTTP 隔离 Runtime 链路及六尺寸明暗浏览器检查；实际结果记录在 TEST_RESULTS.md。测试源码、fixture、截图与审查日志仅保留本地。

@@ -15,7 +15,7 @@ Set-Location ..
 python -m web_api.app --port 8765 --web-root web/dist
 ```
 
-打开 `http://127.0.0.1:8765`。默认 Demo 不需要 API Key，不调用模型。`--config .local/workbench.json` 可启用已有事实的只读投影。配置只接受绝对路径，数据库和 workspace 授权容器须已存在：
+打开 `http://127.0.0.1:8765`，默认进入真实运行的新对话页。仅启动只读服务时，该页保留欢迎语和输入区并禁用提交；通过侧栏“更多功能 → 演示 / Core 只读”进入离线 Demo。Demo 不需要 API Key，不调用模型。`--config .local/workbench.json` 可启用已有事实的只读投影。配置只接受绝对路径，数据库和 workspace 授权容器须已存在：
 
 ```json
 {"projects":[{"id":"configuration","name":"Local configuration","database":"C:/absolute/core.sqlite3","workspace_roots":["C:/absolute/data"]}],"allowed_origins":[]}
@@ -39,7 +39,7 @@ python -m examples.workbench_runtime --admit-example-skill
 python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime-config .local/workbench-runtime/runtime.json --port 8765 --web-root web/dist
 ```
 
-打开工作台的“真实运行”，在权限页输入终端显示的一次性本地会话代码。代码有效期 10 分钟；会话有效期 1 小时。刷新可凭 HttpOnly cookie 恢复页面内存中的 CSRF token；重启服务后需要新的代码。应用不使用 localStorage/sessionStorage 保存授权值。
+在新对话页点击“连接与权限”，或通过侧栏“更多功能 → 权限与环境”，在权限页输入终端显示的一次性本地会话代码。代码有效期 10 分钟；会话有效期 1 小时。刷新可凭 HttpOnly cookie 恢复页面内存中的 CSRF token；重启服务后需要新的代码。应用不使用 localStorage/sessionStorage 保存授权值。
 
 在 Provider 配置页创建模型配置，选择后台允许的 Endpoint 与凭据引用，填写明确 model ID。保存、编辑、设为默认和测试连接都会调用真实后端；编辑创建新 revision。连接测试发送一次固定无任务数据请求，成功只表示该版本完成一次响应。未支持的 Reasoning/Retry 不生效；没有自动重试。
 

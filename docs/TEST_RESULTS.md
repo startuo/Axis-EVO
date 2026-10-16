@@ -1,6 +1,27 @@
 # 测试结果
 
-## Phase 4 / Step 3 — 当前验证
+## UI 全面重构 — 2026-10-16 当前验证
+
+Baseline: `36362b5`。Tested source: `4028d689ecda2ed57c98d450e1416c3ca1aa267a`。参考为 `Caho1/open-claude-ui@2834bc158a4849f21c97cbb2e0b10525f6e646f1`。本轮仅改变前端与使用说明，Core / web_api 的实现与接口保持原样；以下 Python 历史结果没有在本轮重跑。
+
+| 本轮检查 | 实际结果 |
+| --- | --- |
+| `npm run typecheck` / `npm run build` | 通过；生产 JS 466.00 kB / gzip 147.29 kB，CSS 90.29 kB / gzip 16.09 kB |
+| `npm run lint` | 通过，0 warnings |
+| `npm test` | 13 files，182 passed，0 failed / skipped |
+| 旧工作台与视觉 E2E | 27 passed，0 failed / skipped / flaky |
+| 真实 HTTP Runtime E2E | 1 passed，精确审批、真实 Runner / SQLite / 文件与独立 Acceptance 保留 |
+| 独立进程 Runtime 六尺寸 QA | 6 passed，1920×1080、1440×900、1366×768、1280×800、1024×768、390×844 |
+
+浏览器合计 **34 passed**。六尺寸含浅/深色空首页、规划、完整审批参数、执行/验收、失败、UNKNOWN、Provider 历史与移动审查，共 86 张进程 QA 截图；各稳定页面 axe 0 violations，应用 console 0 errors/warnings，外部 requests 0。截图验收等待字体完成，静态 Runtime 审计使用 reduced motion，另有真实键盘/焦点/减少动态效果浏览器回归。Node 的 NO_COLOR/FORCE_COLOR 提示属于测试进程环境，不计为应用 console 记录。
+
+新增回归覆盖：默认 Runtime、不可用服务的简洁首页、按钮/快捷键清空草稿和所有浮层、保留项目/模型/明确 Skill、迟到规划响应与 Provider 错误隔离、中文 IME、Shift+Enter、浏览器前进后退、选择器键盘、closed details 焦点边界与重复审批。待审批全部 steps/arguments 和 Plan digest 直接可见；UNKNOWN、失败、轨迹异常和独立验收不会被折叠掩盖。
+
+前端按既有四路连接预算依次加载本地字体，并按当前主题仅请求对应原始 AXIS 标志；未改变后端并发限制。新对话只保留欢迎语与输入区，历史移入侧栏，审查按需打开。既有三种数据来源继续分开；本轮没有新增多轮聊天、流式回复或附件服务。
+
+Runtime 模型传输仍由私有离线 harness 拦截，本轮不代表真实 Provider / DeepSeek 外网验证，也没有部署或 EXE 交付。测试源码、fixture、审计 JSON、截图和原始参考保留在本地 review_evidence/ui_rebuild 及原测试输出目录，不进入 Git。源码许可与字体 OFL 随实现保留。
+
+## Phase 4 / Step 3 — 历史验证（UI 重构前）
 
 Baseline: `2b74de73150cb6f97db5bf2619ff0be0fa7af6e1`。Tested source: `a28a700b02a3c8d2aeabdf8dd01050ecf596dbba`。最终发布身份以 GitHub main 与本地 publication.json 的独立核验为准。
 
