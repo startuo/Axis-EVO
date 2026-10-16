@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, KeyRound, Plus, Save, Server, Wifi } from "lucide-react";
 import { runtimeApi, type ProfileInput, type RuntimeProfile, type RuntimeProfiles, type ProviderHistory } from "../../lib/runtime";
 import { Badge, EmptyState, Field } from "../ui/Primitives";
@@ -9,13 +9,20 @@ export function RuntimeProviders({ data, token, reload, reportError }: { data: R
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [history, setHistory] = useState<ProviderHistory | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     const refreshed = data?.profiles.find((profile) => profile.id === editing?.id && profile.revision === editing?.revision);
     if (refreshed && refreshed !== editing) setEditing(refreshed);
   }, [data, editing]);
   function fresh() { setEditing(null); setForm({ name: "", protocol: "openai-compatible", endpoint: data?.endpoints[0] ?? "", modelId: "", credentialRef: data?.credentialRefs[0]?.id ?? "", timeout: 30 }); setNotice(""); }
   function edit(profile: RuntimeProfile) { setEditing(profile); setHistory(null); setForm({ name: profile.name, protocol: profile.protocol, endpoint: profile.endpoint, modelId: profile.modelId, credentialRef: profile.credentialRef, timeout: profile.timeout }); setNotice(""); }
-  async function perform(action: string, operation: () => Promise<unknown>, message: string) { setBusy(action); setNotice(""); try { await operation(); setNotice(message); reload(); } catch (error) { reportError(error); } finally { setBusy(""); } }
+  async function perform(action: string, operation: () => Promise<unknown>, message: string) {
+    setBusy(action); setNotice("");
+    try { await operation(); if (mounted.current) { setNotice(message); reload(); } }
+    catch (error) { if (mounted.current) reportError(error); }
+    finally { if (mounted.current) setBusy(""); }
+  }
   if (!data) return <EmptyState title="正在读取模型配置">只读取后端管理的非秘密元数据。</EmptyState>;
   const field = (key: keyof ProfileInput, value: string | number) => setForm((current) => current ? { ...current, [key]: value } : current);
   return <div className="runtime-settings-page">
