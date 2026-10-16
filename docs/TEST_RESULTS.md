@@ -3,8 +3,8 @@
 ## Phase 4 / Step 4 — 2026-10-16 当前验证
 
 Baseline Commit: 2012cb3e912e744f8ecb6802ed68e74d67674bf8
-Tested Source Commit: WORKTREE_VALIDATED_PENDING_COMMIT
-Final Remote Main: NOT_YET_PUBLISHED
+Tested Source Commit: 649b50388bbcadc3835f50f2c1ecd79482646108
+Final Remote Main: see Git main / local publication.json (reported separately).
 Python: 3.12.10 / 3.13.5; SQLite (3.12): 3.49.1; OS: Windows.
 
 | 检查 | 实际结果 |
