@@ -1,0 +1,314 @@
+/* Adapted from Caho1/open-claude-ui @ 2834bc1. MIT License: see THIRD_PARTY_NOTICES.md. */
+/* ==========================================================================
+   Claude Design System (CDS) - Complete Production Theme & Motion Stylesheet
+   逆向溯源：反编译自 /Applications/Claude.app ion-dist 及 macOS 生产环境资源。
+   ========================================================================== */
+
+:root {
+  /* 1. 表面色彩阶梯 (Surfaces & Colors) */
+  --cds-surface-0: #f5f5f3;        /* 全局应用背景 Canvas */
+  --cds-surface-1: #fcfcfb;        /* 侧边栏/中间层基底 */
+  --cds-surface-2: #ffffff;        /* 消息气泡/卡片表面 */
+  --cds-surface-3: #ffffff;        /* 浮动面板/输入框高层表面 */
+  --cds-surface-popover: #ffffff;  /* 悬浮 Popover 纯白表面 */
+
+  --cds-clay: #d97757;             /* 品牌陶土主色 */
+  --cds-clay-hover: #cc5a36;       /* 陶土色悬停加深态 */
+  --cds-clay-light: #fbf3ef;       /* 陶土极浅背景色 */
+
+  /* 2. Alpha 透明度与边框色系 */
+  --cds-alpha-0: hsla(0, 0%, 8%, 0);
+  --cds-alpha-1: hsla(0, 0%, 8%, 0.05); /* Ghost hover, skeleton */
+  --cds-alpha-2: hsla(0, 0%, 8%, 0.10); /* Standard border */
+  --cds-alpha-3: hsla(0, 0%, 8%, 0.20); /* Border strong */
+  --cds-alpha-4: hsla(0, 0%, 8%, 0.35); /* Heavy divider */
+
+  --cds-border: var(--cds-alpha-2);
+  --cds-border-strong: var(--cds-alpha-3);
+  --cds-ring-hairline: 1px;
+
+  /* 3. 双环浮动气泡架构 (Dual-Ring Architecture - 浅色模式) */
+  --cds-ring-inner: 0px;
+  --cds-ring-outer: 1px;
+  --cds-ring-color: var(--cds-border);
+
+  /* 4. 阴影系统 (Elevation Shadows) */
+  --cds-shadow-color: rgba(0, 0, 0, 0.08);
+  --cds-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 2px 8px 0 var(--cds-shadow-color);
+  --cds-shadow-md: 0 2px 4px 0 rgba(0, 0, 0, 0.05), 0 6px 16px 0 var(--cds-shadow-color);
+  --cds-shadow-lg: 0 4px 8px 0 rgba(0, 0, 0, 0.06), 0 12px 28px -2px var(--cds-shadow-color);
+  --cds-shadow-popover: inset 0 0 0 var(--cds-ring-inner) var(--cds-ring-color),
+                        0 0 0 var(--cds-ring-outer) var(--cds-ring-color),
+                        0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+
+  --cds-panel-shadow: 0 0 0 1px var(--cds-border), var(--cds-shadow-sm);
+  --cds-panel-shadow-hover: 0 0 0 1px var(--cds-border-strong), 0 4px 16px -2px rgba(0, 0, 0, 0.09);
+
+  /* 5. 核心输入终端双环阴影 (Composer Shadow) */
+  --cds-shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 1px var(--cds-border);
+  --cds-shadow-composer-hover: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 1px var(--cds-border-strong);
+  --cds-shadow-composer-focus: 0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 1px var(--cds-border-strong), 0 0 0 1px var(--cds-border-strong);
+
+  /* 6. 三层焦点微光环与拖拽微光 */
+  --cds-focus-shadow: inset 0 0 0 1px var(--cds-surface-1), 0 0 0 1.5px var(--cds-clay), 0 0 6px 1px rgba(217, 119, 87, 0.25);
+  --cds-shadow-drop-glow: inset 0 0 24px -2px rgba(217, 119, 87, 0.20), inset 0 0 0 2px var(--cds-clay);
+
+  /* 7. 交互填充与文本色阶 */
+  --cds-fill-ghost-hover: var(--cds-alpha-1);
+  --cds-fill-ghost-selected: var(--cds-alpha-2);
+  --cds-fill-secondary: var(--cds-alpha-2);
+  --cds-fill-secondary-hover: rgba(21, 21, 21, 0.14);
+
+  --cds-text-primary: #151515;
+  --cds-text-secondary: #525252;
+  --cds-text-muted: #8a8a8a;
+  --cds-bg-tint-blue: #f0f4f8;
+  --cds-segmented-track: rgba(0, 0, 0, 0.06);
+  --cds-segmented-thumb: #ffffff;
+
+  /* 8. 圆角阶梯 (Radius Hierarchy) */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --cds-panel-radius: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --cds-message-bubble-radius: 18px;
+  --cds-radius-composer: 20px;
+  --df-radius-pill: 999px;
+
+  /* 9. 语义化组件别名映射 (Component Semantic Aliases) */
+  --cds-bg-surface: var(--cds-surface-2);
+  --cds-bg-surface-elevated: var(--cds-surface-3);
+  --cds-bg-primary: var(--cds-surface-0);
+  --cds-bg-secondary: var(--cds-surface-1);
+  --cds-bg-hover: var(--cds-fill-ghost-hover);
+  --cds-bg-selected: var(--cds-fill-ghost-selected);
+  --cds-border-subtle: var(--cds-alpha-2);
+  --cds-border-accent: var(--cds-clay);
+  --cds-fill-brand: var(--cds-clay);
+  --cds-fill-brand-hover: var(--cds-clay-hover);
+  --cds-fill-brand-subtle: var(--cds-clay-light);
+  --cds-fill-danger: #ef4444;
+  --cds-text-accent: var(--cds-clay);
+}
+
+/* 高分屏视网膜物理发丝细线补偿 */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 2dppx), (resolution >= 2x) {
+  :root {
+    --cds-ring-hairline: 0.5px;
+  }
+}
+@media (-webkit-min-device-pixel-ratio: 3), (min-resolution: 3dppx), (resolution >= 3x) {
+  :root {
+    --cds-ring-hairline: calc(1px / 3);
+  }
+}
+
+/* ==========================================================================
+   Dark Mode 暗色模式变量重载
+   ========================================================================== */
+[data-theme="dark"], .dark {
+  --cds-surface-0: #0b0b0a;
+  --cds-surface-1: #151515;
+  --cds-surface-2: #1a1a19;
+  --cds-surface-3: #20201e;
+  --cds-surface-popover: #222220;
+  --cds-clay: #d97757;
+  --cds-clay-hover: #e08264;
+
+  --cds-alpha-0: hsla(0, 0%, 100%, 0);
+  --cds-alpha-1: hsla(0, 0%, 100%, 0.05);
+  --cds-alpha-2: hsla(0, 0%, 100%, 0.09);
+  --cds-alpha-3: hsla(0, 0%, 100%, 0.18);
+  --cds-alpha-4: hsla(0, 0%, 100%, 0.30);
+
+  --cds-border: var(--cds-alpha-2);
+  --cds-border-strong: var(--cds-alpha-3);
+
+  /* 双环暗色模式：内高光 1px + 外轮廓 0px */
+  --cds-ring-inner: 1px;
+  --cds-ring-outer: 0px;
+  --cds-ring-color: rgba(255, 255, 255, 0.10);
+
+  --cds-shadow-color: rgba(0, 0, 0, 0.40);
+  --cds-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4), 0 2px 8px 0 var(--cds-shadow-color);
+  --cds-shadow-md: 0 2px 4px 0 rgba(0, 0, 0, 0.4), 0 6px 16px 0 var(--cds-shadow-color);
+  --cds-shadow-lg: 0 4px 8px 0 rgba(0, 0, 0, 0.5), 0 16px 36px -2px var(--cds-shadow-color);
+  --cds-shadow-popover: inset 0 0 0 1px rgba(255, 255, 255, 0.10),
+                        0 8px 28px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.45);
+
+  --cds-panel-shadow: 0 0 0 1px var(--cds-border), var(--cds-shadow-sm);
+  --cds-panel-shadow-hover: 0 0 0 1px var(--cds-border-strong), 0 6px 20px rgba(0, 0, 0, 0.6);
+
+  --cds-shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 0 0 1px var(--cds-border);
+  --cds-shadow-composer-hover: 0 4px 24px rgba(0, 0, 0, 0.55), inset 0 0 0 1px var(--cds-border-strong);
+  --cds-shadow-composer-focus: 0 4px 24px rgba(0, 0, 0, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.22);
+
+  --cds-focus-shadow: inset 0 0 0 1px var(--cds-surface-1), 0 0 0 1.5px var(--cds-clay), 0 0 8px 2px rgba(217, 119, 87, 0.35);
+  --cds-shadow-drop-glow: inset 0 0 24px -2px rgba(217, 119, 87, 0.30), inset 0 0 0 2px var(--cds-clay);
+
+  --cds-fill-ghost-hover: var(--cds-alpha-1);
+  --cds-fill-ghost-selected: var(--cds-alpha-2);
+  --cds-fill-secondary: var(--cds-alpha-2);
+  --cds-fill-secondary-hover: rgba(255, 255, 255, 0.14);
+
+  --cds-text-primary: #f5f5f5;
+  --cds-text-secondary: #a3a3a3;
+  --cds-text-muted: #666666;
+  --cds-bg-tint-blue: rgba(255, 255, 255, 0.06);
+  --cds-segmented-track: rgba(255, 255, 255, 0.08);
+  --cds-segmented-thumb: #2c2c2a;
+
+  /* 语义化组件别名暗色重载 */
+  --cds-bg-surface: var(--cds-surface-2);
+  --cds-bg-surface-elevated: var(--cds-surface-3);
+  --cds-bg-primary: var(--cds-surface-0);
+  --cds-bg-secondary: var(--cds-surface-1);
+  --cds-bg-hover: var(--cds-fill-ghost-hover);
+  --cds-bg-selected: var(--cds-fill-ghost-selected);
+  --cds-border-subtle: var(--cds-alpha-2);
+  --cds-border-accent: var(--cds-clay);
+  --cds-fill-brand: var(--cds-clay);
+  --cds-fill-brand-hover: var(--cds-clay-hover);
+  --cds-fill-brand-subtle: rgba(217, 119, 87, 0.15);
+  --cds-fill-danger: #f87171;
+  --cds-text-accent: var(--cds-clay);
+}
+
+/* ==========================================================================
+   光学字重补偿 & 基线校准 (Optical Ergonomics)
+   ========================================================================== */
+
+/* 暗色模式视网膜光渗字重逆补偿 */
+.dark .font-medium, [data-theme="dark"] .font-medium,
+.dark [data-optical-compensate], [data-theme="dark"] [data-optical-compensate] {
+  font-variation-settings: "wght" 465;
+}
+.dark .font-semibold, [data-theme="dark"] .font-semibold {
+  font-variation-settings: "wght" 560;
+}
+.dark .font-bold, [data-theme="dark"] .font-bold {
+  font-variation-settings: "wght" 660;
+}
+
+/* 行内图标光学负偏置 */
+.align-neg-125 { vertical-align: -0.125em; }
+.align-neg-075 { vertical-align: -0.075em; }
+.align-neg-1px  { vertical-align: -1px; }
+
+/* 文本换行与防截断约束 */
+.text-balance-native { text-wrap: balance; }
+.text-pretty-native  { text-wrap: pretty; }
+.overflow-wrap-anywhere { overflow-wrap: anywhere; word-break: normal; }
+
+/* 等宽数字锁定 */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ==========================================================================
+   生产核心关键帧动画 (CSS Keyframes)
+   ========================================================================== */
+
+/* 1. 字符流式晕染消解 */
+@keyframes _grapheme-reveal_1plog_1 {
+  0%   { opacity: 0; filter: blur(6px); }
+  100% { opacity: 1; filter: blur(0); }
+}
+
+/* 2. 思考中三点波浪跳跃 */
+@keyframes timeline-quiet-dot {
+  0%, 8%   { opacity: 0.2; transform: translateY(2px); }
+  22%      { opacity: 1; transform: translateY(-2.5px); }
+  36%, 70% { opacity: 1; transform: translateY(0); }
+  90%, 100%{ opacity: 0.2; transform: translateY(0); }
+}
+
+/* 3. 消息气泡微弹进入 */
+@keyframes message-fade-up {
+  0%   { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* 4. 复制勾选 2.5s 衰减消退 */
+@keyframes saved-check-decay {
+  0%, 75% { opacity: 1; transform: scale(1); }
+  100%    { opacity: 0; transform: scale(0.92); }
+}
+
+/* 5. 骨架屏高级倾斜扫光 */
+@keyframes cds-skeleton-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* 6. 陶土呼吸指示灯 */
+@keyframes dframe-clay-breathe {
+  0%, 100% { filter: brightness(0.96); transform: scale(0.92); }
+  50%      { filter: brightness(1.08); transform: scale(1.08); }
+}
+
+/* 7. 活动脉冲灯 */
+@keyframes dframe-dot-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50%      { opacity: 1; transform: scale(1.15); }
+}
+
+/* 8. 附件磁贴入场生长 */
+@keyframes file-thumbnail-grow-in {
+  0%   { opacity: 0; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* ==========================================================================
+   通用实用类 (CDS Utility Classes)
+   ========================================================================== */
+
+.cds-shadow-sm { box-shadow: var(--cds-shadow-sm) !important; }
+.cds-shadow-md { box-shadow: var(--cds-shadow-md) !important; }
+.cds-shadow-lg { box-shadow: var(--cds-shadow-lg) !important; }
+.cds-shadow-popover { box-shadow: var(--cds-shadow-popover) !important; }
+.cds-panel-shadow { box-shadow: var(--cds-panel-shadow) !important; }
+
+.cds-composer-shadow {
+  box-shadow: var(--cds-shadow-composer) !important;
+  transition: box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1), border-color 220ms ease;
+}
+.cds-composer-shadow:hover {
+  box-shadow: var(--cds-shadow-composer-hover) !important;
+}
+.cds-composer-shadow:focus-within {
+  box-shadow: var(--cds-shadow-composer-focus) !important;
+}
+
+.cds-hover-ghost {
+  transition: background-color 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms ease, transform 100ms ease;
+}
+.cds-hover-ghost:hover {
+  background-color: var(--cds-fill-ghost-hover) !important;
+  color: var(--cds-text-primary) !important;
+}
+.cds-hover-ghost:active {
+  background-color: var(--cds-fill-ghost-selected) !important;
+  transform: scale(0.98);
+}
+
+.cds-card-interactive {
+  box-shadow: var(--cds-panel-shadow);
+  transition: box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms ease;
+}
+.cds-card-interactive:hover {
+  box-shadow: var(--cds-panel-shadow-hover) !important;
+  transform: translateY(-1.5px);
+  border-color: var(--cds-border-strong) !important;
+}
+.cds-card-interactive:active {
+  transform: translateY(0);
+}
+
+.border-hairline {
+  border-width: var(--cds-ring-hairline);
+}

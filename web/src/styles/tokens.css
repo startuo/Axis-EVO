@@ -1,18 +1,23 @@
+@import url("./cds-theme.css");
+/* Self-hosted faces are registered sequentially by lib/fonts.ts. */
 :root {
   color-scheme: light;
-  --canvas: #faf9f7;
-  --surface: #fff;
-  --surface-subtle: #f6f4f1;
-  --sidebar: #efede9;
-  --text: #302d29;
-  --muted: #66605a;
-  --border: #e2ded7;
-  --border-strong: #cbc3b9;
-  --accent: #86563e;
+  --font-sans: Inter, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-serif: Newsreader, Georgia, "Songti SC", SimSun, serif;
+  --font-mono: "JetBrains Mono", Consolas, "Microsoft YaHei", monospace;
+  --canvas: var(--cds-surface-0);
+  --surface: var(--cds-surface-2);
+  --surface-subtle: var(--cds-surface-1);
+  --sidebar: var(--cds-surface-1);
+  --text: var(--cds-text-primary);
+  --muted: #686862;
+  --border: var(--cds-border);
+  --border-strong: var(--cds-border-strong);
+  --accent: var(--cds-clay);
   --on-accent: #fff;
-  --hover: #e9e5de;
-  --active: #e9dfd4;
-  --neutral-bg: #efebe5;
+  --hover: var(--cds-alpha-1);
+  --active: var(--cds-alpha-2);
+  --neutral-bg: var(--cds-alpha-1);
   --success: #256448;
   --success-bg: #e9f3eb;
   --warning: #79571d;
@@ -20,24 +25,12 @@
   --warning-border: #e9d8b4;
   --error: #a43d3d;
   --error-bg: #faeded;
-  --code: #615044;
-  --composer-shadow: rgba(32, 55, 38, 0.025);
+  --code: #635d54;
+  --composer-shadow: rgba(0, 0, 0, .035);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #1b1c1e;
-  --surface: #222326;
-  --surface-subtle: #27282b;
-  --sidebar: #17181a;
-  --text: #e9e5df;
-  --muted: #b5aea4;
-  --border: #37383c;
-  --border-strong: #55555b;
-  --accent: #deb596;
-  --on-accent: #302218;
-  --hover: #2e2e31;
-  --active: #3b332e;
-  --neutral-bg: #333234;
+  --muted: #b0b0a8;
   --success: #b7dfc3;
   --success-bg: #253d2e;
   --warning: #e7ca8c;
@@ -46,5 +39,5 @@
   --error: #efb0ad;
   --error-bg: #422d2b;
   --code: #d8c7b8;
-  --composer-shadow: rgba(0, 0, 0, 0.08);
+  --composer-shadow: rgba(0, 0, 0, .4);
 }

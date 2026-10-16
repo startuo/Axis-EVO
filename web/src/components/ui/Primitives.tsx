@@ -3,15 +3,21 @@ import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { FactStatus } from "../../lib/types";
 export function keepDialogTab(event: KeyboardEvent<HTMLDialogElement>) {
   if (event.key !== "Tab") return;
+  const closedSections = Array.from(event.currentTarget.querySelectorAll("details:not([open])"))
+    .map(section => ({ section, summary: section.querySelector(":scope > summary") }));
   const items = [
     ...event.currentTarget.querySelectorAll<HTMLElement>(
-      'button, input, select, textarea, a[href], [tabindex="0"]',
+      'button, input, select, textarea, summary, a[href], [tabindex="0"]',
     ),
   ].filter(
     (element) =>
       element.tabIndex >= 0 &&
       !element.matches(":disabled") &&
-      element.getClientRects().length > 0,
+      element.getClientRects().length > 0 &&
+      !element.closest("[hidden], [inert]") &&
+      !closedSections.some(
+        ({ section, summary }) => section.contains(element) && !summary?.contains(element),
+      ),
   );
   const first = items[0],
     last = items.at(-1);
