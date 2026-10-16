@@ -14,7 +14,7 @@ export const threadLabels: Record<RuntimeThread["status"], string> = {
   QUEUED: "等待规划", PLANNING: "模型请求中", AWAITING_APPROVAL: "等待批准", DISPATCH_RESERVED: "派发已保留", EXECUTING: "执行中", FINISHED: "Web 任务已结束", FAILED: "Web 任务失败", UNKNOWN: "结果不确定",
 };
 
-export function RuntimeThreadView({ thread, busy, canAct, approve, openReview }: { thread: RuntimeThread; busy: boolean; canAct: boolean; approve: () => void; openReview: () => void }) {
+export function RuntimeThreadView({ thread, busy, canAct, approve, openReview, inConversation = false }: { thread: RuntimeThread; busy: boolean; canAct: boolean; approve: () => void; openReview: () => void; inConversation?: boolean }) {
   const reduceMotion = useReducedMotion();
   const run = thread.run;
   const validation = run?.events.find((event) => event.type === "VALIDATION_PASSED" || event.type === "VALIDATION_FAILED");
@@ -80,7 +80,7 @@ export function RuntimeThreadView({ thread, busy, canAct, approve, openReview }:
         <summary><ChevronRight size={15} /><span>进程监督</span><small>{health?.jobState ?? "尚无记录"}</small></summary>
         <div className="conversation-disclosure-body"><RuntimeSupervisionPanel thread={thread} /></div>
       </details>
-      <p className="conversation-end">如需不同计划，请新建对话并重新批准。</p>
+      <p className="conversation-end">{inConversation ? '跟进任务将生成新的上下文、计划与 Run，并重新等待明确批准。' : '如需不同计划，请新建对话并重新批准。'}</p>
     </motion.section>
   </article>;
 }

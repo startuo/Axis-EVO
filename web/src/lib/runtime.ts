@@ -5,11 +5,14 @@ export type SkillRef = { skill_id: string; skill_version: number };
 export type RuntimeCapabilities = {
   enabled: boolean;
   authenticated: boolean;
-  projects: { id: string; name: string; skills: SkillRef[] }[];
+  projects: { id: string; name: string; skills: SkillRef[]; taskTemplates?: { id: string; name: string }[] }[];
   allowedTools: string[];
   blockedTools: string[];
   limitations: string[];
   executionMode?: string;
+  supportsConversations?: boolean;
+  maximumPromptCodepoints?: number;
+  promptLengthUnit?: string;
 };
 export type RuntimeProfile = {
   id: string;
@@ -70,6 +73,12 @@ export type RuntimeThread = RuntimeThreadSummary & {
   run: RunView | null;
   supervision?: RuntimeSupervision | null;
 };
+export type RuntimeConversationSummary = { id: string; projectId: string; title: string; createdAt: string; updatedAt: string; status: ThreadStatus; turnCount: number; threadIds: string[] };
+export type RuntimeTurnSummary = { id: string; number: number; threadId: string; reservedRunId: string; prompt: string; webStatus: ThreadStatus; coreOutcome: string | null; outcomeObservedAt: string | null; proposalId: string | null; approvalIdentity: string | null; contextSha256: string; taskTemplateId: string; profileSnapshot: RuntimeProfile; skillRef: SkillRef };
+export type RuntimeConversation = { id: string; projectId: string; title: string; createdAt: string; turns: RuntimeTurnSummary[]; sequential: true; maximumTurns: number; canContinue: boolean; continuationPolicy: string };
+export type RuntimeTurn = { id: string; conversationId: string; number: number; thread: RuntimeThread; contextSha256: string; messages: JsonValue[]; observations: JsonValue[] };
+export type RuntimeContext = { turnId: string; conversationId: string; sha256: string; canonicalJson: string; manifest: JsonValue; semanticLocation: string };
+export type TurnInput = { prompt: string; messageId: string; profileId: string; profileRevision: number; skillRef: SkillRef; taskTemplateId: string };
 
 const RESPONSE_LIMIT = 1024 * 1024;
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -80,6 +89,8 @@ const hash = (v: unknown) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
 const nullableText = (v: unknown) => v === null || text(v);
 const skillRef = (v: unknown) => object(v) && text(v.skill_id) && integer(v.skill_version) && v.skill_version > 0;
 const states: ThreadStatus[] = ["QUEUED", "PLANNING", "AWAITING_APPROVAL", "DISPATCH_RESERVED", "EXECUTING", "FINISHED", "FAILED", "UNKNOWN"];
+const identity = (value: unknown, prefix: string) => typeof value === 'string' && new RegExp(`^${prefix}_[0-9a-f]{32}$`).test(value);
+const turnSummary = (v: unknown) => object(v) && identity(v.id, 'turn') && integer(v.number) && v.number > 0 && v.number <= 16 && identity(v.threadId, 'thread') && identity(v.reservedRunId, 'run') && text(v.prompt) && states.includes(v.webStatus as ThreadStatus) && (v.coreOutcome === null || ['COMPLETED', 'FAILED'].includes(String(v.coreOutcome))) && nullableText(v.outcomeObservedAt) && nullableText(v.proposalId) && nullableText(v.approvalIdentity) && hash(v.contextSha256) && text(v.taskTemplateId) && profile(v.profileSnapshot) && skillRef(v.skillRef);
 const profile = (v: unknown) => object(v) && text(v.id) && integer(v.revision) && v.revision > 0 && hash(v.configSha256) && text(v.name) && ["openai-compatible", "deepseek-compatible"].includes(String(v.protocol)) && text(v.endpoint) && text(v.modelId) && text(v.credentialRef) && integer(v.timeout) && v.timeout > 0 && typeof v.credentialConfigured === "boolean" && text(v.testStatus) && nullableText(v.testedAt);
 const summary = (v: unknown) => object(v) && text(v.id) && text(v.projectId) && text(v.title) && text(v.createdAt) && text(v.updatedAt) && states.includes(v.status as ThreadStatus) && nullableText(v.proposalId) && nullableText(v.runId);
 function jsonTree(value: unknown, depth = 0): boolean {
@@ -113,6 +124,7 @@ export function validateRuntimeData(path: string, data: unknown, mutating = fals
   const reject = () => { throw new RuntimeError("INVALID_DATA", "Runtime 响应结构无效，未使用演示数据替代。"); };
   if (path === "/capabilities") {
     if (!object(data) || typeof data.enabled !== "boolean" || typeof data.authenticated !== "boolean" || !list(data.projects) || !data.projects.every((p) => object(p) && text(p.id) && text(p.name) && list(p.skills) && p.skills.every(skillRef)) || !list(data.allowedTools) || !data.allowedTools.every(text) || !list(data.blockedTools) || !data.blockedTools.every(text) || !list(data.limitations) || !data.limitations.every(text)) reject();
+    if (object(data) && (data.supportsConversations !== undefined && typeof data.supportsConversations !== 'boolean' || data.maximumPromptCodepoints !== undefined && (!integer(data.maximumPromptCodepoints) || data.maximumPromptCodepoints < 1 || data.maximumPromptCodepoints > 8192) || list(data.projects) && !data.projects.every(p => object(p) && (p.taskTemplates === undefined || list(p.taskTemplates) && p.taskTemplates.length <= 9 && p.taskTemplates.every(t => object(t) && text(t.id) && text(t.name)))))) reject();
   } else if (path === "/session") {
     if (!object(data) || typeof data.csrfToken !== "string" || data.csrfToken.length < 16 || data.csrfToken.length > 256) reject();
   } else if (path === "/providers" && !mutating) {
@@ -124,6 +136,31 @@ export function validateRuntimeData(path: string, data: unknown, mutating = fals
     if (!profile(data)) reject();
   } else if (/^\/providers\/[^/]+\/revisions\/\d+\/test$/.test(path)) {
     if (!object(data) || !text(data.id) || !integer(data.revision) || !hash(data.configSha256) || !["CONNECTED", "FAILED"].includes(String(data.testStatus)) || !text(data.testedAt) || !text(data.category) || !(data.httpStatus === null || integer(data.httpStatus))) reject();
+  } else if (/\/conversations(?:\/|$)/.test(path)) {
+    const route = path.split('/');
+    if (route.length === 4 && !mutating) {
+      if (!list(data) || data.length > 100 || !data.every(c => object(c) && identity(c.id, 'conversation') && encodeURIComponent(String(c.projectId)) === route[2] && text(c.title) && text(c.createdAt) && text(c.updatedAt) && states.includes(c.status as ThreadStatus) && integer(c.turnCount) && c.turnCount > 0 && c.turnCount <= 16 && list(c.threadIds) && c.threadIds.length === c.turnCount && c.threadIds.every(id => identity(id, 'thread')) && new Set(c.threadIds).size === c.threadIds.length)) reject();
+      return;
+    }
+    if (!object(data)) { reject(); return; }
+    if (route[5] === 'turns' && route[6]) {
+      if (data.conversationId !== decodeURIComponent(route[4]) || (data.id ?? data.turnId) !== decodeURIComponent(route[6])) reject();
+      if (route[7] === 'context') {
+        if (!hash(data.sha256) || !text(data.canonicalJson) || !jsonTree(data.manifest) || data.semanticLocation !== 'Core planning request.task_spec.goal' || !object(data.manifest) || data.manifest.turn_id !== data.turnId || data.manifest.conversation_id !== data.conversationId || encodeURIComponent(String(data.manifest.project_id)) !== route[2]) reject();
+      } else {
+        if (!integer(data.number) || data.number < 1 || !hash(data.contextSha256) || !object(data.thread) || !list(data.messages) || !data.messages.every(item => jsonTree(item)) || !list(data.observations) || !data.observations.every(item => jsonTree(item))) { reject(); return; }
+        validateRuntimeData(`/projects/${route[2]}/threads/${encodeURIComponent(String(data.thread.id))}`, data.thread);
+        if (object(data.thread.run) && data.thread.run.taskId !== data.thread.id) reject();
+        const messages = data.messages;
+        if (!messages.every(m => object(m) && text(m.id) && ['USER_MESSAGE', 'MODEL_PLANNING_RESULT', 'SYSTEM_ACTIVITY', 'TOOL_EVIDENCE', 'VALIDATION_RESULT', 'ASSISTANT_PRESENTATION'].includes(String(m.type)) && ['IMMUTABLE_WEB_MESSAGE', 'CORE_PLAN_PROPOSAL', 'PERSISTED_CORE_EVENT', 'DERIVED_FROM_PERSISTED_FACTS'].includes(String(m.source)))) reject();
+      }
+    } else {
+      if (!identity(data.id, 'conversation') || route[4] && route[4] !== 'turns' && data.id !== decodeURIComponent(route[4]) || encodeURIComponent(String(data.projectId)) !== route[2] || !text(data.title) || !text(data.createdAt) || !list(data.turns) || data.turns.length < 1 || data.turns.length > 16 || !data.turns.every(turnSummary) || data.sequential !== true || data.maximumTurns !== 16 || typeof data.canContinue !== 'boolean' || !text(data.continuationPolicy)) { reject(); return; }
+      if (new Set(data.turns.map(t => (t as RuntimeTurnSummary).id)).size !== data.turns.length || !data.turns.every((t, i) => (t as RuntimeTurnSummary).number === i + 1)) reject();
+      for (const key of ['threadId', 'reservedRunId'] as const) if (new Set(data.turns.map(t => (t as RuntimeTurnSummary)[key])).size !== data.turns.length) reject();
+      const approvals = data.turns.map(t => (t as RuntimeTurnSummary).approvalIdentity).filter(Boolean);
+      if (new Set(approvals).size !== approvals.length) reject();
+    }
   } else if (/\/threads$/.test(path) && !mutating) {
     const project = path.split('/')[2];
     if (!list(data) || !data.every((item) => summary(item) && object(item) && encodeURIComponent(String(item.projectId)) === project)) reject();
@@ -142,6 +179,17 @@ export function validateRuntimeData(path: string, data: unknown, mutating = fals
       if (!object(data.run) || data.run.id !== data.runId) reject();
     }
     if (data.proposal !== null && object(data.proposal) && data.proposal.proposalId !== data.proposalId) reject();
+  }
+}
+
+export function validateTurnBinding(summary: RuntimeTurnSummary, turn: RuntimeTurn): void {
+  const thread = turn.thread;
+  if (turn.id !== summary.id || thread.id !== summary.threadId || turn.contextSha256 !== summary.contextSha256 || turn.number !== summary.number ||
+      thread.runId !== null && thread.runId !== summary.reservedRunId || thread.run !== null && thread.run.taskId !== thread.id ||
+      thread.profileSnapshot.id !== summary.profileSnapshot.id || thread.profileSnapshot.revision !== summary.profileSnapshot.revision || thread.profileSnapshot.configSha256 !== summary.profileSnapshot.configSha256 ||
+      thread.skillRef.skill_id !== summary.skillRef.skill_id || thread.skillRef.skill_version !== summary.skillRef.skill_version || thread.prompt !== summary.prompt ||
+      summary.proposalId !== null && thread.proposalId !== summary.proposalId) {
+    throw new RuntimeError('INVALID_DATA', '轮次、固定身份与执行记录不一致。');
   }
 }
 
@@ -185,6 +233,12 @@ export async function runtimeRequest<T>(path: string, options: { body?: unknown;
 
 const encoded = encodeURIComponent;
 export const runtimeApi = {
+  conversations: (project: string, signal?: AbortSignal) => runtimeRequest<RuntimeConversationSummary[]>(`/projects/${encoded(project)}/conversations`, { signal }),
+  conversation: (project: string, id: string, signal?: AbortSignal) => runtimeRequest<RuntimeConversation>(`/projects/${encoded(project)}/conversations/${encoded(id)}`, { signal }),
+  turn: (project: string, id: string, turn: string, signal?: AbortSignal) => runtimeRequest<RuntimeTurn>(`/projects/${encoded(project)}/conversations/${encoded(id)}/turns/${encoded(turn)}`, { signal }),
+  context: (project: string, id: string, turn: string, signal?: AbortSignal) => runtimeRequest<RuntimeContext>(`/projects/${encoded(project)}/conversations/${encoded(id)}/turns/${encoded(turn)}/context`, { signal }),
+  planTurn: (project: string, id: string | null, input: TurnInput, token: string) => runtimeRequest<RuntimeConversation>(`/projects/${encoded(project)}/conversations${id ? `/${encoded(id)}/turns` : ''}`, { body: input, csrfToken: token }),
+  approveTurn: (project: string, id: string, turn: RuntimeTurn, token: string) => runtimeRequest<RuntimeTurn>(`/projects/${encoded(project)}/conversations/${encoded(id)}/turns/${encoded(turn.id)}/approve`, { body: { proposalId: turn.thread.proposal!.proposalId, approvedPlanSha256: turn.thread.proposal!.planSha256 }, csrfToken: token }),
   capabilities: (signal?: AbortSignal) => runtimeRequest<RuntimeCapabilities>("/capabilities", { signal }),
   session: (code: string) => runtimeRequest<{ csrfToken: string }>("/session", { body: { code } }),
   restoreSession: (signal?: AbortSignal) => runtimeRequest<{ csrfToken: string }>("/session", { signal }),

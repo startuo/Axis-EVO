@@ -1,5 +1,37 @@
 # 测试结果
 
+## Phase 4 / Step 4 — 2026-10-16 当前验证
+
+Baseline Commit: 2012cb3e912e744f8ecb6802ed68e74d67674bf8
+Tested Source Commit: WORKTREE_VALIDATED_PENDING_COMMIT
+Final Remote Main: NOT_YET_PUBLISHED
+Python: 3.12.10 / 3.13.5; SQLite (3.12): 3.49.1; OS: Windows.
+
+| 检查 | 实际结果 |
+|---|---|
+| Python 3.12.10 `python -m pytest -q`（Core） | 2350 passed, 14 skipped；0 reported warnings |
+| Python 3.12.10 `python -m pytest -q web_api/tests` | 237 passed；0 reported warnings |
+| Python 3.13.5 Core | 2350 passed, 14 skipped, 5,326,760 warnings |
+| Python 3.13.5 Web API | 237 passed, 2,286 warnings |
+| 全部可访问后端用例（每个 Python 环境） | 2587 passed, 14 skipped |
+| `npm run typecheck` / `npm run lint` | 通过；lint 0 warnings |
+| `npm test` | 14 files, 200 passed |
+| `npm run build` | JS 475.78 kB / gzip 150.43 kB；CSS 91.34 kB / gzip 16.31 kB |
+| `npm run test:e2e`（既有工作台） | 27 passed |
+| `npx playwright test --config step4.playwright.config.ts` | 9 passed；六尺寸、性能、读取/批准响应替换攻击 |
+| `npx playwright test --config step4-live.playwright.config.ts` | 1 passed；展示实际 DeepSeek 两轮记录，未新增 Provider 调用 |
+
+
+跳过：13 项需 Windows symlink privilege（WinError 1314），1 项 POSIX FIFO；完整函数/理由见 review_evidence/phase4_step4/skipped-tests.json。没有将 skipped 算作 passed。
+Python 3.13 的警告来自冻结 Core 的 PureWindowsPath.is_reserved() 弃用。Core 命令曾附 -W 'ignore:.*is_reserved.*:DeprecationWarning'，实际未抑制这些警告；报告按观察到的 5,326,760 条计入。Web 命令未加过滤。原始输出、XML 均保留。Node NO_COLOR/FORCE_COLOR 提示见原始日志，不能报成零测试进程警告。
+Linux 没有本轮结果：仅发现 stopped docker-desktop WSL 管理发行版，未运行 Linux Python 测试。Windows 结果不外推。没有新增依赖或修改 Core/001–010/011；52 个 Core 文件、98 个既有测试/fixture 源文件和 THIRD_PARTY_NOTICES 字节保持不变。
+
+真实 DeepSeek 两轮逐计划批准与独立验收通过；实际浏览器读取了这两轮持久记录，没有新增模型调用。完整事实定位、网络路由限制及 API 见 [INTERACTIVE_SESSIONS.md](INTERACTIVE_SESSIONS.md)。Crash B 后 Core UNKNOWN 语义、服务可用性和无自动 replay 已用真实 hard exit 验证。
+
+新增 21 个后端用例、18 个前端用例；既有测试源码不变。9 个 Runtime browser cases 包含 6 尺寸、16 轮/500 事件测量与两项跨 Run 响应攻击；另 1 个页面读取实际 DeepSeek 记录，既有 27 个 E2E 保留。完整源、fixture、raw logs、117 PNG 和报告仅在本地审查包中。
+
+实现了本轮范围，未进入下一阶段/EXE。保留初次失败与修正记录，不将 Windows 测试外推 Linux、不以本地 provenance 证明模型内部理解。
+
 ## UI 全面重构 — 2026-10-16 当前验证
 
 Baseline: `36362b5`。Tested source: `4028d689ecda2ed57c98d450e1416c3ca1aa267a`。参考为 `Caho1/open-claude-ui@2834bc158a4849f21c97cbb2e0b10525f6e646f1`。本轮仅改变前端与使用说明，Core / web_api 的实现与接口保持原样；以下 Python 历史结果没有在本轮重跑。

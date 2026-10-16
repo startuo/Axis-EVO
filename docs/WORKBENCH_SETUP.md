@@ -59,7 +59,7 @@ python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime
 
 `projects.id` 引用只读配置中的项目。`data_dir` 必须处于该项目的一个 `workspace_roots` 授权容器内；它是管理容器，不是实际 Sandbox root。Web metadata 位于 `data_dir/runtime.sqlite3`，各任务实际 Sandbox 位于 `data_dir/threads/<server-generated-id>/workspace`，Core 禁止向上访问 metadata。浏览器不提交任何这些主机路径。
 
-TaskSpec 模板提供固定 seed 和 Acceptance；用户 prompt 只成为本次 TaskSpec 的 goal/title，不能修改 Acceptance。每次规划先复制有界私有 seed，并记录 TaskSpec/seed 身份；批准和执行前重新检查。原始 seed 不修改，也不会递归上传到 Provider。请求只含 TaskSpec、准确 Skill Card、可信工具 schema 和限制。
+TaskSpec 模板提供固定 seed 和 Acceptance；单任务 API 的 prompt 成为本次 TaskSpec 的 goal/title；交互 API 将有界 canonical conversation context 固定为 goal，不能修改 Acceptance。每次规划先复制有界私有 seed，并记录 TaskSpec/seed 身份；批准和执行前重新检查。原始 seed 不修改。交互模式仅上传 manifest 中明确列出的有界文件内容，省略项可审查；请求包含固定 TaskSpec、准确 Skill Card、可信工具 schema 和限制。
 
 默认 Endpoint 是完整 HTTPS 地址 `https://api.openai.com/v1/chat/completions` 与 `https://api.deepseek.com/chat/completions`。可在后台配置 `endpoints` exact allowlist；只接受可信的 HTTPS 443 域名和上述路径形状，不能由浏览器任意添加。自定义域名的运营者是信任边界。DNS 私网检查不是 pinned-IP 连接：冻结 transport 会再次解析 DNS，不能声称消除 rebinding。协议依据 [Chat Completions 文档](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 与 [DeepSeek 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，具体 model ID 由调用方配置，不保证所有兼容服务或模型均支持本适配器。
 
@@ -93,4 +93,6 @@ npm run test:e2e
 
 Step 3 的六尺寸进程监督 QA 使用本地审查包中的 `web/step3.playwright.config.ts`。Windows 实际 junction、孙进程清理与硬退出已有独立证据；本轮没有可用 Linux 环境。POSIX 文件复制失败时，存在部分文件的目录保守保留，以避免不具备原子身份条件的删除；POSIX 静默脱离后代清理不等同于 Windows Job Object。不要把 Windows 结果外推为 Linux 认证。
 
-真实 Provider 验证目前为 `LIVE_PROVIDER_VERIFICATION_PENDING`。可使用 `examples/live_runtime_verification.py` 分别运行 connection、plan、execute、inspect；connection/plan 必须显式提供 `--live-provider`，execute 必须另行提供审阅后的精确摘要。该 CLI 的 plan/execute/inspect 会取得同一协调器锁；先停止该数据目录的 Web Runtime，完成验证后再启动。完整命令和 Provider 参数边界见进程协议文档。
+Phase 4 / Step 4 已完成实际 DeepSeek 连接和逐轮批准的两轮文件任务，具体模型/网络边界见 `docs/INTERACTIVE_SESSIONS.md` 和测试结果；该结论不表示任意 Endpoint 已认证。可使用 `examples/live_runtime_verification.py` 分别运行 connection、plan、execute、inspect；connection/plan 必须显式提供 `--live-provider`，execute 必须另行提供审阅后的精确摘要。该 CLI 的 plan/execute/inspect 会取得同一协调器锁；先停止该数据目录的 Web Runtime，完成验证后再启动。完整命令和 Provider 参数边界见进程协议文档。
+
+交互式 Runtime 使用 Web migration 012。每个项目可额外配置 `task_templates`，例如 `{"timeout30":"C:/absolute/assets/timeout30.json"}`；验收来自后台模板，不由模型或 prompt 决定。多轮上下文、逐轮审批和 UNKNOWN 续轮限制见 [INTERACTIVE_SESSIONS.md](INTERACTIVE_SESSIONS.md)。

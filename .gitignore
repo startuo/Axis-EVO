@@ -91,3 +91,11 @@ node_modules/
 /RUNTIME_CRASH_EXPERIMENT_REPORT.md
 /WEB_RUNTIME_VISUAL_QA_REPORT.md
 /web/step3.playwright.config.ts
+
+# Private Phase 4 / Step 4 verification
+/INTERACTIVE_AGENT_SESSION_CONTRACT.md
+/LIVE_PROVIDER_ACCEPTANCE_REPORT.md
+/MULTITURN_EXPERIMENT_REPORT.md
+/WEB_UI_INTEGRATION_REVIEW.md
+/web/step4.playwright.config.ts
+/web/step4-live.playwright.config.ts

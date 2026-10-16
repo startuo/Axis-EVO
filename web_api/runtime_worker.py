@@ -20,7 +20,8 @@ def run_worker(descriptor_path, phase, job, worker, dispatch):
     workbench = WorkbenchConfig(tuple(Project.from_dict(p) for p in wb['projects']), tuple(wb['allowed_origins']))
     rc = value['runtime']
     config = RuntimeConfig(Path(rc['data_dir']), tuple(RuntimeProject(p['id'], Path(p['task_spec_path']),
-        tuple(SkillRef(**r) for r in p['skill_refs'])) for p in rc['projects']), rc['credentials'], tuple(rc['endpoints']))
+        tuple(SkillRef(**r) for r in p['skill_refs']),
+        tuple((name, Path(path)) for name, path in p.get('task_templates', {}).items())) for p in rc['projects']), rc['credentials'], tuple(rc['endpoints']))
     service = RuntimeService(config, workbench, ProviderStore(config), worker_mode=True)
     row = service._row_unscoped(job)
     with service._web() as c:

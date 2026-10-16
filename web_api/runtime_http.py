@@ -14,6 +14,8 @@ def runtime_envelope(data):
 class RuntimeServer(WorkbenchServer):
     def __init__(self, address, facade, runtime, *, web_root=None, allowed_origins=(), sessions=None):
         self.runtime = runtime
+        from .runtime_conversations import ConversationService
+        self.conversations = ConversationService(runtime)
         self.sessions = sessions or RuntimeSessions()
         super().__init__(address, facade, web_root=web_root, allowed_origins=allowed_origins)
         self.RequestHandlerClass = RuntimeHandler
@@ -131,6 +133,16 @@ class RuntimeHandler(WorkbenchHandler):
                 return runtime.list_threads(parts[3])
             if len(parts) == 6:
                 return runtime.get_thread(parts[3], parts[5])
+        if len(parts) >= 5 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'conversations':
+            conversations = self.server.conversations
+            if len(parts) == 5:
+                return conversations.list(parts[3])
+            if len(parts) == 6:
+                return conversations.get(parts[3], parts[5])
+            if len(parts) == 8 and parts[6] == 'turns':
+                return conversations.get_turn(parts[3], parts[5], parts[7])
+            if len(parts) == 9 and parts[6] == 'turns' and parts[8] == 'context':
+                return conversations.context(parts[3], parts[5], parts[7])
         raise ApiError("ROUTE_NOT_FOUND", "The runtime route does not exist.", 404)
 
     def do_GET(self):
@@ -199,6 +211,17 @@ class RuntimeHandler(WorkbenchHandler):
                     status = 202
                 else:
                     raise ApiError("ROUTE_NOT_FOUND", "The mutation route does not exist.", 404)
+            elif len(parts) >= 5 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'conversations':
+                conversations = self.server.conversations
+                if len(parts) == 5:
+                    result = conversations.start(parts[3], body)
+                elif len(parts) == 7 and parts[6] == 'turns':
+                    result = conversations.append(parts[3], parts[5], body)
+                elif len(parts) == 9 and parts[6] == 'turns' and parts[8] == 'approve':
+                    result = conversations.approve(parts[3], parts[5], parts[7], body)
+                else:
+                    raise ApiError('ROUTE_NOT_FOUND', 'The conversation route does not exist.', 404)
+                status = 202
             else:
                 raise ApiError("ROUTE_NOT_FOUND", "The mutation route does not exist.", 404)
             self._json(status, runtime_envelope(result))

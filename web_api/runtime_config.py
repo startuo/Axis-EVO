@@ -63,6 +63,15 @@ class RuntimeProject:
     id: str
     task_spec_path: Path
     skill_refs: tuple[SkillRef, ...]
+    task_templates: tuple[tuple[str, Path], ...] = ()
+
+    def template(self, template_id='default'):
+        if template_id == 'default':
+            return self.task_spec_path
+        for name, path in self.task_templates:
+            if name == template_id:
+                return path
+        raise ApiError('TASK_TEMPLATE_UNAVAILABLE', 'Select a backend-configured acceptance template.', 403)
 
 
 @dataclass(frozen=True)
@@ -93,7 +102,8 @@ class RuntimeConfig:
                 raise ValueError("Invalid runtime project count")
             projects, seen = [], set()
             for item in value["projects"]:
-                if type(item) is not dict or item.keys() != {"id", "task_spec_path", "skill_refs"}:
+                required_project = {"id", "task_spec_path", "skill_refs"}
+                if type(item) is not dict or not required_project <= item.keys() <= required_project | {"task_templates"}:
                     raise ValueError("Unexpected runtime project fields")
                 project = workbench_config.project(item["id"])
                 if project.id in seen:
@@ -113,8 +123,14 @@ class RuntimeConfig:
                     parsed_refs.append(SkillRef(ref["skill_id"], ref["skill_version"]))
                 if len(set(parsed_refs)) != len(parsed_refs):
                     raise ValueError("Duplicate configured Skill reference")
+                templates = item.get('task_templates', {})
+                if type(templates) is not dict or len(templates) > 8:
+                    raise ValueError('Invalid task template allowlist')
+                for name in templates:
+                    if type(name) is not str or name == 'default' or not _ALIAS.fullmatch(name):
+                        raise ValueError('Invalid task template identity')
                 projects.append(RuntimeProject(project.id, _path(item["task_spec_path"], existing=True),
-                                               tuple(parsed_refs)))
+                    tuple(parsed_refs), tuple((name, _path(path, existing=True)) for name, path in templates.items())))
             credentials = value["credentials"]
             if type(credentials) is not dict or not 1 <= len(credentials) <= 16:
                 raise ValueError("Explicit credential aliases are required")

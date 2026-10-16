@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { runtimeApi, RuntimeError, type RuntimeCapabilities, type RuntimeProfiles, type RuntimeThread, type RuntimeThreadSummary } from "../lib/runtime";
+import { runtimeApi, RuntimeError, validateTurnBinding, type RuntimeCapabilities, type RuntimeProfiles, type RuntimeThread, type RuntimeThreadSummary, type RuntimeConversation, type RuntimeTurn } from "../lib/runtime";
 
 const active = (status: string) => ["QUEUED", "PLANNING", "DISPATCH_RESERVED", "EXECUTING"].includes(status);
 
@@ -7,8 +7,9 @@ export function parseRuntimeRoute(route: string) {
   try {
     const url = new URL(route, "http://runtime.local");
     const id = url.pathname.startsWith("/runtime/thread/") ? decodeURIComponent(url.pathname.slice(16)) : null;
-    return { id: id || null, project: url.searchParams.get("project"), path: url.pathname };
-  } catch { return { id: null, project: null, path: "/runtime/invalid" }; }
+    const conversationId = url.pathname.startsWith('/runtime/conversation/') ? decodeURIComponent(url.pathname.slice(22)) : null;
+    return { id: id || null, conversationId: conversationId || null, turnId: url.searchParams.get('turn'), project: url.searchParams.get("project"), path: url.pathname };
+  } catch { return { id: null, conversationId: null, turnId: null, project: null, path: "/runtime/invalid" }; }
 }
 
 export function useRuntimeWorkbench(route: string, navigate: (path: string) => void) {
@@ -29,17 +30,25 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
   const [revision, setRevision] = useState(0);
   const [connectionRevision, setConnectionRevision] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [conversationData, setConversationData] = useState<{ scope: string; data: RuntimeConversation | null; turn: RuntimeTurn | null }>({ scope: '', data: null, turn: null });
+  const [selectedTemplate, setSelectedTemplate] = useState('default');
   const [conversation, setConversation] = useState(0);
   const epoch = useRef(0);
   const mutations = useRef(new Set<string>());
   const mounted = useRef(true);
   const project = capabilities?.projects.find(item => item.id === projectId);
   const rows = catalog.project === projectId && token ? catalog.data : [];
-  const scope = `${projectId}:${parsed.id ?? ""}`;
+  const scope = `${projectId}:${parsed.conversationId ?? parsed.id ?? ""}:${parsed.turnId ?? ''}`;
   const thread = detail.scope === scope && token ? detail.data : null;
+  const sessionConversation = conversationData.scope === scope && token ? conversationData.data : null;
+  const selectedTurn = conversationData.scope === scope && token ? conversationData.turn : null;
   const profile = profiles?.profiles.find(item => `${item.id}@${item.revision}` === selectedProfile);
   const skill = project?.skills.find(item => `${item.skill_id}@${item.skill_version}` === selectedSkill);
-  const prompt = drafts[projectId] ?? "";
+  const draftKey = `${projectId}:${parsed.conversationId ?? `home:${conversation}`}`;
+  const prompt = drafts[draftKey] ?? "";
+  const promptLimit = capabilities?.maximumPromptCodepoints ?? 8192;
+  const promptLength = Array.from(prompt).length;
+  const promptValid = promptLength <= promptLimit && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(prompt);
   const reportError = useCallback((failure: unknown) => {
     setError(failure instanceof RuntimeError ? `${failure.code} · ${failure.message}` : "REQUEST_FAILED · 操作未能确认完成。请重新读取真实记录，不会自动重试。");
   }, []);
@@ -84,7 +93,7 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     }).catch(failure => { if (!controller.signal.aborted) reportError(failure); });
     return () => controller.abort();
   }, [token, revision, reportError]);
-  useEffect(() => { setSelectedSkill(""); }, [projectId]);
+  useEffect(() => { setSelectedSkill(""); setSelectedTemplate('default'); }, [projectId]);
   useEffect(() => { if (parsed.project && capabilities?.projects.some(item => item.id === parsed.project)) setSelectedProject(parsed.project); }, [parsed.project, capabilities]);
   useEffect(() => {
     if (!token || !project) return;
@@ -92,7 +101,12 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = async () => {
       try {
-        const data = await runtimeApi.threads(project.id, controller.signal);
+        let data = await runtimeApi.threads(project.id, controller.signal);
+        if (capabilities?.supportsConversations) {
+          const conversations = await runtimeApi.conversations(project.id, controller.signal);
+          const children = new Set(conversations.flatMap(c => c.threadIds));
+          data = [...conversations.map(c => ({ ...c, proposalId: null, runId: null })), ...data.filter(t => !children.has(t.id))];
+        }
         if (controller.signal.aborted) return;
         setCatalog({ project: project.id, data });
         if (data.some(item => active(item.status))) timer = setTimeout(() => void read(), 1000);
@@ -100,30 +114,42 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     };
     void read();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [token, project, revision, reportError]);
+  }, [token, project, revision, reportError, capabilities?.supportsConversations]);
   useEffect(() => {
-    if (!token || !project || !parsed.id) return;
+    if (!token || !project || (!parsed.id && !parsed.conversationId)) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     setLoadingThread(true);
     const read = async () => {
       try {
-        const data = await runtimeApi.thread(project.id, parsed.id!, controller.signal);
+        let data: RuntimeThread;
+        let live = false;
+        if (parsed.conversationId) {
+          const c = await runtimeApi.conversation(project.id, parsed.conversationId, controller.signal);
+          const turnId = parsed.turnId ?? c.turns.at(-1)!.id;
+          const summary = c.turns.find(t => t.id === turnId);
+          if (!summary) throw new RuntimeError('TURN_NOT_FOUND', '本轮不属于当前对话。');
+          const t = await runtimeApi.turn(project.id, c.id, turnId, controller.signal);
+          validateTurnBinding(summary, t);
+          if (controller.signal.aborted) return;
+          setConversationData({ scope, data: c, turn: t }); data = t.thread;
+          live = c.turns.some(t => active(t.webStatus));
+        } else data = await runtimeApi.thread(project.id, parsed.id!, controller.signal);
         if (controller.signal.aborted) return;
         setDetail({ scope, data }); setLoadingThread(false);
-        if (active(data.status)) timer = setTimeout(() => void read(), 1000);
+        if (active(data.status) || live) timer = setTimeout(() => void read(), 1000);
       } catch (failure) { if (!controller.signal.aborted) { setLoadingThread(false); setDetail({ scope, data: null }); reportError(failure); } }
     };
     void read();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [token, project, parsed.id, scope, revision, reportError]);
+  }, [token, project, parsed.id, parsed.conversationId, parsed.turnId, scope, revision, reportError]);
 
   const invalidate = useCallback(() => { epoch.current++; setBusy(""); setError(""); }, []);
   const go = useCallback((path: string) => { invalidate(); navigate(path); }, [invalidate, navigate]);
-  function openThread(id: string, currentProject = projectId) { setSelectedProject(currentProject); go(`/runtime/thread/${encodeURIComponent(id)}?project=${encodeURIComponent(currentProject)}`); }
+  function openThread(id: string, currentProject = projectId) { setSelectedProject(currentProject); go(`/runtime/${id.startsWith('conversation_') ? 'conversation' : 'thread'}/${encodeURIComponent(id)}?project=${encodeURIComponent(currentProject)}`); }
+  function openTurn(id: string) { if (parsed.conversationId) go(`/runtime/conversation/${encodeURIComponent(parsed.conversationId)}?project=${encodeURIComponent(projectId)}&turn=${encodeURIComponent(id)}`); }
   function newConversation() {
     invalidate(); setConversation(value => value + 1);
-    setDrafts(current => ({ ...current, [projectId]: "" }));
     setDetail({ scope: "", data: null });
     navigate("/runtime");
   }
@@ -141,19 +167,27 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     finally { mutations.current.delete("session"); if (mounted.current && epoch.current === requestEpoch) setBusy(""); }
   }
   async function plan() {
-    if (!token || !profile?.credentialConfigured || !skill || !project || !prompt.trim()) return;
+    if (!token || !profile?.credentialConfigured || !skill || !project || !prompt.trim() || !promptValid || parsed.conversationId && !sessionConversation?.canContinue) return;
     const requestEpoch = epoch.current;
     const key = `plan:${requestEpoch}:${project.id}`;
     if (mutations.current.has(key)) return;
     mutations.current.add(key); setBusy("planning"); setError("");
     try {
+      if (capabilities?.supportsConversations) {
+        const created = await runtimeApi.planTurn(project.id, parsed.conversationId, { prompt, messageId: 'msg_' + crypto.randomUUID().replaceAll('-', ''), profileId: profile.id, profileRevision: profile.revision, skillRef: skill, taskTemplateId: selectedTemplate }, token);
+        if (!mounted.current) return;
+        reload();
+        setDrafts(current => current[draftKey] === prompt ? { ...current, [draftKey]: '' } : current);
+        if (epoch.current === requestEpoch) openThread(created.id, created.projectId);
+        return;
+      }
       const created = await runtimeApi.plan(project.id, { prompt, profileId: profile.id, profileRevision: profile.revision, skillRef: skill }, token);
       if (!mounted.current) return;
       // A committed job is kept in the catalog even if its originating view was reset.
       reload();
       if (epoch.current !== requestEpoch) return;
-      setDetail({ scope: `${created.projectId}:${created.id}`, data: created });
-      setDrafts(current => ({ ...current, [project.id]: "" }));
+      setDetail({ scope: `${created.projectId}:${created.id}:`, data: created });
+      setDrafts(current => current[draftKey] === prompt ? { ...current, [draftKey]: '' } : current);
       openThread(created.id, created.projectId);
     } catch (failure) { if (mounted.current && epoch.current === requestEpoch) reportError(failure); }
     finally { mutations.current.delete(key); if (mounted.current && epoch.current === requestEpoch) setBusy(""); }
@@ -165,12 +199,20 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     const requestEpoch = epoch.current;
     mutations.current.add(key); setBusy("approval"); setError("");
     try {
-      const updated = await runtimeApi.approve(thread, token);
+      let updated: RuntimeThread;
+      if (parsed.conversationId && selectedTurn && sessionConversation) {
+        const approved = await runtimeApi.approveTurn(projectId, parsed.conversationId, selectedTurn, token);
+        const pinned = sessionConversation.turns.find(t => t.id === selectedTurn.id);
+        if (!pinned) throw new RuntimeError('INVALID_DATA', '批准返回的轮次无法核验。');
+        validateTurnBinding(pinned, approved);
+        updated = approved.thread;
+        if (mounted.current && epoch.current === requestEpoch) setConversationData({ scope, data: sessionConversation, turn: approved });
+      } else updated = await runtimeApi.approve(thread, token);
       if (!mounted.current) return;
       reload(); if (epoch.current === requestEpoch) setDetail({ scope, data: updated });
     } catch (failure) { if (mounted.current && epoch.current === requestEpoch) reportError(failure); }
     finally { mutations.current.delete(key); if (mounted.current && epoch.current === requestEpoch) setBusy(""); }
   }
-  const canPlan = !!token && !!project && !!profile?.credentialConfigured && !!skill && !!prompt.trim() && !busy;
-  return { parsed, capabilities, initializing, token, error, setError, busy, projectId, project, profiles, selectedProfile, setSelectedProfile, selectedSkill, setSelectedSkill, rows, thread, loadingThread, prompt, setPrompt: (value: string) => setDrafts(current => ({ ...current, [projectId]: value })), conversation, reportError, reload, refresh, go, openThread, newConversation, selectProject, unlock, plan, approve, canPlan, profile, skill };
+  const canPlan = !!token && !!project && !!profile?.credentialConfigured && !!skill && !!prompt.trim() && promptValid && !busy && (!parsed.conversationId || !!sessionConversation?.canContinue);
+  return { parsed, capabilities, initializing, token, error, setError, busy, projectId, project, profiles, selectedProfile, setSelectedProfile, selectedSkill, setSelectedSkill, selectedTemplate, setSelectedTemplate, rows, thread, sessionConversation, selectedTurn, openTurn, loadingThread, prompt, promptLength, promptLimit, promptValid, setPrompt: (value: string) => setDrafts(current => ({ ...current, [draftKey]: value })), conversation, reportError, reload, refresh, go, openThread, newConversation, selectProject, unlock, plan, approve, canPlan, profile, skill };
 }

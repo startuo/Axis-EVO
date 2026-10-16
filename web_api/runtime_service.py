@@ -157,7 +157,11 @@ class RuntimeService:
     def capabilities(self, authenticated=False):
         return {"enabled": True, "authenticated": authenticated,
             "projects": [{"id": p.id, "name": self.workbench.project(p.id).name,
-                          "skills": [s.to_dict() for s in p.skill_refs]} for p in self.config.projects],
+                          "skills": [s.to_dict() for s in p.skill_refs],
+                          "taskTemplates": [{'id': 'default', 'name': '默认验收'}] +
+                              [{'id': name, 'name': name} for name, _ in p.task_templates]} for p in self.config.projects],
+            "supportsConversations": True, "maximumPromptCodepoints": MAX_PROMPT_CHARS,
+            "promptLengthUnit": "UNICODE_CODEPOINTS", "maximumConversationTurns": 16,
             "allowedTools": list(FILE_TOOLS), "blockedTools": ["run_tests"],
             "executionMode": "process-isolated" if self._isolated else "in-process-test-injection",
             "limitations": ["File-only runtime; pytest Acceptance is disabled.",
@@ -303,6 +307,8 @@ class RuntimeService:
                 raise sqlite3.IntegrityError("runtime state was not applied")
             runtime_jobs.transition(c, thread_id, 'OUTCOME_UNKNOWN' if status == 'UNKNOWN' else status)
             c.commit()
+        from .runtime_conversations import record_state
+        record_state(self, thread_id)
 
     def _submit(self, thread_id, operation):
         def work():
@@ -312,7 +318,7 @@ class RuntimeService:
                 self._slots.release()
         self._futures[thread_id] = self._pool.submit(work)
 
-    def create_thread(self, project_id, body):
+    def create_thread(self, project_id, body, *, _turn=None):
         project, runtime = self._project(project_id)
         if type(body) is not dict or body.keys() != {"prompt", "profileId", "profileRevision", "skillRef"}:
             raise ApiError("INVALID_THREAD", "Only prompt, provider revision and exact SkillRef are accepted.")
@@ -339,7 +345,12 @@ class RuntimeService:
             if manager.get_current_state(ref.skill_id, ref.skill_version) != "TRUSTED":
                 raise ApiError("SKILL_NOT_TRUSTED", "The exact Skill must remain TRUSTED.", 422)
             self.providers.check_text(card.canonical_bytes().decode("utf-8"))
-        template, _, seed_facts = load_template(runtime.task_spec_path, self.providers.check_text)
+        template_path = runtime.task_spec_path if _turn is None else runtime.template(_turn.template_id)
+        template, _, seed_facts = load_template(template_path, self.providers.check_text)
+        if _turn is not None:
+            if canonical_json_bytes(asdict(template)).decode() != _turn.template_json:
+                raise ApiError('TASK_TEMPLATE_CHANGED', 'The selected acceptance template changed.', 409)
+            seed_facts = _turn.seed.manifest()
         if self._closed or not self._slots.acquire(blocking=False):
             raise ApiError("RUNTIME_BUSY", "The bounded runtime queue is full.", 429)
         thread_id, run_id = "thread_" + uuid4().hex, "run_" + uuid4().hex
@@ -347,7 +358,7 @@ class RuntimeService:
             task_value = asdict(template)
             task_value.update(task_id=thread_id, title=prompt.strip().splitlines()[0][:80], goal=prompt)
             task_value['workspace'] = {'seed_dir': 'seed'}
-            encoded = canonical_json_bytes(task_value)
+            encoded = canonical_json_bytes(task_value) if _turn is None else _turn.task_bytes(thread_id, prompt)
             if len(encoded) > MAX_FILE_BYTES:
                 raise ApiError('TASK_LIMIT', 'The task exceeds its byte budget.', 422)
             self.providers.check_text(encoded.decode('utf-8'))
@@ -363,14 +374,21 @@ class RuntimeService:
                      now, now, "QUEUED", run_id))
                 if cursor.rowcount != 1:
                     raise sqlite3.IntegrityError("thread insertion was not applied")
-                runtime_jobs.admission(c, thread_id, {
+                job_identity = {
                     'projectId': project_id, 'skillRef': ref.to_dict(),
                     'cardSha256': hashlib.sha256(card.canonical_bytes()).hexdigest(),
                     'providerProfileId': profile['id'], 'providerRevision': profile['revision'],
                     'providerConfigSha256': profile['configSha256'], 'modelId': profile['modelId'],
                     'taskSpecSha256': manifest['taskSha256'],
                     'seedManifestSha256': hashlib.sha256(canonical_json_bytes(manifest['seed'])).hexdigest(),
-                    'reservedRunId': run_id})
+                    'reservedRunId': run_id}
+                if _turn is not None:
+                    job_identity.update(conversationId=_turn.conversation_id, turnId=_turn.turn_id,
+                                        contextSha256=_turn.context_sha)
+                runtime_jobs.admission(c, thread_id, job_identity)
+                if _turn is not None:
+                    from .runtime_conversations import record_admission
+                    record_admission(self, c, _turn, thread_id, run_id, prompt)
                 c.commit()
         except BaseException:
             self._slots.release()
@@ -378,8 +396,12 @@ class RuntimeService:
         # Capacity and immutable identity COMMIT precede private file creation.
         # Failed copies remain bounded, attributable FAILED jobs, not orphans.
         try:
-            copied = snapshot_task(runtime.task_spec_path, self._directory(thread_id), prompt, thread_id,
-                                   self.providers.check_text)
+            if _turn is None:
+                copied = snapshot_task(runtime.task_spec_path, self._directory(thread_id), prompt, thread_id,
+                                       self.providers.check_text)
+            else:
+                from .conversation_context import snapshot_prepared
+                copied = snapshot_prepared(self._directory(thread_id), encoded, _turn.seed)
             if copied != manifest:
                 raise ApiError('SEED_CHANGED', 'The admitted snapshot changed.', 422)
             if self._supervisor:
@@ -417,6 +439,8 @@ class RuntimeService:
             'taskSpecSha256': manifest['taskSha256'],
             'seedManifestSha256': hashlib.sha256(canonical_json_bytes(manifest['seed'])).hexdigest(),
             'reservedRunId': row['reserved_run_id']}
+        from .runtime_conversations import verify_binding
+        expected.update(verify_binding(self, row, job['identity']))
         current = self.providers.get(profile['id'], profile['revision'])
         if job['identity'] != expected or current['configSha256'] != profile['configSha256']:
             raise ApiError('JOB_IDENTITY_MISMATCH', 'Pinned job identity cannot be verified.', 422)
@@ -476,6 +500,8 @@ class RuntimeService:
             self._slots.release()
             raise
         try:
+            from .runtime_conversations import record_state
+            record_state(self, thread_id)
             if self._supervisor:
                 self._futures[thread_id] = self._supervisor.submit(thread_id, 'execution', dispatch, worker)
             else:
