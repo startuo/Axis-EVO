@@ -3,7 +3,7 @@
 ## Phase 5 / Step 1 — 2026-10-18 当前验证
 
 Baseline Commit: `506a8511c6593bf10e9e699069b44c1834843bab`。
-Tested Source Commit: 本节所属实现提交；发布后补记完整 commit，源码冻结 hash 见本地审查包。
+Tested Source Commit: `39f74a33873aa90eeee8c5f8178e8fae6c882fb0`（验证在提交前、相同生产源码字节上完成）。
 环境：Windows 11 build 22631；Python 3.12.10 / 3.13.5，SQLite 均为 3.49.1；Node 24.14.0；Microsoft Edge 155.0.4283.45。
 
 | 检查 | 实际结果 |
