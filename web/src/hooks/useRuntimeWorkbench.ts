@@ -34,6 +34,7 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
   const [selectedTemplate, setSelectedTemplate] = useState('default');
   const [conversation, setConversation] = useState(0);
   const epoch = useRef(0);
+  const authorizationEpoch = useRef(0);
   const mutations = useRef(new Set<string>());
   const mounted = useRef(true);
   const project = capabilities?.projects.find(item => item.id === projectId);
@@ -50,25 +51,33 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
   const promptLength = Array.from(prompt).length;
   const promptValid = promptLength <= promptLimit && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(prompt);
   const reportError = useCallback((failure: unknown) => {
+    if (failure instanceof RuntimeError && ['SESSION_REQUIRED', 'CSRF_REJECTED', 'CSRF_INVALID', 'CSRF_REQUIRED', 'SESSION_ORIGIN_REJECTED'].includes(failure.code)) {
+      authorizationEpoch.current++;
+      epoch.current++;
+      setToken(null);
+      setBusy('');
+      setCapabilities(current => current ? { ...current, authenticated: false } : current);
+    }
     setError(failure instanceof RuntimeError ? `${failure.code} · ${failure.message}` : "REQUEST_FAILED · 操作未能确认完成。请重新读取真实记录，不会自动重试。");
   }, []);
   const reload = useCallback(() => setRevision(value => value + 1), []);
-  const refresh = useCallback(() => { setConnectionRevision(value => value + 1); setRevision(value => value + 1); }, []);
+  const refresh = useCallback(() => { authorizationEpoch.current++; setConnectionRevision(value => value + 1); setRevision(value => value + 1); }, []);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   // Browser history changes invalidate pending UI work just like explicit navigation.
   useEffect(() => { epoch.current++; setBusy(""); setError(""); }, [route]);
   useEffect(() => {
     const controller = new AbortController();
+    const requestAuthorization = authorizationEpoch.current;
     void (async () => {
       try {
         const current = await runtimeApi.capabilities(controller.signal);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || authorizationEpoch.current !== requestAuthorization) return;
         setCapabilities(current);
         setSelectedProject(selected => selected || current.projects[0]?.id || "");
         if (!current.enabled || !current.authenticated) setToken(null);
         if (current.enabled && current.authenticated) {
-          try { const restored = await runtimeApi.restoreSession(controller.signal); if (!controller.signal.aborted) setToken(restored.csrfToken); }
-          catch { /* An unopened or expired session stays explicitly locked. */ }
+          try { const restored = await runtimeApi.restoreSession(controller.signal); if (!controller.signal.aborted && authorizationEpoch.current === requestAuthorization) setToken(restored.csrfToken); }
+          catch { if (!controller.signal.aborted && authorizationEpoch.current === requestAuthorization) { setToken(null); setCapabilities(value => value ? { ...value, authenticated: false } : value); } }
         }
       } catch (failure) {
         if (!controller.signal.aborted) {
@@ -157,10 +166,11 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
   async function unlock(code: string) {
     if (mutations.current.has("session")) return;
     mutations.current.add("session"); const requestEpoch = epoch.current;
+    const requestAuthorization = ++authorizationEpoch.current;
     setBusy("session"); setError("");
     try {
       const data = await runtimeApi.session(code);
-      if (!mounted.current) return;
+      if (!mounted.current || authorizationEpoch.current !== requestAuthorization) return;
       setToken(data.csrfToken); setCapabilities(current => current ? { ...current, authenticated: true } : current); reload();
       if (epoch.current === requestEpoch) go("/runtime");
     } catch (failure) { if (mounted.current && epoch.current === requestEpoch) reportError(failure); }

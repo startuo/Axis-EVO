@@ -4,7 +4,7 @@
 
 界面基于 Caho1/open-claude-ui 固定提交 `2834bc158a4849f21c97cbb2e0b10525f6e646f1` 的公开 CDS 主题、组件和 Storybook 重构，保留 AXIS 标志及简体中文。参考提供组件展示而非完整应用；新对话整体布局采用本项目确定的欢迎语与居中输入框。源码许可见仓库 `THIRD_PARTY_NOTICES.md`。
 
-React 19 / TypeScript / Vite 保持现状；framer-motion 固定为 11.18.2。Inter、Newsreader、JetBrains Mono 与各自 OFL 在本地提供，中文使用系统回退字体。运行时字体和品牌资源不访问 CDN。为兼容现有四路连接预算，字体在标志就绪后依次注册，标志仅请求当前主题版本。不引入桌面窗口、附件、多轮追问、模拟流式回复或其他未实现服务。
+React 19 / TypeScript / Vite 保持现状；framer-motion 固定为 11.18.2。Inter、Newsreader、JetBrains Mono 与各自 OFL 在本地提供，中文使用系统回退字体。运行时字体和品牌资源不访问 CDN。为兼容现有四路连接预算，字体在标志就绪后依次注册，标志仅请求当前主题版本。Runtime 已支持有界多轮、每轮独立计划审批与执行证据；不引入桌面窗口、附件、模拟流式回复或其他未实现服务。
 
 ## 共用框架与新对话
 
@@ -32,7 +32,9 @@ Inspector 默认关闭，只在任务上下文提供，通过查看证据或顶�
 
 ## 配置、权限与交互
 
-Provider 配置仍由后端保存，编辑创建独立 revision；旧线程使用原始模型快照。页面只选择允许的 credential reference 与 HTTPS Endpoint。连接测试仅证明该版本本次请求的响应，不证明任务或工具成功。权限和允许工具由后端决定。
+Provider 配置仍由后端保存，编辑创建独立 revision；旧线程使用原始模型快照。页面只选择允许的 credential reference、公网 HTTPS Endpoint 或管理员授权的 Local Gateway。未保存表单不参与连接测试；测试和模型发现结果绑定精确 revision/hash，发现不等于可用、计划通过或执行完成。高级 wire 参数通过渐进披露查看。权限和允许工具由后端决定。
+
+授权失效后立即锁定提交；旧 session 恢复响应不能重新授权。读取恢复与明确连接独立于任何 mutation，失败后不自动重发规划或批准。Provider 页面切换或编辑草稿后，迟到的保存结果不能覆盖当前草稿。
 
 所有控制可键盘访问；保留 skip link、可见焦点、弹窗焦点边界、Escape、Inspector 标签方向键与 splitter 键盘操作。弹出选择器支持方向键、Home/End、Enter、Escape、外部点击关闭。轮询不抢焦点、不自动重发 mutation。动效使用参考物理参数，并遵循 prefers-reduced-motion。
 

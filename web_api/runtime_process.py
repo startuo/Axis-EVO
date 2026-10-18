@@ -58,7 +58,8 @@ class ProcessSupervisor:
         descriptor = {'runtime': {'data_dir': str(config.data_dir),
             'projects': [{'id': p.id, 'task_spec_path': str(p.task_spec_path), 'skill_refs': [r.to_dict() for r in p.skill_refs],
                           'task_templates': {name: str(path) for name, path in p.task_templates}} for p in config.projects],
-            'credentials': dict(config.credentials), 'endpoints': list(config.endpoints)},
+            'credentials': dict(config.credentials), 'endpoints': list(config.endpoints),
+            'local_gateways': [{'endpoint': item.endpoint, 'model_ids': list(item.model_ids)} for item in config.local_gateways]},
             'workbench': {'projects': [{'id': p.id, 'name': p.name, 'database': str(p.database), 'workspace_roots': [str(r) for r in p.workspace_roots]} for p in workbench.projects],
                           'allowed_origins': list(workbench.allowed_origins)}}
         self.descriptor = config.data_dir / ('worker-config-' + uuid4().hex + '.json')

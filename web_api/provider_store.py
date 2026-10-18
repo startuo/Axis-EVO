@@ -16,7 +16,8 @@ from axis_evo.hashing import canonical_json_bytes
 from axis_evo.planning_adapter import (OpenAICompatiblePlanningAdapter, PlanningResponse,
                                        PlanningTransportError)
 
-from .runtime_config import validate_endpoint
+from .runtime_config import validate_endpoint, validate_gateway_endpoint
+from .local_gateway import LocalGatewayPlanningAdapter
 from .schemas import ApiError, no_redirected_parents, public_text
 
 
@@ -132,11 +133,17 @@ def _configuration(body, config):
     if type(body) is not dict or body.keys() != _FIELDS:
         raise ValueError("Unexpected provider profile fields")
     name, model = _safe_text(body["name"], 80), _safe_text(body["modelId"], 128)
-    if body["protocol"] not in ("openai-compatible", "deepseek-compatible"):
+    if body["protocol"] not in ("openai-compatible", "deepseek-compatible", "local-gateway"):
         raise ValueError("Unsupported planning protocol")
-    endpoint = validate_endpoint(body["endpoint"])
-    if endpoint not in config.endpoints:
-        raise ValueError("Unconfigured provider endpoint")
+    if body['protocol'] == 'local-gateway':
+        endpoint = validate_gateway_endpoint(body['endpoint'])
+        gateway = next((item for item in config.local_gateways if item.endpoint == endpoint), None)
+        if gateway is None or model not in gateway.model_ids:
+            raise ValueError('Unconfigured local gateway or model')
+    else:
+        endpoint = validate_endpoint(body["endpoint"])
+        if endpoint not in config.endpoints:
+            raise ValueError("Unconfigured provider endpoint")
     alias = body["credentialRef"]
     if type(alias) is not str or alias not in config.credentials:
         raise ValueError("Unconfigured credential alias")
@@ -168,7 +175,7 @@ def _public_addresses(endpoint):
 
 @dataclass(frozen=True)
 class _RestrictedAdapter:
-    delegate: OpenAICompatiblePlanningAdapter
+    delegate: OpenAICompatiblePlanningAdapter | LocalGatewayPlanningAdapter
     credential_env: str
     credential_envs: tuple[str, ...]
 
@@ -189,7 +196,8 @@ class _RestrictedAdapter:
         # Exact endpoint admission is backend-owned. This DNS precheck rejects
         # known private routes; the frozen transport resolves again, so it is
         # not a claim of pinned-IP/DNS-rebinding protection for hostile DNS.
-        _public_addresses(self.delegate.endpoint)
+        if type(self.delegate) is not LocalGatewayPlanningAdapter:
+            _public_addresses(self.delegate.endpoint)
         response = self.delegate.plan(request_json)
         if (type(response) is not PlanningResponse or key in response.response_text
                 or _sensitive_input(response.response_text, self.credential_envs)):
@@ -299,6 +307,8 @@ class ProviderStore:
             active = connection.execute("SELECT profile_id FROM provider_active_profile WHERE singleton=1").fetchone()
             return {"profiles": [self._load(connection, profile_id) for profile_id in ids],
                 "activeProfileId": active[0] if active else None, "endpoints": list(self.config.endpoints),
+                "localGateways": [{"endpoint": item.endpoint, "modelIds": list(item.model_ids)}
+                                  for item in self.config.local_gateways],
                 "credentialRefs": [{"id": alias, "configured": _configured(env)}
                                    for alias, env in self.config.credentials.items()],
                 "unsupportedOptions": ["reasoning", "retry"]}
@@ -390,7 +400,8 @@ class ProviderStore:
             adapter_name = (f"axis-profile/{pinned['id']}/{pinned['revision']}/"
                             f"{pinned['configSha256']}/attempt/{attempt_id}")
             env = self.config.credentials[pinned["credentialRef"]]
-            delegate = OpenAICompatiblePlanningAdapter(endpoint=pinned["endpoint"], model_id=pinned["modelId"],
+            adapter_type = LocalGatewayPlanningAdapter if pinned['protocol'] == 'local-gateway' else OpenAICompatiblePlanningAdapter
+            delegate = adapter_type(endpoint=pinned["endpoint"], model_id=pinned["modelId"],
                 api_key_env=env, adapter_name=adapter_name, timeout_seconds=pinned["timeout"])
             return _RestrictedAdapter(delegate, env, tuple(self.config.credentials.values()))
         except (ApiError, KeyError, TypeError, ValueError):
@@ -404,6 +415,27 @@ class ProviderStore:
         """
         if _sensitive_input(text, tuple(self.config.credentials.values())):
             raise ApiError("SENSITIVE_INPUT", "Sensitive input is unavailable to the Web runtime.")
+
+    def discover_models(self, profile_id, revision):
+        """A directory response is neither authorization nor planning evidence."""
+        snapshot = self.get(profile_id, revision)
+        if snapshot['protocol'] != 'local-gateway':
+            raise ApiError('MODEL_DISCOVERY_UNSUPPORTED', 'Discovery is available for an authorized local gateway only.', 422)
+        adapter = self.adapter(snapshot, 'discovery_' + uuid4().hex)
+        try:
+            models = adapter.delegate.discover_models()
+            for model in models:
+                self.check_text(model)
+        except PlanningTransportError as error:
+            # Never reflect the gateway body, error message, URL or credential.
+            raise ApiError('MODEL_DISCOVERY_FAILED',
+                f'Model discovery failed: {error.category}' +
+                (f' (HTTP {error.status_code})' if error.status_code else ''), 502) from None
+        allowed = next(item.model_ids for item in self.config.local_gateways if item.endpoint == snapshot['endpoint'])
+        return {'id': profile_id, 'revision': revision, 'configSha256': snapshot['configSha256'],
+            'status': 'DISCOVERED', 'modelIds': sorted(model for model in models if model in allowed),
+            'excludedCount': sum(model not in allowed for model in models),
+            'planningVerified': False, 'executionVerified': False}
 
     def test(self, profile_id, revision):
         snapshot = self.get(profile_id, revision)

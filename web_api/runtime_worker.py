@@ -5,7 +5,7 @@ import re
 import sys
 
 from .provider_store import ProviderStore
-from .runtime_config import RuntimeConfig, RuntimeProject
+from .runtime_config import RuntimeConfig, RuntimeProject, parse_local_gateways
 from .runtime_service import RuntimeService
 from .runtime_jobs import claim
 from .schemas import Project, WorkbenchConfig, strict_json
@@ -21,7 +21,8 @@ def run_worker(descriptor_path, phase, job, worker, dispatch):
     rc = value['runtime']
     config = RuntimeConfig(Path(rc['data_dir']), tuple(RuntimeProject(p['id'], Path(p['task_spec_path']),
         tuple(SkillRef(**r) for r in p['skill_refs']),
-        tuple((name, Path(path)) for name, path in p.get('task_templates', {}).items())) for p in rc['projects']), rc['credentials'], tuple(rc['endpoints']))
+        tuple((name, Path(path)) for name, path in p.get('task_templates', {}).items())) for p in rc['projects']), rc['credentials'], tuple(rc['endpoints']),
+        parse_local_gateways(rc.get('local_gateways', [])))
     service = RuntimeService(config, workbench, ProviderStore(config), worker_mode=True)
     row = service._row_unscoped(job)
     with service._web() as c:

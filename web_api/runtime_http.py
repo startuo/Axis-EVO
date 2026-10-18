@@ -1,6 +1,7 @@
 """Session-authorized opt-in mutations; the original read-only server is unchanged."""
 import json
 import socket
+import time
 
 from .app import WorkbenchHandler, WorkbenchServer
 from .runtime_auth import RuntimeSessions, SESSION_COOKIE, SESSION_TTL_SECONDS
@@ -77,24 +78,29 @@ class RuntimeHandler(WorkbenchHandler):
         """Preserve an HTTP error response when Windows would reset unread TCP.
 
         This consumes bytes only, never parses or authorizes a rejected action.
-        Unknown/oversized framing is closed; normal declared bodies retain the
+        Unknown/oversized framing is drained within a short budget, never parsed;
+        normal declared bodies retain the
         same 64 KiB and five-second socket bounds as accepted requests.
         """
-        if getattr(self, "_body_consumed", False) or self.headers.get_all("Transfer-Encoding", []):
+        if getattr(self, "_body_consumed", False):
             return
         lengths = self.headers.get_all("Content-Length", [])
-        if (len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdecimal()
-                or len(lengths[0]) > 6):
-            return
-        if int(lengths[0]) > 65536:
+        declared = (len(lengths) == 1 and lengths[0].isascii() and lengths[0].isdecimal()
+                    and len(lengths[0]) <= 6)
+        if (self.headers.get_all('Transfer-Encoding', []) or not declared
+                or int(lengths[0]) > 65536):
             # Reject oversized framing without waiting for the advertised body.
             # Consume at most already-arriving bounded bytes so Windows can send
             # the error response without resetting a small malformed request.
             previous = self.connection.gettimeout()
             try:
-                self.connection.settimeout(0.05)
+                deadline = time.monotonic() + 0.05
                 remaining = 65536
                 while remaining:
+                    budget = deadline - time.monotonic()
+                    if budget <= 0:
+                        break
+                    self.connection.settimeout(budget)
                     data = self.rfile.read1(min(4096, remaining))
                     if not data:
                         break
@@ -193,6 +199,10 @@ class RuntimeHandler(WorkbenchHandler):
             if parts == ["api", "runtime", "providers"]:
                 result = runtime.providers.create(body)
                 status = 201
+            elif (len(parts) == 7 and parts[:3] == ['api', 'runtime', 'providers']
+                    and parts[4] == 'revisions' and parts[6] == 'models' and body == {}
+                    and parts[5].isascii() and parts[5].isdecimal() and len(parts[5]) < 8):
+                result = runtime.providers.discover_models(parts[3], int(parts[5]))
             elif len(parts) == 5 and parts[:3] == ["api", "runtime", "providers"] and parts[4] == "revisions":
                 result = runtime.providers.edit(parts[3], body)
                 status = 201

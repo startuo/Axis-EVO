@@ -19,7 +19,7 @@ export type RuntimeProfile = {
   revision: number;
   configSha256: string;
   name: string;
-  protocol: "openai-compatible" | "deepseek-compatible";
+  protocol: "openai-compatible" | "deepseek-compatible" | "local-gateway";
   endpoint: string;
   modelId: string;
   credentialRef: string;
@@ -33,6 +33,7 @@ export type RuntimeProfiles = {
   profiles: RuntimeProfile[];
   activeProfileId: string | null;
   endpoints: string[];
+  localGateways?: { endpoint: string; modelIds: string[] }[];
   credentialRefs: { id: string; configured: boolean }[];
   unsupportedOptions: string[];
 };
@@ -54,6 +55,8 @@ export type RuntimeSupervision = {
   recoveryAvailable: boolean; observations: { kind: string; detail: JsonValue; observedAt: string }[];
 };
 export type ProviderHistory = { profileId: string; revisions: RuntimeProfile[]; wireParameters: { stream: boolean; n: number }; inactiveParameters: string[]; providerDefaults: string };
+export type ProviderTestResult = Pick<RuntimeProfile, 'id' | 'revision' | 'configSha256' | 'testStatus' | 'testedAt'> & { category: string; httpStatus: number | null };
+export type ModelDiscovery = Pick<RuntimeProfile, 'id' | 'revision' | 'configSha256'> & { status: 'DISCOVERED'; modelIds: string[]; excludedCount: number; planningVerified: false; executionVerified: false };
 export type RuntimeThreadSummary = {
   id: string;
   projectId: string;
@@ -91,7 +94,7 @@ const skillRef = (v: unknown) => object(v) && text(v.skill_id) && integer(v.skil
 const states: ThreadStatus[] = ["QUEUED", "PLANNING", "AWAITING_APPROVAL", "DISPATCH_RESERVED", "EXECUTING", "FINISHED", "FAILED", "UNKNOWN"];
 const identity = (value: unknown, prefix: string) => typeof value === 'string' && new RegExp(`^${prefix}_[0-9a-f]{32}$`).test(value);
 const turnSummary = (v: unknown) => object(v) && identity(v.id, 'turn') && integer(v.number) && v.number > 0 && v.number <= 16 && identity(v.threadId, 'thread') && identity(v.reservedRunId, 'run') && text(v.prompt) && states.includes(v.webStatus as ThreadStatus) && (v.coreOutcome === null || ['COMPLETED', 'FAILED'].includes(String(v.coreOutcome))) && nullableText(v.outcomeObservedAt) && nullableText(v.proposalId) && nullableText(v.approvalIdentity) && hash(v.contextSha256) && text(v.taskTemplateId) && profile(v.profileSnapshot) && skillRef(v.skillRef);
-const profile = (v: unknown) => object(v) && text(v.id) && integer(v.revision) && v.revision > 0 && hash(v.configSha256) && text(v.name) && ["openai-compatible", "deepseek-compatible"].includes(String(v.protocol)) && text(v.endpoint) && text(v.modelId) && text(v.credentialRef) && integer(v.timeout) && v.timeout > 0 && typeof v.credentialConfigured === "boolean" && text(v.testStatus) && nullableText(v.testedAt);
+const profile = (v: unknown) => object(v) && text(v.id) && integer(v.revision) && v.revision > 0 && hash(v.configSha256) && text(v.name) && ["openai-compatible", "deepseek-compatible", "local-gateway"].includes(String(v.protocol)) && text(v.endpoint) && text(v.modelId) && text(v.credentialRef) && integer(v.timeout) && v.timeout > 0 && typeof v.credentialConfigured === "boolean" && text(v.testStatus) && nullableText(v.testedAt);
 const summary = (v: unknown) => object(v) && text(v.id) && text(v.projectId) && text(v.title) && text(v.createdAt) && text(v.updatedAt) && states.includes(v.status as ThreadStatus) && nullableText(v.proposalId) && nullableText(v.runId);
 function jsonTree(value: unknown, depth = 0): boolean {
   if (depth > 64) return false;
@@ -112,6 +115,10 @@ const errorMessages: Record<string, string> = {
   SESSION_REQUIRED: "本地会话已失效，请重新开启。",
   CSRF_INVALID: "当前会话授权已失效，请重新开启本地会话。",
   CSRF_REQUIRED: "请重新开启本地会话以获得本次页面的授权。",
+  CSRF_REJECTED: "当前页面授权已失效，请重新连接本地会话；没有重发操作。",
+  SESSION_ORIGIN_REJECTED: "会话与当前页面地址不一致，请使用启动终端给出的地址重新连接。",
+  MODEL_DISCOVERY_FAILED: "模型发现失败。请检查本地网关、端口与后端凭据；没有更换模型或重试。",
+  MODEL_DISCOVERY_UNSUPPORTED: "当前配置不支持模型发现，请选择已授权的本地网关。",
   APPROVAL_MISMATCH: "批准摘要与已存计划不一致，执行被拒绝。",
   INVALID_APPROVAL: "计划批准未通过核验，没有启动执行。",
   PROFILE_CHANGED: "模型配置版本已改变，请重新选择精确版本。",
@@ -129,6 +136,7 @@ export function validateRuntimeData(path: string, data: unknown, mutating = fals
     if (!object(data) || typeof data.csrfToken !== "string" || data.csrfToken.length < 16 || data.csrfToken.length > 256) reject();
   } else if (path === "/providers" && !mutating) {
     if (!object(data) || !list(data.profiles) || !data.profiles.every(profile) || !nullableText(data.activeProfileId) || !list(data.endpoints) || !data.endpoints.every(text) || !list(data.credentialRefs) || !data.credentialRefs.every((ref) => object(ref) && text(ref.id) && typeof ref.configured === "boolean") || !list(data.unsupportedOptions) || !data.unsupportedOptions.every(text)) reject();
+    if (object(data) && data.localGateways !== undefined && (!list(data.localGateways) || data.localGateways.length > 8 || !data.localGateways.every(item => object(item) && text(item.endpoint) && list(item.modelIds) && item.modelIds.length > 0 && item.modelIds.length <= 64 && item.modelIds.every(text) && new Set(item.modelIds).size === item.modelIds.length))) reject();
   } else if (/^\/providers\/[^/]+\/history$/.test(path)) {
     if (!object(data) || !text(data.profileId) || !list(data.revisions) || !data.revisions.every(profile) || !object(data.wireParameters) || data.wireParameters.stream !== false || data.wireParameters.n !== 1 || !list(data.inactiveParameters) || !data.inactiveParameters.every(text) || !text(data.providerDefaults)) reject();
     if (object(data) && text(data.profileId) && list(data.revisions) && (encodeURIComponent(data.profileId) !== path.split('/')[2] || data.revisions.length < 1 || data.revisions.length > 100 || !data.revisions.every((revision, index) => object(revision) && revision.id === data.profileId && revision.revision === index + 1))) reject();
@@ -136,6 +144,9 @@ export function validateRuntimeData(path: string, data: unknown, mutating = fals
     if (!profile(data)) reject();
   } else if (/^\/providers\/[^/]+\/revisions\/\d+\/test$/.test(path)) {
     if (!object(data) || !text(data.id) || !integer(data.revision) || !hash(data.configSha256) || !["CONNECTED", "FAILED"].includes(String(data.testStatus)) || !text(data.testedAt) || !text(data.category) || !(data.httpStatus === null || integer(data.httpStatus))) reject();
+    if (object(data) && (encodeURIComponent(String(data.id)) !== path.split('/')[2] || data.revision !== Number(path.split('/')[4]))) reject();
+  } else if (/^\/providers\/[^/]+\/revisions\/\d+\/models$/.test(path)) {
+    if (!object(data) || encodeURIComponent(String(data.id)) !== path.split('/')[2] || data.revision !== Number(path.split('/')[4]) || !hash(data.configSha256) || data.status !== 'DISCOVERED' || !list(data.modelIds) || data.modelIds.length > 64 || !data.modelIds.every(text) || new Set(data.modelIds).size !== data.modelIds.length || !integer(data.excludedCount) || data.planningVerified !== false || data.executionVerified !== false) reject();
   } else if (/\/conversations(?:\/|$)/.test(path)) {
     const route = path.split('/');
     if (route.length === 4 && !mutating) {
@@ -232,6 +243,10 @@ export async function runtimeRequest<T>(path: string, options: { body?: unknown;
 }
 
 const encoded = encodeURIComponent;
+function verifyProfileResult<T extends { id: string; revision: number; configSha256: string }>(profile: RuntimeProfile, result: T): T {
+  if (result.id !== profile.id || result.revision !== profile.revision || result.configSha256 !== profile.configSha256) throw new RuntimeError('INVALID_DATA', '连接证据与所选配置版本不一致。');
+  return result;
+}
 export const runtimeApi = {
   conversations: (project: string, signal?: AbortSignal) => runtimeRequest<RuntimeConversationSummary[]>(`/projects/${encoded(project)}/conversations`, { signal }),
   conversation: (project: string, id: string, signal?: AbortSignal) => runtimeRequest<RuntimeConversation>(`/projects/${encoded(project)}/conversations/${encoded(id)}`, { signal }),
@@ -246,7 +261,8 @@ export const runtimeApi = {
   profileHistory: (id: string, signal?: AbortSignal) => runtimeRequest<ProviderHistory>(`/providers/${encoded(id)}/history`, { signal }),
   saveProfile: (input: ProfileInput, token: string, id?: string) => runtimeRequest<RuntimeProfile>(id ? `/providers/${encoded(id)}/revisions` : "/providers", { body: input, csrfToken: token }),
   activateProfile: (id: string, token: string) => runtimeRequest<RuntimeProfile>(`/providers/${encoded(id)}/activate`, { body: {}, csrfToken: token }),
-  testProfile: (profile: RuntimeProfile, token: string) => runtimeRequest<unknown>(`/providers/${encoded(profile.id)}/revisions/${profile.revision}/test`, { body: {}, csrfToken: token, timeoutMs: Math.min(305000, (profile.timeout + 5) * 1000) }),
+  testProfile: async (profile: RuntimeProfile, token: string) => verifyProfileResult(profile, await runtimeRequest<ProviderTestResult>(`/providers/${encoded(profile.id)}/revisions/${profile.revision}/test`, { body: {}, csrfToken: token, timeoutMs: Math.min(305000, (profile.timeout + 5) * 1000) })),
+  discoverModels: async (profile: RuntimeProfile, token: string) => verifyProfileResult(profile, await runtimeRequest<ModelDiscovery>(`/providers/${encoded(profile.id)}/revisions/${profile.revision}/models`, { body: {}, csrfToken: token, timeoutMs: Math.min(305000, (profile.timeout + 5) * 1000) })),
   threads: (project: string, signal?: AbortSignal) => runtimeRequest<RuntimeThreadSummary[]>(`/projects/${encoded(project)}/threads`, { signal }),
   thread: (project: string, id: string, signal?: AbortSignal) => runtimeRequest<RuntimeThread>(`/projects/${encoded(project)}/threads/${encoded(id)}`, { signal }),
   plan: (project: string, input: { prompt: string; profileId: string; profileRevision: number; skillRef: SkillRef }, token: string) => runtimeRequest<RuntimeThread>(`/projects/${encoded(project)}/threads`, { body: input, csrfToken: token }),

@@ -1,5 +1,43 @@
 # 测试结果
 
+## Phase 5 / Step 1 — 2026-10-18 当前验证
+
+Baseline Commit: `506a8511c6593bf10e9e699069b44c1834843bab`。
+Tested Source Commit: 本节所属实现提交；发布后补记完整 commit，源码冻结 hash 见本地审查包。
+环境：Windows 11 build 22631；Python 3.12.10 / 3.13.5，SQLite 均为 3.49.1；Node 24.14.0；Microsoft Edge 155.0.4283.45。
+
+| 检查 | 实际结果 |
+|---|---|
+| Python 3.12 `python -m pytest -q`（Core） | 2350 passed, 14 skipped；未报告 warning；815.91s |
+| Python 3.13 Core（命令含下述 -W） | 2350 passed, 14 skipped, **5,323,149 warnings**；726.61s |
+| Python 3.12 `python -m pytest -q web_api/tests` | 310 passed；未报告 warning；167.16s |
+| Python 3.13 `python -m pytest -q web_api/tests` | 310 passed, **2,356 warnings**；151.49s |
+| 每个 Python 环境全部可访问后端用例 | 2660 passed, 14 skipped（2674 collected） |
+| `npm run typecheck` / `npm run lint` | 通过；lint 0 warnings |
+| `npm test` | 15 files，210 passed |
+| `npm run build` | 通过；JS 480.71 kB / gzip 152.00 kB；CSS 91.34 kB / gzip 16.31 kB |
+| `npm audit` | 0 vulnerabilities；不是完整安全证明 |
+| 当前 Browser contracts | **45 passed**：既有工作台27、多轮9、真实历史只读1、Gateway7、fresh DX/HMR1 |
+| 更早里程碑 UI 脚本（不计为通过） | runtime1 failed；step3 visual2 failed、4 did not run；见下文基线复现 |
+
+73 个新增 backend cases、10 个新增 frontend unit cases，既有测试源码保持原字节。14 个 Core skip 为13项缺 Windows symlink privilege/WinError1314、1项 POSIX FIFO；不计为 passed。两套 Python 原始 XML/输出和逐函数 skip 原因保留于审查包。
+
+Python3.13 Core 命令含 `-W 'ignore:.*is_reserved.*:DeprecationWarning'`，实际仍产生上述5,323,149条警告；没有改项目过滤规则或把它报告为零。WebAPI完整运行未过滤，警告来自冻结 Core 的 `PureWindowsPath.is_reserved()` 弃用。另一个未过滤定点样本为1 passed、96 warnings。Node的 NO_COLOR/FORCE_COLOR 提示保留于原始 browser logs。没有本轮 Linux、物理手机或其它浏览器结果。
+
+**历史 UI 脚本缺口**：早期 `runtime-integration.spec.ts` / `runtime-process-visual.spec.ts` 仍等待 UI POST `/threads`，而 Phase4Step4 已采用 `/conversations`。本轮补跑出现上述失败；在未叠加 Phase5 代码的 baseline `506a851` Git archive +独立 build 上，也于同一等待位置复现。没有改回生产协议或削弱原断言；旧源码和失败保留，不能声称全部历史 browser suites 全绿。当前多轮、逐轮批准、真实 worker/UNKNOWN 与六尺寸由9+7等当前接口测试覆盖。
+
+干净 Git archive+当前源码 overlay、独立 venv、pip install、npm ci、只读 --check 与 production build 均通过。实际 HMR修改不发生主frame跳转，保留中文草稿/session/immutable proposal/hash；恢复文件后明确批准，原Runner执行、独立验收PASSED。开发入口默认只读，不自动建立fixture或迁移历史库，后台不热重载。
+
+可选 Local Gateway 使用同一 ProviderStore、独立管理员 endpoint/model allowlist，literal `127.0.0.1`+显式端口，不放宽公网HTTPS。真实离线TCP覆盖模型发现、有效/无效/截断响应、401、redirect/proxy、总deadline、严格chunk framing、错/重复approval、revision pinning、规划网关os._exit(70)与执行Worker Crash B。Fake Gateway不等于DSH认证；SQL/Runner/文件/Acceptance均真实。
+
+官方DeepSeek本轮实际 connection-test 为 CONNECTED（2026-10-18，profile r1/config hash 固定）；本轮没有新增live Plan或重用上轮批准。原已批准两轮DeepSeek事实只读浏览器复核1 passed。公开DSH源码刷新为 `f0b979f` / v2.5.3，PR#377 closed、merged=false，维护者说明功能已整合；这不证明本机实装。用户明确选择将 DSH/WorkBuddy真实联机保持 **PENDING**。
+
+52个Core文件含001–010、2个Web SQL、106个历史测试/fixture、15个依赖/许可证/品牌资产hash均不变。没有新migration、依赖、Core freeze exception、桌面打包或下一阶段实现。原型仍非完整OS沙箱；HTTP loopback与管理员信任、默认公网DNS边界不作更强保证。
+
+中间失败如实保留：新私有test lint错误、Windows拒绝TE时TCP reset、stdlib截断chunk宽松，以及Vite误用worker内存限制；均在授权Web/DX边界修正并复验。一次误启的重复Core测试进程只终止该副本，原始完整运行和XML保留；该原始log有进度覆盖/NUL，未伪造干净输出。
+
+私有测试/fixture/报告/ZIP不推送；源码、使用说明和本测试结果按AGENTS.md发布。
+
 ## Phase 4 / Step 4 — 2026-10-16 当前验证
 
 Baseline Commit: 2012cb3e912e744f8ecb6802ed68e74d67674bf8

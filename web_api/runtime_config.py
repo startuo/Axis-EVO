@@ -17,6 +17,51 @@ DEFAULT_ENDPOINTS = ("https://api.openai.com/v1/chat/completions",
 _ALIAS = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,63}\Z")
 _ENV = re.compile(r"(?:AXIS_EVO_[A-Z0-9_]{1,80}|[A-Z][A-Z0-9_]{0,60}_API_KEY)\Z")
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\Z")
+_GATEWAY = re.compile(r"http://127\.0\.0\.1:([1-9][0-9]{0,4})/v1/chat/completions\Z")
+_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:@-]{0,127}\Z")
+
+
+def validate_gateway_endpoint(value):
+    """Separate, literal loopback authority; never relax public HTTPS policy."""
+    match = _GATEWAY.fullmatch(value) if type(value) is str else None
+    if match is None or not 1 <= int(match[1]) <= 65535:
+        raise ValueError('An exact http://127.0.0.1:<port>/v1/chat/completions is required')
+    return value
+
+
+def validate_gateway_model(value):
+    if (type(value) is not str or not _MODEL.fullmatch(value)
+            or public_text(value, 128) != value):
+        raise ValueError('Invalid configured gateway model identity')
+    return value
+
+
+@dataclass(frozen=True)
+class LocalGateway:
+    endpoint: str
+    model_ids: tuple[str, ...]
+
+    def __post_init__(self):
+        validate_gateway_endpoint(self.endpoint)
+        if type(self.model_ids) not in (tuple, list) or not 1 <= len(self.model_ids) <= 64:
+            raise ValueError('An explicit bounded gateway model allowlist is required')
+        models = tuple(validate_gateway_model(value) for value in self.model_ids)
+        if len(set(models)) != len(models):
+            raise ValueError('Duplicate gateway model identity')
+        object.__setattr__(self, 'model_ids', models)
+
+
+def parse_local_gateways(value):
+    if type(value) is not list or len(value) > 8:
+        raise ValueError('Invalid local gateway allowlist')
+    result = []
+    for item in value:
+        if type(item) is not dict or item.keys() != {'endpoint', 'model_ids'}:
+            raise ValueError('Unexpected local gateway configuration')
+        result.append(LocalGateway(item['endpoint'], item['model_ids']))
+    if len({item.endpoint for item in result}) != len(result):
+        raise ValueError('Duplicate local gateway endpoint')
+    return tuple(result)
 
 
 def validate_endpoint(value):
@@ -80,12 +125,18 @@ class RuntimeConfig:
     projects: tuple[RuntimeProject, ...]
     credentials: dict[str, str]
     endpoints: tuple[str, ...] = DEFAULT_ENDPOINTS
+    local_gateways: tuple[LocalGateway, ...] = ()
 
     def __post_init__(self):
         # A frozen dataclass alone does not freeze nested configuration objects.
         object.__setattr__(self, "credentials", MappingProxyType(dict(self.credentials)))
         object.__setattr__(self, "projects", tuple(self.projects))
         object.__setattr__(self, "endpoints", tuple(self.endpoints))
+        if (type(self.local_gateways) not in (tuple, list) or len(self.local_gateways) > 8
+                or any(type(item) is not LocalGateway for item in self.local_gateways)
+                or len({item.endpoint for item in self.local_gateways}) != len(self.local_gateways)):
+            raise ValueError('Invalid local gateway authority')
+        object.__setattr__(self, 'local_gateways', tuple(self.local_gateways))
 
     @classmethod
     def from_file(cls, path, workbench_config):
@@ -95,7 +146,7 @@ class RuntimeConfig:
             with source.open("rb") as stream:
                 value = strict_json(stream.read(MAX_CONFIG_BYTES + 1))
             required = {"data_dir", "projects", "credentials"}
-            if type(value) is not dict or not required <= value.keys() <= required | {"endpoints"}:
+            if type(value) is not dict or not required <= value.keys() <= required | {"endpoints", "local_gateways"}:
                 raise ValueError("Unexpected runtime configuration")
             data_dir = _path(value["data_dir"])
             if type(value["projects"]) is not list or not 1 <= len(value["projects"]) <= 16:
@@ -144,7 +195,8 @@ class RuntimeConfig:
             endpoints = tuple(validate_endpoint(endpoint) for endpoint in endpoints)
             if len(set(endpoints)) != len(endpoints):
                 raise ValueError("Duplicate configured endpoint")
-            return cls(data_dir, tuple(projects), dict(credentials), endpoints)
+            gateways = parse_local_gateways(value.get('local_gateways', []))
+            return cls(data_dir, tuple(projects), dict(credentials), endpoints, gateways)
         except (ApiError, OSError, ValueError, TypeError, KeyError, RuntimeError, UnicodeError):
             raise ApiError("INVALID_RUNTIME_CONFIG", "The backend runtime configuration is invalid.") from None
 

@@ -1,6 +1,27 @@
 # Web Workbench
 
-Phase 4 / Step 3 保留三个独立模式：离线 Demo、Core 只读审查、显式开启的本地 Runtime。Runtime 使用持久化 job/dispatch、独立规划与执行 Worker，以及现有 Skill planner、不可变 Plan Proposal、精确摘要审批、Runner 与独立 Acceptance。进程监督协议见 [RUNTIME_PROCESS_PROTOCOL.md](RUNTIME_PROCESS_PROTOCOL.md)。
+工作台保留三个独立模式：离线 Demo、Core 只读审查、显式开启的本地 Runtime。Runtime 使用持久化 job/dispatch、独立规划与执行 Worker，以及现有 Skill planner、不可变 Plan Proposal、精确摘要审批、Runner 与独立 Acceptance。进程监督协议见 [RUNTIME_PROCESS_PROTOCOL.md](RUNTIME_PROCESS_PROTOCOL.md)。本轮采用 Web-first 路线，桌面打包延后。
+
+## 日常开发：Vite HMR
+
+首次安装后，从仓库根目录启动：
+
+```powershell
+python -m pip install -e .
+npm --prefix web ci
+python -m examples.workbench_dev --check
+python -m examples.workbench_dev
+```
+
+统一打开 `http://127.0.0.1:5173/#/runtime`；在侧栏可进入 Demo。启动器同时启动稳定的 loopback 后端和 Vite，前端修改通过 HMR 更新。默认只读，不创建数据库、示例数据或 Skill，不调用 Provider。只读审查需要明确的 `--config`；真实 Runtime 需要两份已存在的管理员配置：
+
+```powershell
+python -m examples.workbench_dev --config .local/workbench-runtime/workbench.json --runtime-config .local/workbench-runtime/runtime.json
+```
+
+`--port 8766` 可换后端端口，前端仍固定 5173；脚本只向 Node 传递经检查的 loopback 代理地址及最小环境，不传递 Provider 密钥。Vite 保留请求 Host/Origin，API 使用同源 `/api`；不开放额外 CORS。不要混用 `localhost`、5173 与生产 8765 的授权页面，会话绑定精确 origin。
+
+端口占用或依赖缺失时明确报错，不终止其他进程。Ctrl+C 收尾本脚本创建的进程树；如果中断活跃任务，应重新启动后审查 UNKNOWN，不能重发原审批。Backend 不自动热重载；更改 Python 后应先等待任务结束，再手动停启。安装依赖是显式步骤，启动器不自动下载代码。 Windows 开发服务只使用 kill-on-close Job 管理生命周期，不套用执行 Worker 的 512 MiB／8 进程限制；可信的 Vite 构建服务与受限任务 Worker 是不同边界。
 
 ## 启动 Demo / 只读模式
 
@@ -47,6 +68,33 @@ python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime
 
 服务只监听 `127.0.0.1`，mutation 需要精确 Host/Origin、origin-bound session、HttpOnly SameSite=Strict cookie 和自定义 CSRF header。任务在独立进程执行；这不提供 TLS、独立 OS 账户、文件系统或网络权限沙箱。不要将此服务反向代理到公网。
 
+## 可选本机 Gateway
+
+公网 Provider 的 HTTPS/DNS 限制保持原样。管理员可在现有 runtime JSON 增加独立 allowlist，例如：
+
+```json
+{
+  "local_gateways": [{
+    "endpoint": "http://127.0.0.1:8326/v1/chat/completions",
+    "model_ids": ["provider/exact-model-id"]
+  }]
+}
+```
+
+这是现有完整配置的补充字段；另在 `credentials` 中添加 `"gateway":"AXIS_EVO_GATEWAY_API_KEY"` 引用，真实值仅配置在后端进程环境。先由你单独启动并授权信任网关，再在 Provider 设置选择 Local Gateway、已登记 endpoint、精确 model ID 与凭据引用。Axis 不安装 DSH、不读取其凭据文件、不导入账号池或 updater。
+
+只接受 canonical `http://127.0.0.1:<1..65535>/v1/chat/completions`；拒绝 localhost、IPv6、其他 loopback/LAN、URL credentials/query/fragment、跳转和代理。HTTP loopback 没有 TLS 或服务身份认证；管理员必须信任该端口的服务。
+
+保存的配置仍是不可变 revision。点击“发现此版本的模型”会对固定 `/v1/models` 发起一次 Bearer 请求，仅显示目录与管理员 allowlist 的交集；发现不修改配置、不生成计划，也不授权新模型。更换 ID 需保存新 revision，旧会话保持原版本。连接测试失败显示固定分类及 HTTP status；未保存修改不参与测试。
+
+传输固定 `model/messages/n=1/stream=false`。严格要求完整 `chat.completion`、精确 model、单个 assistant choice、`finish_reason=stop` 及非空文本；长度截断、SSE、tool calls、重复 JSON key、错误 UTF-8 或 provider error 都拒绝。支持 Content-Length、完整 chunked 或关闭连接定界；chunk extensions/trailers 不支持。没有自动重试。
+
+预算：语义请求 128 KiB、实际 wire 256 KiB、响应体 64 KiB、单次 deadline 最多 300s、discovery 最多 256 项、授权目录最多 8 个网关及各 64 个模型。chunk framing 最多 1024 块、每行 32 bytes。超时会关闭本机连接，不能据此保证网关或远端 Provider 已停止计算。
+
+发现、连接响应、Core 接受计划、批准后执行是不同事实。后两项在具体对话轮次查看；HTTP 200 或连接测试成功不能让任务完成。网关缺席时官方 Provider、离线 Demo 和历史会话读取继续独立工作；不自动切换已固定的 Provider。
+
+DSH/OFM 固定上游源码核查与离线互操作验证范围见 [测试结果](TEST_RESULTS.md)。2026-10-18 刷新核查：PR #377 已关闭，原分支未直接合并；维护者说明功能已整合于 v2.5.2，当前 main 的 v2.5.3 源码和打包产物均含 WorkBuddy 三会话头与 system-first 修补。这些仍由上游 adapter 负责。本机安装版本/补丁与 WorkBuddy live 未验证，兼容性保持 PENDING。
+
 ## 后台 Runtime 配置
 
 ```json
@@ -89,9 +137,9 @@ npm run build
 npm run test:e2e
 ```
 
-单独的 Runtime browser integration 使用私有 `review_evidence/runtime/browser_server.py` 与 `web/runtime.playwright.config.ts`；该 harness 仅拦截 Provider transport，不模拟 Runner、SQLite、文件副作用或 Acceptance。它不随公共仓库发布，也不是可选择的生产 Provider。默认测试没有真实外网模型调用。运行结果见 [TEST_RESULTS.md](TEST_RESULTS.md)，布局约定见 [WORKBENCH_UI_SPEC.md](WORKBENCH_UI_SPEC.md)。目前没有 Windows EXE 或桌面安装包。
+当前多轮 Runtime QA 使用私有 `web/step4.playwright.config.ts`，Gateway QA 使用 `web/step5.playwright.config.ts`，干净开发入口/HMR 使用 `web/step5-dev.playwright.config.ts`。对应 harness 只替代 Provider transport，真实 Runner、SQLite、文件副作用与 Acceptance 仍执行；它们不随公共仓库发布。默认测试不调用真实外网模型。历史 `runtime.playwright.config.ts` / `step3.playwright.config.ts` 仍等待旧 UI 的 `/threads` 请求，已在本轮基线复现不适用于多轮 UI；原样保留并如实记录失败，不作为当前接口启动指引。完整结果见 [TEST_RESULTS.md](TEST_RESULTS.md)，布局约定见 [WORKBENCH_UI_SPEC.md](WORKBENCH_UI_SPEC.md)。目前没有 Windows EXE 或桌面安装包。
 
-Step 3 的六尺寸进程监督 QA 使用本地审查包中的 `web/step3.playwright.config.ts`。Windows 实际 junction、孙进程清理与硬退出已有独立证据；本轮没有可用 Linux 环境。POSIX 文件复制失败时，存在部分文件的目录保守保留，以避免不具备原子身份条件的删除；POSIX 静默脱离后代清理不等同于 Windows Job Object。不要把 Windows 结果外推为 Linux 认证。
+历史 Step 3 进程监督 QA 留存在审查包；当前六尺寸和 UNKNOWN UI 由多轮/Gateway QA 覆盖。Windows 实际 junction、孙进程清理与硬退出已有独立证据；本轮没有可用 Linux 环境。POSIX 文件复制失败时，存在部分文件的目录保守保留，以避免不具备原子身份条件的删除；POSIX 静默脱离后代清理不等同于 Windows Job Object。不要把 Windows 结果外推为 Linux 认证。
 
 Phase 4 / Step 4 已完成实际 DeepSeek 连接和逐轮批准的两轮文件任务，具体模型/网络边界见 `docs/INTERACTIVE_SESSIONS.md` 和测试结果；该结论不表示任意 Endpoint 已认证。可使用 `examples/live_runtime_verification.py` 分别运行 connection、plan、execute、inspect；connection/plan 必须显式提供 `--live-provider`，execute 必须另行提供审阅后的精确摘要。该 CLI 的 plan/execute/inspect 会取得同一协调器锁；先停止该数据目录的 Web Runtime，完成验证后再启动。完整命令和 Provider 参数边界见进程协议文档。
 
