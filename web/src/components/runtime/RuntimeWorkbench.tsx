@@ -11,6 +11,7 @@ import { RuntimePermissions } from "./RuntimePermissions";
 import { RuntimeProviders } from "./RuntimeProviders";
 import { RuntimeThreadView, threadLabels } from "./RuntimeThreadView";
 import { RuntimeContext } from './RuntimeContext';
+import { SkillEvolutionWorkbench } from '../skills/SkillEvolutionWorkbench';
 
 export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: string; navigate: (path: string) => void; dark: boolean; setDark: (value: boolean) => void }) {
   const data = useRuntimeWorkbench(route, navigate);
@@ -24,7 +25,8 @@ export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: st
   const onProviders = parsed.path === "/runtime/providers";
   const onPermissions = parsed.path === "/runtime/permissions";
   const onActivity = parsed.path === "/runtime/activity";
-  const knownRoute = onHome || onProviders || onPermissions || onActivity || !!parsed.id || !!parsed.conversationId;
+  const onSkills = parsed.path === '/runtime/skills';
+  const knownRoute = onHome || onProviders || onPermissions || onActivity || onSkills || !!parsed.id || !!parsed.conversationId;
   const { closeOverlays, resetLayout, openNavigation, mobile } = layout;
   useEffect(() => { closeOverlays(); }, [route, closeOverlays]);
   useEffect(() => { setSearch(""); }, [data.projectId]);
@@ -56,12 +58,13 @@ export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: st
     { label: "运行活动", Icon: Activity, action: () => go("/runtime/activity"), active: onActivity },
     { label: "Provider 配置", Icon: Server, action: () => go("/runtime/providers"), active: onProviders },
     { label: "权限与环境", Icon: ShieldCheck, action: () => go("/runtime/permissions"), active: onPermissions },
+    { label: 'Skills · 演化工作区', Icon: BookOpen, action: () => go('/runtime/skills'), active: onSkills },
     { label: "Skills · 只读视图", Icon: BookOpen, action: () => go("/skills") },
     { label: "演示 / Core 只读", Icon: ArrowLeft, action: () => go("/workbench") },
   ];
   const sidebar = <WorkbenchSidebar compact={layout.compact && !mobile} toggle={layout.toggleSidebar} newConversation={newConversation} search={search} setSearch={setSearch} searchLabel="搜索运行线程" threads={data.rows.map(item => ({ id: item.id, title: item.title, status: threadLabels[item.status], warning: item.status === "UNKNOWN" || item.status === "FAILED" }))} currentThread={parsed.conversationId ?? parsed.id} openThread={id => { closeOverlays(); data.openThread(id); }} links={links} modeLabel="本地运行" modeHint={data.token ? "会话已连接" : "会话未连接"} />;
   const toolbar = <>
-    <div className="toolbar-identity cds-toolbar-identity">{!onHome && <><span>{onProviders ? "模型配置" : onPermissions ? "权限与环境" : onActivity ? "运行活动" : thread?.title ?? "对话"}</span></>}</div>
+    <div className="toolbar-identity cds-toolbar-identity">{!onHome && <><span>{onProviders ? "模型配置" : onPermissions ? "权限与环境" : onSkills ? 'Skills 与演化' : onActivity ? "运行活动" : thread?.title ?? "对话"}</span></>}</div>
     <div className="toolbar-actions cds-toolbar-actions"><span className="runtime-source-label">RUNTIME · 本地执行</span><button className="icon-button" aria-label="刷新真实记录" title="刷新真实记录" onClick={data.refresh}><RefreshCw size={16} /></button><button className="icon-button" aria-label="切换主题" title="切换主题" onClick={() => setDark(!dark)}>{dark ? <Sun size={17} /> : <Moon size={17} />}</button>{!!(parsed.id || parsed.conversationId) && <button className="icon-button" aria-label="切换运行审查面板" title="查看证据" aria-expanded={layout.narrow ? layout.sheet : layout.inspector} onClick={layout.toggleInspector}><PanelRight size={17} /></button>}</div>
   </>;
   const hint = data.initializing ? "正在连接本地运行…" : !data.capabilities?.enabled ? "尚未连接本地运行" : !data.token ? "连接本地会话后即可生成计划" : !project ? "请先配置运行项目" : !data.promptValid ? `输入超过 ${data.promptLimit} 个 Unicode 字符或包含无效字符` : parsed.conversationId && !data.sessionConversation?.canContinue ? '当前轮尚未结束或结果不确定，禁止自动续轮' : !data.profile ? "选择一个模型配置" : !data.profile.credentialConfigured ? "模型凭据尚未配置" : !data.skill ? "请选择明确的 Skill 版本" : "先生成计划，批准后执行";
@@ -87,7 +90,7 @@ export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: st
     <div className={`runtime-scroll cds-page-scroll ${onHome ? "cds-home-scroll" : ""}`} tabIndex={onHome ? undefined : 0} aria-label="运行页面内容">
       {onHome ? <div className="cds-home"><div className="cds-welcome"><h1>今天，想完成什么？</h1></div>{composer}</div> : <>
         {data.error && <div className="runtime-error" role="alert"><strong>操作未确认</strong><p>{data.error}</p><button className="text-button" onClick={() => data.setError("")}>关闭提示</button></div>}
-        {data.initializing ? <Loading /> : !knownRoute ? <EmptyState title="运行页面不可用">返回新对话，或选择已有线程。</EmptyState> : onPermissions || !data.token ? permissions : onProviders ? <RuntimeProviders data={data.profiles} token={data.token} reload={data.reload} reportError={data.reportError} /> : onActivity ? <div className="runtime-settings-page"><div className="runtime-page-heading"><h1>运行活动</h1><p>查看本地记录的任务状态与执行结果。</p></div>{data.rows.length ? <div className="runtime-activity-list">{[...data.rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(item => <button key={item.id} onClick={() => data.openThread(item.id)}><Activity size={16} /><span><strong>{item.title}</strong><small>{item.updatedAt}</small></span><Badge>{threadLabels[item.status]}</Badge><ChevronRight size={14} /></button>)}</div> : <EmptyState title="没有运行活动">新建任务后会显示真实规划与执行状态。</EmptyState>}</div>  : data.loadingThread && !thread ? <Loading /> : parsed.conversationId && data.sessionConversation ? <div className="runtime-multiturn">
+        {data.initializing ? <Loading /> : !knownRoute ? <EmptyState title="运行页面不可用">返回新对话，或选择已有线程。</EmptyState> : onPermissions || !data.token ? permissions : onProviders ? <RuntimeProviders data={data.profiles} token={data.token} reload={data.reload} reportError={data.reportError} /> : onSkills ? project ? <SkillEvolutionWorkbench key={project.id} projectId={project.id} token={data.token} profiles={data.profiles?.profiles ?? []} onError={data.reportError} onTask={ref => { data.setSelectedSkill(`${ref.skill_id}@${ref.skill_version}`); data.refresh(); go("/runtime"); }} /> : <EmptyState title="请先配置运行项目">Skills 演化仅面向后端明确配置的项目。</EmptyState> : onActivity ? <div className="runtime-settings-page"><div className="runtime-page-heading"><h1>运行活动</h1><p>查看本地记录的任务状态与执行结果。</p></div>{data.rows.length ? <div className="runtime-activity-list">{[...data.rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(item => <button key={item.id} onClick={() => data.openThread(item.id)}><Activity size={16} /><span><strong>{item.title}</strong><small>{item.updatedAt}</small></span><Badge>{threadLabels[item.status]}</Badge><ChevronRight size={14} /></button>)}</div> : <EmptyState title="没有运行活动">新建任务后会显示真实规划与执行状态。</EmptyState>}</div>  : data.loadingThread && !thread ? <Loading /> : parsed.conversationId && data.sessionConversation ? <div className="runtime-multiturn">
           <nav className="runtime-turn-nav" aria-label="对话轮次">{data.sessionConversation.turns.map(turn => <button key={turn.id} className={turn.id === data.selectedTurn?.id ? 'selected' : ''} aria-current={turn.id === data.selectedTurn?.id ? 'step' : undefined} onClick={() => data.openTurn(turn.id)}><span>第 {turn.number} 轮</span><small>{threadLabels[turn.webStatus]}{turn.coreOutcome ? ` · Core ${turn.coreOutcome}` : ''}</small></button>)}</nav>
           {turnContent}
           {data.selectedTurn && <RuntimeContext key={data.selectedTurn.id} project={data.projectId} conversation={parsed.conversationId} turn={data.selectedTurn.id} digest={data.selectedTurn.contextSha256} />}

@@ -17,11 +17,15 @@ class RuntimeServer(WorkbenchServer):
         self.runtime = runtime
         from .runtime_conversations import ConversationService
         self.conversations = ConversationService(runtime)
+        from .evolution_service import EvolutionService
+        self.evolution = EvolutionService(runtime)
         self.sessions = sessions or RuntimeSessions()
         super().__init__(address, facade, web_root=web_root, allowed_origins=allowed_origins)
         self.RequestHandlerClass = RuntimeHandler
 
     def server_close(self):
+        if hasattr(self, 'evolution'):
+            self.evolution.close()
         super().server_close()
         if hasattr(self, "runtime"):
             self.runtime.close(wait=False)
@@ -134,6 +138,18 @@ class RuntimeHandler(WorkbenchHandler):
             return runtime.providers.list()
         if len(parts) == 5 and parts[:3] == ['api', 'runtime', 'providers'] and parts[4] == 'history':
             return runtime.providers.history(parts[3])
+        if len(parts) >= 6 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'skill-evolution':
+            evolution, tail = self.server.evolution, parts[5:]
+            if tail == ['library']:
+                return evolution.library(parts[3])
+            if len(tail) == 3 and tail[0] == 'evidence' and tail[2].isascii() and tail[2].isdecimal() and len(tail[2]) < 8:
+                return evolution.preview(parts[3], {'skill_id': tail[1], 'skill_version': int(tail[2])})
+            if tail == ['cases']:
+                return evolution.list_cases(parts[3])
+            if len(tail) == 2 and tail[0] == 'cases':
+                return evolution.report(parts[3], tail[1])
+            if len(tail) == 2 and tail[0] == 'generations':
+                return evolution.generation(parts[3], tail[1])
         if len(parts) >= 5 and parts[:3] == ["api", "runtime", "projects"] and parts[4] == "threads":
             if len(parts) == 5:
                 return runtime.list_threads(parts[3])
@@ -212,6 +228,33 @@ class RuntimeHandler(WorkbenchHandler):
                     and parts[4] == "revisions" and parts[6] == "test" and body == {}
                     and parts[5].isascii() and parts[5].isdecimal() and len(parts[5]) < 8):
                 result = runtime.providers.test(parts[3], int(parts[5]))
+            elif len(parts) >= 6 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'skill-evolution':
+                evolution, tail = self.server.evolution, parts[5:]
+                if tail == ['cases']:
+                    result = evolution.create_case(parts[3], body)
+                elif tail == ['trace-cases']:
+                    result = evolution.create_trace_case(parts[3], body)
+                elif len(tail) == 3 and tail[0] == 'cases' and tail[2] == 'generate' and body == {}:
+                    result = evolution.request_generation(parts[3], tail[1])
+                elif len(tail) == 3 and tail[0] == 'generations' and tail[2] == 'drafts':
+                    result = evolution.edit_draft(parts[3], tail[1], body)
+                elif len(tail) == 3 and tail[0] == 'generations' and tail[2] == 'reject':
+                    result = evolution.reject_suggestion(parts[3], tail[1], body)
+                elif len(tail) == 3 and tail[0] == 'drafts' and tail[2] == 'prepare' and body == {}:
+                    result = evolution.prepare_candidate(parts[3], tail[1])
+                elif len(tail) == 3 and tail[0] == 'drafts' and tail[2] == 'prepare-trace' and body == {}:
+                    result = evolution.prepare_trace_candidate(parts[3], tail[1])
+                elif len(tail) == 3 and tail[0] == 'trace-candidates' and tail[2] == 'approve':
+                    result = evolution.approve_trace_candidate(parts[3], tail[1], body)
+                elif len(tail) == 3 and tail[0] == 'revisions' and tail[2] == 'approve':
+                    result = evolution.approve_candidate(parts[3], tail[1], body)
+                elif len(tail) == 3 and tail[0] == 'cases' and tail[2] == 'evaluate':
+                    result = evolution.request_evaluation(parts[3], tail[1], body)
+                elif len(tail) == 4 and tail[0] == 'cases' and tail[2] == 'actions':
+                    result = evolution.action(parts[3], tail[1], tail[3], body)
+                else:
+                    raise ApiError('ROUTE_NOT_FOUND', 'The evolution operation does not exist.', 404)
+                status = 202
             elif len(parts) >= 5 and parts[:3] == ["api", "runtime", "projects"] and parts[4] == "threads":
                 if len(parts) == 5:
                     result = runtime.create_thread(parts[3], body)

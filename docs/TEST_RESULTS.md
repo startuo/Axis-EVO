@@ -1,3 +1,33 @@
+# Phase 5 / Step 2 — 当前验证
+
+Baseline `7ee224edfd820ab1dd35b41198b19e37fb4d3537`；tested source `TESTED_WORKING_TREE_ON_7ee224edfd820ab1dd35b41198b19e37fb4d3537`。Windows / Python 3.12.10、3.13.5 / SQLite 3.49.1；完整原始日志、XML、故障 Oracle、截图与冻结清单保留本地审查包。
+
+| 命令范围 | 实际结果 |
+|---|---|
+| core-py312 | 2350 passed, 14 skipped in 812.62s (0:13:32) |
+| core-py313 | 2350 passed, 14 skipped, 5312744 warnings in 894.27s (0:14:54) |
+| backend-py312-final | 389 passed in 258.33s (0:04:18) |
+| backend-py313-final | 389 passed, 290003 warnings in 252.20s (0:04:12) |
+| Frontend typecheck / lint | passed |
+| Frontend unit | 217 passed / 16 files |
+| Frontend build | passed；保留单 chunk >500 kB 的 Vite 提示 |
+| 当前演化 Browser E2E | 9 passed，0 failed/skipped；Edge，四尺寸双主题 |
+| 当前默认只读/演示 Browser E2E | 27 passed |
+| 当前离线 Gateway / 多轮 / Worker Browser E2E | 7 passed |
+| 历史单轮 runtime.playwright.config.ts | 1 failed：旧脚本仍等待 POST /threads，当前 UI 使用 /conversations；旧断言未修改 |
+
+Core 命令：`python -m pytest -q tests -ra --junitxml=...`；Web 命令：`python -m pytest -q web_api/tests -ra --junitxml=...`。3.13 使用 `.git/compat-venv313/Scripts/python.exe`，本轮均未加 warning filter。3.13 警告来自冻结 Core 的 `PurePath.is_reserved()` 弃用；按各日志实际总数保留，未报告成零。每版 Core 的14 skips为13项 Windows symlink 权限不可用与1项 POSIX FIFO不可用，逐项原因见审查包 `platform-skips.json`。没有本轮 Linux、物理手机或其他浏览器认证。
+
+新 Browser 命令：`npm run test:e2e -- --config=evolution.playwright.config.ts`。新测试命名为 `runtime-skill-evolution.spec.ts`，使用专用显式离线 HTTP/Worker/Core harness；不让默认静态演示测试误连接它。新浏览器网络 trace 关闭，未保存 session Cookie/CSRF；保留 Node NO_COLOR/FORCE_COLOR 环境提示。可访问性问题和开发失败记录均保留，不删除失败分母。历史单轮脚本的本轮 timeout 与先前保留结果相同（runtime-integration.spec.ts:50），不能称旧浏览器测试全部通过；当前会话与实际执行由7例 Gateway 和9例演化流程覆盖。旧 process-visual 脚本未在本轮重新认证。该差异不改变 Core/HTTP 契约，原脚本未改写。
+
+真实 DeepSeek / `deepseek-flash`：官方 HTTPS 修订返回严格 VALID，用户精确批准后创建 `configuration.patch@2`。随后获批准的5例/10次真实配对调用产生1项回归（create_nested_artifact），Gate `REGRESSION_BLOCKED`，该候选保持 SHADOW，无晋升/激活。首次直接路由连接失败也保留为独立 TRANSPORT_FAILURE，无身份重放。当前本机 VPN 使用管理员限定代理 CONNECT 到验证过的公网 IP，TLS仍核验官方域名；没有放宽产品公网地址校验。官方接口说明：[DeepSeek API](https://api-docs.deepseek.com/quick_start/agent_integrations/)。
+
+另一组**离线 TCP 模型替身**候选通过原 Core 五例 Gate、精确晋升与单独激活，Web实际完成用户编辑与新 Runner 文件任务。真实 DeepSeek 后续任务复用该独立合格版本的状态：COMPLETED / 独立 Acceptance PASS；来源明确为离线资格候选。不能把这组资格结果改称被阻断的 DeepSeek 候选已改进。
+
+冻结核验：52个既有 Core 文件、12个历史迁移、116个既有测试/fixture字节相同，依赖未改。新修订读取器还核验完整九字段稿件、批准、生成与Core回执链；真实硬退出、COMMIT失败、部分桥接、重复调用/批准、陈旧历史和权限拒绝均有新增负测。正式论文比较实验未开始。
+
+<!-- PHASE5_STEP2_CURRENT_END -->
+
 # 测试结果
 
 ## Phase 5 / Step 1 — 2026-10-18 当前验证

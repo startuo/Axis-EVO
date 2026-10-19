@@ -8,7 +8,7 @@ Axis-Evo 是面向大语言模型智能体的可信技能演化与中断恢复�
 
 项目将模型规划、调用方审批、工具执行和独立验收分开，通过 SQLite 持久化执行事实，将任务、计划、Skill 版本及执行结果关联起来，并支持只读审查、可核验检查点、受控恢复和证据门控的技能演化。
 
-当前采用 **Web-first、local-first** 路线：工作台支持离线演示、只读审查、有界多轮会话、逐轮计划审批和独立 Worker 文件执行，模型可选择官方 Provider 或显式授权的本机 Gateway。崩溃后的不确定结果保留为 UNKNOWN。Core 使用 Python 标准库，要求 **Python 3.11+**；前端使用 React / TypeScript。启动见 [工作台说明](docs/WORKBENCH_SETUP.md)，验证范围见 [测试结果](docs/TEST_RESULTS.md)。
+当前采用 **Web-first、local-first** 路线：工作台支持多轮任务、逐轮 Plan 审批、独立 Worker 执行，以及证据驱动的模型 Skill 修订、审阅、受控评估与版本激活。崩溃后的不确定结果保留为 UNKNOWN。Core 使用 Python 标准库，要求 **Python 3.11+**；前端使用 React / TypeScript。启动见 [工作台说明](docs/WORKBENCH_SETUP.md)，演化见 [Skill 工作台](docs/SKILL_EVOLUTION_WORKBENCH.md)，验证见 [测试结果](docs/TEST_RESULTS.md)。
 
 ## 项目结构
 

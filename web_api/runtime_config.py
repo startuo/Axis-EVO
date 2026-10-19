@@ -109,6 +109,11 @@ class RuntimeProject:
     task_spec_path: Path
     skill_refs: tuple[SkillRef, ...]
     task_templates: tuple[tuple[str, Path], ...] = ()
+    allow_evolved_skills: bool = False
+
+    def __post_init__(self):
+        if type(self.allow_evolved_skills) is not bool:
+            raise ValueError('allow_evolved_skills requires an explicit boolean')
 
     def template(self, template_id='default'):
         if template_id == 'default':
@@ -154,7 +159,7 @@ class RuntimeConfig:
             projects, seen = [], set()
             for item in value["projects"]:
                 required_project = {"id", "task_spec_path", "skill_refs"}
-                if type(item) is not dict or not required_project <= item.keys() <= required_project | {"task_templates"}:
+                if type(item) is not dict or not required_project <= item.keys() <= required_project | {"task_templates", "allow_evolved_skills"}:
                     raise ValueError("Unexpected runtime project fields")
                 project = workbench_config.project(item["id"])
                 if project.id in seen:
@@ -181,7 +186,8 @@ class RuntimeConfig:
                     if type(name) is not str or name == 'default' or not _ALIAS.fullmatch(name):
                         raise ValueError('Invalid task template identity')
                 projects.append(RuntimeProject(project.id, _path(item["task_spec_path"], existing=True),
-                    tuple(parsed_refs), tuple((name, _path(path, existing=True)) for name, path in templates.items())))
+                    tuple(parsed_refs), tuple((name, _path(path, existing=True)) for name, path in templates.items()),
+                    item.get('allow_evolved_skills', False)))
             credentials = value["credentials"]
             if type(credentials) is not dict or not 1 <= len(credentials) <= 16:
                 raise ValueError("Explicit credential aliases are required")

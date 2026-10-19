@@ -157,7 +157,7 @@ class RuntimeService:
     def capabilities(self, authenticated=False):
         return {"enabled": True, "authenticated": authenticated,
             "projects": [{"id": p.id, "name": self.workbench.project(p.id).name,
-                          "skills": [s.to_dict() for s in p.skill_refs],
+                          "skills": [s.to_dict() for s in self._enabled_skills(p)],
                           "taskTemplates": [{'id': 'default', 'name': '默认验收'}] +
                               [{'id': name, 'name': name} for name, _ in p.task_templates]} for p in self.config.projects],
             "supportsConversations": True, "maximumPromptCodepoints": MAX_PROMPT_CHARS,
@@ -170,6 +170,17 @@ class RuntimeService:
                 "No shell, child tool process, automatic retry, re-planning or recovery.",
                 "Separate credential-scoped planning and execution processes; no OS security sandbox.",
                 "Process deadlines are supervised; host scheduling is not a real-time guarantee."]}
+
+    def _enabled_skills(self, runtime_project):
+        if not runtime_project.allow_evolved_skills:
+            return runtime_project.skill_refs
+        from .evolved_admission import enabled_skill_refs
+        project, _ = self._project(runtime_project.id)
+        try:
+            with self._core(project) as c:
+                return enabled_skill_refs(c, runtime_project)
+        except (ValueError, TypeError, KeyError, sqlite3.Error):
+            raise ApiError('EVOLVED_SKILL_INTEGRITY', 'Preferred Skill eligibility could not be verified.', 422) from None
 
     def _row_unscoped(self, thread_id):
         with self._web() as c:
@@ -335,7 +346,7 @@ class RuntimeService:
             ref = SkillRef(**ref_data)
         except (ValueError, TypeError):
             raise ApiError("INVALID_SKILL", "An exact configured SkillRef is required.") from None
-        if ref not in runtime.skill_refs:
+        if ref not in self._enabled_skills(runtime):
             raise ApiError("SKILL_NOT_ENABLED", "This Skill version is not enabled for the project.", 403)
         profile = self.providers.get(body["profileId"], body["profileRevision"])
         # Never copy seed data or queue provider I/O for an ineligible Skill.

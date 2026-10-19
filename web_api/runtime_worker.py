@@ -12,18 +12,24 @@ from .schemas import Project, WorkbenchConfig, strict_json
 from axis_evo.skill_card import SkillRef
 
 
-def run_worker(descriptor_path, phase, job, worker, dispatch):
-    if phase not in ('planning', 'execution') or not re.fullmatch('thread_[0-9a-f]{32}', job) or not re.fullmatch('worker_[0-9a-f]{32}', worker):
-        raise ValueError('invalid worker identity')
+def load_service(descriptor_path):
+    """Load the same secret-free descriptor for task and evolution workers."""
     value = strict_json(Path(descriptor_path).read_bytes())
     wb = value['workbench']
     workbench = WorkbenchConfig(tuple(Project.from_dict(p) for p in wb['projects']), tuple(wb['allowed_origins']))
     rc = value['runtime']
     config = RuntimeConfig(Path(rc['data_dir']), tuple(RuntimeProject(p['id'], Path(p['task_spec_path']),
         tuple(SkillRef(**r) for r in p['skill_refs']),
-        tuple((name, Path(path)) for name, path in p.get('task_templates', {}).items())) for p in rc['projects']), rc['credentials'], tuple(rc['endpoints']),
+        tuple((name, Path(path)) for name, path in p.get('task_templates', {}).items()),
+        p.get('allow_evolved_skills', False)) for p in rc['projects']), rc['credentials'], tuple(rc['endpoints']),
         parse_local_gateways(rc.get('local_gateways', [])))
-    service = RuntimeService(config, workbench, ProviderStore(config), worker_mode=True)
+    return RuntimeService(config, workbench, ProviderStore(config), worker_mode=True)
+
+
+def run_worker(descriptor_path, phase, job, worker, dispatch):
+    if phase not in ('planning', 'execution') or not re.fullmatch('thread_[0-9a-f]{32}', job) or not re.fullmatch('worker_[0-9a-f]{32}', worker):
+        raise ValueError('invalid worker identity')
+    service = load_service(descriptor_path)
     row = service._row_unscoped(job)
     with service._web() as c:
         claim(c, job, phase, worker, None if dispatch == '-' else dispatch)
