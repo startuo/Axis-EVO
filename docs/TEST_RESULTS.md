@@ -1,6 +1,6 @@
 # Phase 5 / Step 2 — 当前验证
 
-Baseline `7ee224edfd820ab1dd35b41198b19e37fb4d3537`；tested source `TESTED_WORKING_TREE_ON_7ee224edfd820ab1dd35b41198b19e37fb4d3537`。Windows / Python 3.12.10、3.13.5 / SQLite 3.49.1；完整原始日志、XML、故障 Oracle、截图与冻结清单保留本地审查包。
+Baseline `7ee224edfd820ab1dd35b41198b19e37fb4d3537`；tested source `e8203706c2aa2935cd76a91d4a55ad54a9c883e5`。Windows / Python 3.12.10、3.13.5 / SQLite 3.49.1；完整原始日志、XML、故障 Oracle、截图与冻结清单保留本地审查包。
 
 | 命令范围 | 实际结果 |
 |---|---|
