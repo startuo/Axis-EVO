@@ -89,6 +89,7 @@ class EvolutionGovernance:
         card = self.candidate(project, case, body['candidateReceiptId'])
         origin, _, _, _ = self.s._case(project, case)
         profile = origin['body']['provider']
+        campaign = {}
         with self.s.core(project) as c:
             if SkillManager(c).get_current_state(card.skill_id, card.skill_version) != 'SHADOW':
                 raise ValueError('Evaluation requires the exact SHADOW candidate')
@@ -96,9 +97,12 @@ class EvolutionGovernance:
             if governance is None:
                 raise ValueError('A backend-provisioned closed governance suite is required')
             _bounded_suite(c, governance.data['policy']['suite_id'])
+            from .evaluation_campaign_bridge import campaign_policy_enabled, prepare_campaign
+            if self.s._load(project, body['candidateReceiptId'])['kind'] == 'CANDIDATE_RECEIPT' and campaign_policy_enabled(c):
+                campaign = prepare_campaign(self.s, c, profile, card)
         operation = self.s._insert(project, 'OP_INTENT', {'action': 'evaluate', **body,
             'provider': profile, 'suiteId': governance.data['policy']['suite_id'],
-            'suiteSha256': governance.data['policy']['suite_sha256']}, parent=case,
+            'suiteSha256': governance.data['policy']['suite_sha256'], **campaign}, parent=case,
             slot='evaluate-' + body['candidateReceiptId'])
         if start:
             if self.s._supervisor is None:
@@ -116,10 +120,16 @@ class EvolutionGovernance:
         # Identical adapter identity/configuration is a frozen paired-comparison
         # requirement. Unlike task adapters this identity names evaluation
         # conditions, not a claim of exactly one network call.
-        condition_id = 'shadow-' + digest([d['suiteId'], reference.ref.to_dict()])[:32]
+        condition_id = d.get('adapterAttemptId') or 'shadow-' + digest([d['suiteId'], reference.ref.to_dict()])[:32]
         adapter = self.s._adapter_factory(d['provider'], condition_id)
         self.s._insert(project, 'OP_CLAIM', {'operationSha256': operation['sha256'],
             'adapterName': adapter.adapter_name, 'modelId': adapter.model_id}, parent=operation_id)
+        if 'campaignId' in d:
+            from .evaluation_campaign_bridge import run_campaign
+            with self.s.core(project) as c:
+                result = run_campaign(c, d, card, adapter)
+            return self.s._insert(project, 'OP_RESULT', {'action': 'evaluate',
+                'operationSha256': operation['sha256'], **result}, parent=operation_id)
         parameters = {'providerConfigSha256': d['provider']['configSha256'],
                       'model': d['provider']['modelId'], 'stream': False, 'n': 1}
         pairs, outcomes = [], []
@@ -220,7 +230,9 @@ class EvolutionGovernance:
                 event = SkillManager(c).promote(card.skill_id, card.skill_version, 'SHADOW')
                 result = {'skillRef': event.ref.to_dict(), 'state': event.state, 'transitionSeq': event.transition_seq}
             elif action == 'promotion-proposal':
-                proposal = propose_skill_promotion(c, case.data['case_id'], card.ref, body['assessmentId'])
+                from .evaluation_campaign_bridge import promotion_policy
+                policy = promotion_policy(self.s, project, case_id, c, card, body['candidateReceiptId'], body['assessmentId'])
+                proposal = propose_skill_promotion(c, case.data['case_id'], card.ref, body['assessmentId'], gate_policy_id=policy)
                 result = {'proposalId': proposal.data['proposal_id'], 'proposalSha256': proposal.fact_sha256,
                           'candidateSkillRef': card.ref.to_dict(),
                           'gate': {key: proposal.data['gate'][key] for key in ('eligible', 'status', 'reasons', 'manifest_sha256')}}
@@ -233,9 +245,20 @@ class EvolutionGovernance:
                 # Both source routing rollback and this case's exact candidate
                 # may be selected. No unrelated TRUSTED version is admitted.
                 allowed = [source.ref.to_dict()]
-                for fact in self.s.report(project, case_id)['facts']:
+                # Authorization needs this case's verified receipt identities,
+                # not the expensive full-family UI/Shadow evidence projection.
+                for fact in self.s._case_facts(project, case_id):
                     if fact['kind'] == 'CANDIDATE_RECEIPT':
                         allowed.append(fact['body']['skillRef'])
+                # Multi-generation rollback selects an exact verified ancestor;
+                # it appends routing evidence and never changes lifecycle/history.
+                manager, cursor, depth = SkillManager(c), source, 0
+                while cursor.source.ref is not None:
+                    depth += 1
+                    if depth > 8:
+                        raise ValueError('Activation lineage exceeds the bounded generation scope')
+                    cursor = manager.get_version(cursor.source.ref.skill_id, cursor.source.ref.skill_version)
+                    allowed.append(cursor.ref.to_dict())
                 if ref.to_dict() not in allowed:
                     raise ValueError('Activation is outside this case lineage')
                 proposal = propose_skill_activation(c, ref,

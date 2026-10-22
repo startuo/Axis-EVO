@@ -101,6 +101,9 @@ def _census(connection, reference, candidate, suite_id):
 
 def _gate_locked(connection, candidate, assessment_id, policy_id, histories=None, historical=None):
     """Pure reads in an already owned snapshot/transaction. No nested BEGIN."""
+    if policy_id == 'evolution-gate-v2':
+        from .evaluation_campaign import _gate_locked as campaign_gate
+        return campaign_gate(connection, candidate, assessment_id, policy_id, histories, historical)
     governance = _governance(connection)
     if governance is None:
         raise EvolutionError('EVIDENCE_GATED governance must be explicitly enabled')

@@ -4,6 +4,7 @@ import hashlib
 import io
 import os
 from pathlib import Path, PureWindowsPath
+from .path_compat import windows_component_is_reserved
 import stat
 
 from .models import FileObservation
@@ -162,7 +163,7 @@ class WorkspacePathResolver:
         windows_path = PureWindowsPath(relative_path)
         if windows_path.drive or windows_path.root or ":" in relative_path or "\x00" in relative_path:
             raise ValueError("absolute, drive-qualified, or stream paths are not allowed")
-        if any(PureWindowsPath(part).is_reserved() for part in windows_path.parts):
+        if any(windows_component_is_reserved(part) for part in windows_path.parts):
             raise ValueError("Windows device paths are not workspace files")
         # Apply the same separator interpretation on Windows and POSIX.
         target = (self.root / relative_path.replace("\\", "/")).resolve()

@@ -142,6 +142,8 @@ class RuntimeHandler(WorkbenchHandler):
             evolution, tail = self.server.evolution, parts[5:]
             if tail == ['library']:
                 return evolution.library(parts[3])
+            if tail == ['research']:
+                return evolution.research_readiness(parts[3])
             if len(tail) == 3 and tail[0] == 'evidence' and tail[2].isascii() and tail[2].isdecimal() and len(tail[2]) < 8:
                 return evolution.preview(parts[3], {'skill_id': tail[1], 'skill_version': int(tail[2])})
             if tail == ['cases']:

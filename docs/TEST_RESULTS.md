@@ -1,3 +1,48 @@
+<!-- PHASE5_STEP3_CURRENT_START -->
+# Phase 5 / Step 3 — 2026-10-22 结果整理
+
+Baseline `65fda2a256462f0df5461fb1cb70788b7d27cbbc`。验证在提交前相同生产字节上完成；实现提交身份随后在文档提交中回填。
+生产源码集合 SHA-256：`486815f8fdc8d11d58e42ef306347f69da7ae8aba6d3a65b39b585b76c2a10e8`。完整原始输出、私有测试、故障 Oracle、截图与冻结清单保留本地审查包；不发布测试或私有研究答案。
+
+| 检查 | 实际结果 |
+|---|---|
+| Windows Python3.12.10 `python -m pytest -q -ra tests web_api/tests` | 2953 passed, 14 skipped in 1346.11s (0:22:26) |
+| Windows Python3.13.5 `python -m pytest -q -ra tests web_api/tests` | 2953 passed, 14 skipped, 784 warnings in 1263.49s (0:21:03) |
+| Linux Python3.12.14 `python -m pytest -q -ra tests web_api/tests` | 2952 passed, 15 skipped in 955.47s (0:15:55) |
+| 默认 Workbench Browser | 27 passed (36.8s) |
+| Gateway/Worker Browser | 7 passed (1.5m) |
+| 多轮会话 Browser | 9 passed (4.6m) |
+| 多代流程/视觉 Browser | 11 passed (13.8m) |
+| 键盘 Browser | 1 passed (25.1s) |
+| Frontend typecheck / lint | passed；lint 0 warnings |
+| Frontend unit | 225 passed / 18 files |
+| Frontend build | passed；JS525.68kB/gzip164.71kB；保留Vite >500kB提示 |
+| 新增 crash 测试输出目录可移植性复验 | Windows3.12：3 passed；3.13：3 passed；原业务断言未改 |
+
+Windows SQLite3.49.1；最终Linux SQLite3.46.1 / glibc2.41，隔离native目录、网络关闭，仅loopback替身。Linux环境来自明确记录的缓存镜像，父pytest关闭第三方plugin自动加载；子进程继续使用冻结生产环境规则。没有warning filter。Windows每版14 skips为13项symlink权限不可用和1项POSIX FIFO；Linux的逐项Windows-only skips见原始日志。3.13的784条warning均来自未改的`validators.py:40`；两处高频调用改用同解释器等价兼容入口，未声称零warning或Python3.15认证。
+
+这里的无filter指全量命令没有`-W`或项目/生产级抑制；新增兼容测试局部捕获**旧API测试Oracle**的预期弃用warning，并把生产路径设为warning=error。784为pytest实际汇总，不把这些主动捕获的Oracle警告伪装为生产零警告。
+
+Linux初次全量真实记录53 failed/2899 passed/15 skipped，原因包括受控子进程pytest未安装、git/历史源码/Node与旧输出父目录缺失。后一个快照另发现两项**新**测试Oracle输出目录缺失；明确停止旧验证容器，保留partial log，修正新测试`mkdir(parents=True)`后重新完整验证。没有改旧测试、隐去失败或把容器137退出当产品Worker实验。最终完整Windows生产字节未因此改变。
+
+另一个SQLite3.40.1镜像的完整运行50 failed/2902 passed/15 skipped，底层trace定位`trusted_schema=OFF`与`json_valid()`unsafe标记冲突；未叠加本轮代码的owner基线65fda2a同case同样失败。原只读防护与schema未改，最终采用SQLite3.46.1验证；旧组合明确不可认证，详见[启动说明](WORKBENCH_SETUP.md)。
+
+2026-10-21另一次Linux运行停在84%且无completion记录；22日恢复时Docker服务不可用，恢复后旧容器报告exit255、非OOM，外部停止原因未确定。该partial log保留但不计通过；最终结果来自全新隔离运行。
+
+Gate v1原限制独立复现：v2→v3本轮选10个Trial，而历史census为15；全部20个旧Intent/Result保留。显式`evolution-gate-v2`前瞻campaign通过v1→v2→v3→v4离线正控制，共30个新Trial；完整声明、role、额外attempt、UNKNOWN、首次seal、重哈希、profile配置、陈旧Assessment、并发与原子晋升均有负测。晋升/激活分开，祖先rollback只是新增路由；真实新conversation任务仍由原Runner与独立Acceptance完成。
+
+Research dry-run使用隔离副本、精确protocol批准、A/B/C同candidate与精确版本共享结果。所有声明case/失败/UNKNOWN/未提交保留分母；真实submission/Result后的hard exit不重放。正式RESEARCH_DATA holdout在开发加载时不打开，当前API拒绝正式holdout执行。源码commit标签与实际源字节SHA分别记录；export白名单不含Oracle答案、绝对路径或请求响应原文。
+
+真实DeepSeek：两次本轮修订生成均为connection TRANSPORT_FAILURE，失败保留；用户明确选PENDING。本轮无新真实candidate/promotion/activation或计划执行。随后单独最小官方HTTPS诊断HTTP200/OK，reported usage9tokens，仅证明接口连接；`reasoning_effort=none/max_tokens=16`未混入冻结planner参数或实验用量。官方文档：[Chat Completion](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/)。不能据文档默认thinking推断此前失败根因。
+
+当前浏览器合计55例：27+7+9+11+1。多代五尺寸/双主题11view共110张，另1张实际Run；实际Edge/HTTP/SQLite/Worker，axe和键盘通过。旧`runtime-integration`/`runtime-process-visual`仍保存原源码及已复现的`/threads`旧UI等待失败，正式退役为历史材料，不计为通过；现用`/conversations`的替代脚本与Python旧HTTP契约分别覆盖。Node NO_COLOR/FORCE_COLOR、slow-file提示保留；无真实手机或其它浏览器认证。
+
+冻结：52个旧Core中49个字节相同，仅两处path判定调用与三行精确v2分派例外；132旧测试/fixture、001–013共13迁移、依赖和品牌资产不变。没有改Runner、tools、storage、Inspector、SkillManager/Binding或Checkpoint/Recovery语义。
+
+**正式论文主实验NOT_STARTED；final holdout NOT_FROZEN_NOT_RUN；真实演化PENDING。** 工程夹具不能证明泛化或Skill因果收益，同账户本地文件不是强制盲性；冻结transport tokens/cost不可用。未进入Phase5Step4、任意shell或桌面封装。
+
+<!-- PHASE5_STEP3_CURRENT_END -->
+
 # Phase 5 / Step 2 — 当前验证
 
 Baseline `7ee224edfd820ab1dd35b41198b19e37fb4d3537`；tested source `e8203706c2aa2935cd76a91d4a55ad54a9c883e5`。Windows / Python 3.12.10、3.13.5 / SQLite 3.49.1；完整原始日志、XML、故障 Oracle、截图与冻结清单保留本地审查包。

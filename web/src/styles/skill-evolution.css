@@ -37,5 +37,22 @@
 [data-theme=dark] .diff-added { color: #9cd5aa; }
 .evolution-approval { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 20px; }
 .evolution-approval input { font-family: monospace !important; font-size: 11px !important; }
+.generation-history { list-style: none; padding: 0; display: grid; gap: 14px; }
+.generation-history > li { border-left: 2px solid var(--border); padding: 8px 0 8px 16px; min-width: 0; }
+.generation-history small, .block-caption { display: block; color: var(--muted); margin-top: 6px; }
+.generation-facts { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.campaign-evidence { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 16px; min-width: 0; }
+.campaign-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-block: 20px; }
+.campaign-counts > div { display: grid; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.campaign-counts strong { font-size: 22px; font-weight: 600; }
+.campaign-counts span { font-size: 12px; color: var(--muted); }
+.campaign-history { display: grid; gap: 12px; padding-left: 18px; overflow-wrap: anywhere; }
+.campaign-history li span { display: block; font-size: 12px; margin-top: 5px; }
+.research-readiness > summary { cursor: pointer; font-weight: 600; }
+.research-view-switch { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 20px; }
+.research-view-switch [aria-pressed=true] { border-color: var(--accent); background: var(--hover); }
+.research-role-list { display: grid; gap: 14px; }
+.research-role-list dt { font-size: 12px; font-weight: 600; }
+.research-role-list dd { color: var(--muted); margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
 @media (max-width: 1180px) { .revision-side-by-side { grid-template-columns: minmax(0, 1fr); } .evolution-card { padding: 18px; } }
 @media (max-width: 760px) { .evolution-workbench-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; } .evolution-library { position: static; max-height: 300px; } .evolution-card { padding: 15px; } .evolution-card .button { max-width: 100%; white-space: normal; } }

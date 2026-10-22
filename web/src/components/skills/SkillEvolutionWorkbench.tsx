@@ -6,10 +6,25 @@ import type { RuntimeProfile, SkillRef } from '../../lib/runtime';
 import { Badge, EmptyState, Field, JsonView, Loading } from '../ui/Primitives';
 import { ExactEvolutionApproval, RevisionReview } from './RevisionReview';
 import { SkillTrustEvidence } from './SkillTrustEvidence';
+import { GenerationHistory, CampaignEvidencePanel } from './GenerationEvidence';
+import { ResearchReadiness } from './ResearchReadiness';
 import '../../styles/skill-evolution.css';
 
 const last = (facts: EvolutionFact[], kind: string) => facts.filter(f => f.kind === kind).at(-1);
 const refLabel = (ref: SkillRef) => `${ref.skill_id}@${ref.skill_version}`;
+const olderAncestors = (report: EvolutionReport | null, source: unknown): SkillRef[] => {
+  if (!report?.lineage || !record(source) || typeof source.skill_id !== 'string' || typeof source.skill_version !== 'number') return [];
+  const result: SkillRef[] = [];
+  let cursor: SkillRef | null = { skill_id: source.skill_id, skill_version: source.skill_version };
+  for (let depth = 0; cursor && depth < 8; depth++) {
+    const current: SkillRef = cursor;
+    const matches = report.lineage.filter(row => refLabel(row.skillRef) === refLabel(current));
+    if (matches.length !== 1 || result.some(row => refLabel(row) === refLabel(current))) break;
+    if (matches[0].state === 'TRUSTED') result.push(current);
+    cursor = matches[0].parentSkillRef;
+  }
+  return result.slice(1); // The immediate source already has its existing control.
+};
 const EvolutionJson = ({ label, value }: { label: string; value: unknown }) =>
   <div className="evolution-json" role="group" aria-label={label} tabIndex={0}><JsonView value={value} /></div>;
 
@@ -21,9 +36,11 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
   const [selected, setSelected] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('ALL');
+  const [rollbackVersion, setRollbackVersion] = useState('');
   const [preview, setPreview] = useState<{ ref: string; data: EvidencePreview } | null>(null);
   const [caseId, setCaseId] = useState('');
   const [report, setReport] = useState<EvolutionReport | null>(null);
+  const [committedOperation, setCommittedOperation] = useState<{ caseId: string; fact: EvolutionFact } | null>(null);
   const [generation, setGeneration] = useState<RevisionGeneration | null>(null);
   const [profileKey, setProfileKey] = useState('');
   const [origin, setOrigin] = useState('USER_REQUESTED');
@@ -61,17 +78,21 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const read = async () => {
+      let needsPolling = false;
       try {
         const value = await evolutionApi.report(projectId, caseId, controller.signal);
         if (controller.signal.aborted) return;
         setReport(value);
+        needsPolling = value.facts.some(f => f.kind === 'OP_INTENT' && f.body.action === 'evaluate'
+          && !value.facts.some(result => result.kind === 'OP_RESULT' && result.parentId === f.id));
         const intent = last(value.facts, 'GENERATION_INTENT');
         if (intent) {
           const current = await evolutionApi.generation(projectId, intent.id, controller.signal);
           if (!controller.signal.aborted) setGeneration(current);
+          needsPolling ||= current.result === null;
         }
       } catch (error) { if (!controller.signal.aborted) onError(error); }
-      finally { if (!controller.signal.aborted) timer = setTimeout(() => void read(), 2000); }
+      finally { if (!controller.signal.aborted && needsPolling) timer = setTimeout(() => void read(), 2000); }
     };
     void read();
     return () => { controller.abort(); clearTimeout(timer); };
@@ -82,7 +103,22 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
     pending.current = true; setBusy(label);
     try {
       const fact = await evolutionApi.mutate(projectId, path, body, token);
-      if (alive.current) { after?.(fact); reload(); }
+      if (alive.current) {
+        // This is the validated committed HTTP receipt, never a predicted
+        // transition. Complete lineage reads can be slower than an approval;
+        // keep the exact returned proposal reviewable while they refresh.
+        if (path[0] === 'cases' && path[1] === caseId && fact.kind === 'OP_RESULT') {
+          setCommittedOperation({ caseId, fact });
+          if (fact.body.action === 'activation-approve' && record(fact.body.skillRef)) {
+            const target = fact.body.skillRef;
+            setLibrary(current => current && ({ ...current, skills: current.skills.map(value =>
+              value.skillRef.skill_id === target.skill_id ? { ...value,
+                preferred: value.skillRef.skill_version === target.skill_version,
+                activationHeadId: text(fact.body, 'activationId') } : value) }));
+          }
+        }
+        after?.(fact); reload();
+      }
     } catch (error) { if (alive.current) onError(error); }
     finally { pending.current = false; if (alive.current) setBusy(''); }
   }
@@ -99,9 +135,15 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
   const candidateAuth = (link ? facts.find(f => f.kind === 'CANDIDATE_AUTH' && f.parentId === link.id) : undefined) ?? traceAuthorization;
   const candidateRef = candidate && record(candidate.body.skillRef) ? candidate.body.skillRef as SkillRef : null;
   const candidateSkill = library?.skills.find(s => candidateRef && refLabel(s.skillRef) === refLabel(candidateRef));
-  const operations = facts.filter(f => f.kind === 'OP_RESULT');
-  const evaluation = operations.find(f => f.body.action === 'evaluate');
-  const evaluationIntent = facts.find(f => f.kind === 'OP_INTENT' && f.body.action === 'evaluate');
+  const receipt = committedOperation?.caseId === caseId && committedOperation.fact.projectId === projectId
+    && !facts.some(f => f.id === committedOperation.fact.id && f.sha256 === committedOperation.fact.sha256)
+    ? committedOperation.fact : null;
+  const operations = [...facts.filter(f => f.kind === 'OP_RESULT'), ...(receipt ? [receipt] : [])];
+  const evaluationIntent = facts.filter(f => f.kind === 'OP_INTENT' && f.body.action === 'evaluate'
+    && f.body.candidateReceiptId === candidate?.id).at(-1);
+  const evaluation = operations.find(f => f.body.action === 'evaluate' && f.parentId === evaluationIntent?.id);
+  const campaign = currentReport?.campaigns?.find(value => candidateRef
+    && refLabel(value.candidateSkillRef) === refLabel(candidateRef));
   const gate = evaluation && record(evaluation.body.gate) ? evaluation.body.gate : null;
   const promotion = operations.filter(f => f.body.action === 'promotion-proposal').at(-1);
   const promoted = operations.some(f => f.body.action === 'promotion-approve');
@@ -111,6 +153,8 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
   const rejected = currentGeneration && facts.some(f => f.kind === 'OP_INTENT' && f.parentId === currentGeneration.intent.id && f.body.action === 'reject-suggestion');
   const profile = profiles.find(p => `${p.id}@${p.revision}` === profileKey) ?? profiles[0];
   const caseBody = currentReport?.case.body;
+  const rollbackChoices = olderAncestors(currentReport, caseBody?.sourceSkillRef);
+  const rollbackTarget = rollbackChoices.find(ref => refLabel(ref) === rollbackVersion) ?? rollbackChoices[0];
   const generationCard = currentGeneration ? generationSource(currentGeneration) : null;
   const sourceInstructions = generationCard?.instructions ?? '';
   const sourceTools = generationCard?.allowed_tools ?? [];
@@ -132,6 +176,12 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
       <h2>演化记录</h2>{library.cases.map(c => <button className={`evolution-skill-row ${c.id === caseId ? 'selected' : ''}`} key={c.id}
         onClick={() => { setCaseId(c.id); setSelected(refLabel(c.sourceSkillRef)); setSelectedRuns([]); }}><span>{c.objective}</span><small>{refLabel(c.sourceSkillRef)} · {c.origin}</small></button>)}
     </aside><section className="evolution-detail" aria-label="演化工作区">
+      {currentReport && <GenerationHistory report={currentReport} cases={library.cases}
+        focusRef={candidateRef ?? (caseBody && record(caseBody.sourceSkillRef) ? caseBody.sourceSkillRef as SkillRef : null)} onCase={id => {
+        setCaseId(id); setSelectedRuns([]);
+        const owner = library.cases.find(value => value.id === id);
+        if (owner) setSelected(refLabel(owner.sourceSkillRef));
+      }} />}
       {skill && <section className="evolution-card"><div className="section-heading"><h2><BookOpen size={17} /> {skill.name}</h2><Badge>{skill.state}</Badge></div>
         <Field label="精确版本" value={sourceKey} copy /><Field label="Card SHA-256" value={skill.cardSha256} copy />
         <Field label="生命周期记录数" value={skill.transitionCount} /><Field label="来源" value={JSON.stringify(skill.source)} />
@@ -164,7 +214,8 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
         <h2>演化工作区</h2><Field label="Web Case" value={caseId} copy /><Field label="改进目标" value={caseBody ? text(caseBody, 'objective') : ''} />
         <Field label="来源" value={caseBody ? text(caseBody, 'origin') : ''} />
         {caseBody && record(caseBody.provider) && <Field label="固定 Provider / Model" value={`${text(caseBody.provider, 'id')} · r${String(caseBody.provider.revision)} · ${text(caseBody.provider, 'modelId')}`} />}
-        <p className="notice">归因 INDETERMINATE。Core 引用完整历史 Assessment；用户选定子集只用于修订上下文。Gate v1 对持续多代晋升有限制。</p>
+        <p className="notice">归因 INDETERMINATE。Core 引用完整历史 Assessment；用户选定子集只用于修订上下文。
+          {currentReport.campaignPolicyEnabled ? ' Gate v2 为每代预先声明新试次，并保留既有历史。' : ' Gate v1 保持原有完整 census 与多代限制。'}</p>
         {!currentGeneration && <button className="button primary" disabled={!!busy} onClick={() => void perform('generate', ['cases', caseId, 'generate'], {}, intent =>
           setGeneration({ intent, result: null, status: 'UNKNOWN', workerActive: false, drafts: [] }))}>调用模型生成修订建议</button>}
         {currentGeneration && <><div className="section-heading"><h3>模型修订调用</h3><Badge>{currentGeneration.status}</Badge></div>
@@ -202,6 +253,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
           {candidateSkill?.state === 'SHADOW' && !evaluationIntent && <><p>对后台配置的封闭套件进行配对评估，最多十次模型调用；隐藏 Oracle 不发给模型。不是生产执行或论文正式实验。</p>
             <button className="button primary" disabled={!!busy} onClick={() => void perform('evaluate', ['cases', caseId, 'evaluate'], { candidateReceiptId: candidate.id })}>开始配对 Shadow 评估</button></>}
           {evaluationIntent && !evaluation && <p className="notice">评估 Intent 已提交，完整结果尚未记录。现有 trial 不丢弃、不覆盖或自动重试。</p>}
+          {campaign && <CampaignEvidencePanel campaign={campaign} bridgeComplete={!!evaluation} />}
           {evaluation && <><h3>独立评估与 Gate</h3><Field label="Trust Assessment" value={text(evaluation.body, 'assessmentId')} copy />
             <Field label="建议（不是授权）" value={text(evaluation.body, 'recommendation')} />
             <SkillTrustEvidence reference={caseBody && record(caseBody.sourceSkillRef) ? caseBody.sourceSkillRef as SkillRef : null}
@@ -224,11 +276,20 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
               {caseBody && record(caseBody.sourceSkillRef) && (!activation || activated) && <button className="button secondary" disabled={!!busy}
                 onClick={() => action('activation-proposal', { skillRef: caseBody.sourceSkillRef,
                   expectedPreviousEventId: candidateSkill.activationHeadId, reason: 'User explicitly requests routing rollback to the original TRUSTED source.' })}>选择原 TRUSTED 版本（路由回退）</button>}
+              {rollbackTarget && (!activation || activated) && <div className="historical-routing">
+                <label>更早的精确 TRUSTED 祖先<select value={refLabel(rollbackTarget)} onChange={event => setRollbackVersion(event.target.value)}>
+                  {rollbackChoices.map(ref => <option key={refLabel(ref)} value={refLabel(ref)}>{refLabel(ref)}</option>)}
+                </select></label>
+                <button className="button secondary" disabled={!!busy} onClick={() => action('activation-proposal', {
+                  skillRef: rollbackTarget, expectedPreviousEventId: candidateSkill.activationHeadId,
+                  reason: 'User explicitly prepares routing rollback to an exact verified TRUSTED ancestor.' })}>准备历史版本路由回退</button>
+              </div>}
               {!library.allowEvolvedSkills && <p className="caption">管理员尚未开启 allow_evolved_skills；激活不会扩大静态任务许可。</p>}</>}
           </section>}
         </>}
         <details><summary>查看审计记录（不默认重复原始请求/响应）</summary><EvolutionJson label="审计记录 JSON" value={currentReport} /></details>
       </section> : <EmptyState title="选择或创建 Evolution Case">从左侧选择已记录 Case，或以精确 TRUSTED 版本提出改进。</EmptyState>}
+      <ResearchReadiness key={projectId} projectId={projectId} onError={onError} />
       {!!busy && <p role="status" className="caption">正在提交 {busy}；网络失败不代表已回滚，请读取事实确认。</p>}
     </section></div>
   </div>;

@@ -142,6 +142,20 @@ class EvolutionService:
         with self.runtime._web() as c:
             return store.children(c, project_id, identity, kind)
 
+    def _case_facts(self, project_id, case_id):
+        self._load(project_id, case_id, 'CASE_INTENT')
+        with self.runtime._web() as c:
+            c.execute('BEGIN')
+            rows = c.execute('WITH RECURSIVE tree(id) AS (SELECT ? UNION '
+                'SELECT f.id FROM main.web_evolution_facts f JOIN tree t ON f.parent_id=t.id '
+                'WHERE f.project_id=?) SELECT f.id FROM main.web_evolution_facts f '
+                'JOIN tree t ON f.id=t.id ORDER BY f.rowid LIMIT 257', (case_id, project_id)).fetchall()
+            if len(rows) > 256:
+                raise ValueError('Case history exceeds the Web report budget')
+            facts = [store.load(c, project_id, row[0]) for row in rows]
+            c.commit()
+        return facts
+
     def _insert(self, project_id, kind, body, **kwargs):
         self.runtime._project(project_id)
         self.providers.check_text(canonical_json_bytes(body).decode('utf-8'))
@@ -176,12 +190,25 @@ class EvolutionService:
         with boundary():
             self.runtime._project(project_id)
             with self.runtime._web() as c:
-                return [{'id': v['id'], 'sha256': v['sha256'], 'createdAt': v['createdAt'],
-                         **{key: v['body'][key] for key in ('sourceSkillRef', 'objective', 'origin')}}
-                        for v in store.roots(c, project_id, 'CASE_INTENT')]
+                result = []
+                for value in store.roots(c, project_id, 'CASE_INTENT'):
+                    bridge = store.children(c, project_id, value['id'], 'CASE_RESULT')
+                    if len(bridge) > 1:
+                        raise ValueError('Case bridge is ambiguous')
+                    result.append({'id': value['id'], 'sha256': value['sha256'], 'createdAt': value['createdAt'],
+                        'coreCaseId': bridge[0]['body']['caseId'] if bridge else None,
+                        **{key: value['body'][key] for key in ('sourceSkillRef', 'objective', 'origin')}})
+                return result
+
+    def research_readiness(self, project_id):
+        from .research_read_facade import research_readiness
+        with boundary():
+            return research_readiness(self, project_id)
 
     def library(self, project_id):
-        from axis_evo.skill_evolution_activation import resolve_preferred_skill, _activation_history
+        from axis_evo.skill_evolution_activation import _activation_history
+        from axis_evo.skill_evolution_storage import _guard_schema
+        from axis_evo.skill_binding import _read_snapshot
         with boundary():
             _, configured = self.runtime._project(project_id)
             from .trace_skill import TraceSkill
@@ -190,19 +217,25 @@ class EvolutionService:
             rows = []
             with self.core(project_id) as c:
                 c.execute('PRAGMA query_only=ON')
-                manager = SkillManager(c)
-                available = bool(c.execute("SELECT 1 FROM main.sqlite_master WHERE name='evolution_governance'").fetchone())
-                for skill_id in sorted({r.skill_id for r in configured.skill_refs} | {card.skill_id for card in trace_cards}):
-                    preferred = resolve_preferred_skill(c, skill_id) if available else None
-                    activation_history = _activation_history(c, skill_id) if available else []
-                    for card in manager.list_versions(skill_id):
-                        rows.append({'skillRef': card.ref.to_dict(), 'name': card.name, 'description': card.description,
-                            'state': manager.get_current_state(card.skill_id, card.skill_version),
-                            'allowedTools': list(card.allowed_tools), 'source': card.source.to_dict(),
-                            'cardSha256': sha256(card.canonical_bytes()), 'preferred': preferred == card.ref,
-                            'activationHeadId': activation_history[-1].data['activation_id'] if activation_history else None,
-                            'transitionCount': len(manager.get_state_history(card.skill_id, card.skill_version)),
-                            'isConfiguredAnchor': card.ref in configured.skill_refs})
+                with _read_snapshot(c):
+                    manager = SkillManager(c)
+                    available = bool(c.execute("SELECT 1 FROM main.sqlite_master WHERE name='evolution_governance'").fetchone())
+                    if available:
+                        _guard_schema(c)
+                    for skill_id in sorted({r.skill_id for r in configured.skill_refs} | {card.skill_id for card in trace_cards}):
+                        # Verify the complete history once in this owned read
+                        # snapshot, then derive both exact route and head ID.
+                        activation_history = _activation_history(c, skill_id) if available else []
+                        head = activation_history[-1].data if activation_history else None
+                        preferred = SkillRef(head['skill_id'], head['skill_version']) if head else None
+                        for card in manager.list_versions(skill_id):
+                            rows.append({'skillRef': card.ref.to_dict(), 'name': card.name, 'description': card.description,
+                                'state': manager.get_current_state(card.skill_id, card.skill_version),
+                                'allowedTools': list(card.allowed_tools), 'source': card.source.to_dict(),
+                                'cardSha256': sha256(card.canonical_bytes()), 'preferred': preferred == card.ref,
+                                'activationHeadId': head['activation_id'] if head else None,
+                                'transitionCount': len(manager.get_state_history(card.skill_id, card.skill_version)),
+                                'isConfiguredAnchor': card.ref in configured.skill_refs})
                 if len(rows) > 100:
                     raise ValueError('Skill library exceeds the current Web budget')
             result = {'skills': rows, 'evolutionSchemaAvailable': available,
@@ -440,16 +473,7 @@ class EvolutionService:
         with boundary():
             intent = self._load(project_id, case_id, 'CASE_INTENT')
             # A single coherent Web snapshot; no migration, provider or writes.
-            with self.runtime._web() as c:
-                c.execute('BEGIN')
-                rows = c.execute('WITH RECURSIVE tree(id) AS (SELECT ? UNION ALL '
-                    'SELECT f.id FROM main.web_evolution_facts f JOIN tree t ON f.parent_id=t.id '
-                    'WHERE f.project_id=?) SELECT f.id FROM main.web_evolution_facts f JOIN tree t ON f.id=t.id',
-                    (case_id, project_id)).fetchall()
-                if len(rows) > 256:
-                    raise ValueError('Case history exceeds the Web report budget')
-                facts = [store.load(c, project_id, row[0]) for row in rows]
-                c.commit()
+            facts = self._case_facts(project_id, case_id)
             # Full request/assistant content remains available in the exact
             # generation read API, not repeated in every polling report.
             projected = [{**fact, 'body': {key: value for key, value in fact['body'].items()
@@ -457,7 +481,13 @@ class EvolutionService:
             report = {'case': intent, 'facts': projected, 'attribution': 'INDETERMINATE',
                     'limitations': ['Web and Core commits are separate; a missing bridge result is unresolved.',
                         'Model suggestions do not prove Skill improvement, semantic obedience or fault attribution.',
-                        'Gate v1 has a complete trial census; multi-generation promotion is currently restricted.']}
+                        'Gate v1 is preserved; prospective Gate v2 requires separate administrator opt-in.',
+                        'Final heldout improvement has not been measured in this engineering milestone.']}
+            from .evaluation_campaign_bridge import family_evidence
+            with self.core(project_id) as c:
+                c.execute('PRAGMA query_only=ON')
+                report.update(family_evidence(c, intent['body']['sourceSkillRef']['skill_id']))
+            self.providers.check_text(canonical_json_bytes(report).decode('utf-8'))
             if len(canonical_json_bytes(report)) > 768 * 1024:
                 raise ValueError('Case report exceeds the Web response budget')
             return report

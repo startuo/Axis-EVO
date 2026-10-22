@@ -2,6 +2,8 @@
 
 工作台保留三个独立模式：离线 Demo、Core 只读审查、显式开启的本地 Runtime。Runtime 使用持久化 job/dispatch、独立规划与执行 Worker，以及现有 Skill planner、不可变 Plan Proposal、精确摘要审批、Runner 与独立 Acceptance。进程监督协议见 [RUNTIME_PROCESS_PROTOCOL.md](RUNTIME_PROCESS_PROTOCOL.md)。本轮采用 Web-first 路线，桌面打包延后。
 
+SQLite 也需要核对：`python -c "import sqlite3; print(sqlite3.sqlite_version)"`。当前验证组合为 Windows SQLite 3.49.1、Linux 3.46.1。Linux SQLite 3.40.1 的 JSON 函数标记与 `trusted_schema=OFF` 不兼容，原只读审查会拒绝包含 JSON CHECK 的数据库；此问题也在本轮改动前的基线复现。该组合未认证，不应通过关闭安全检查来运行。背景见 [SQLite 官方问题记录](https://sqlite.org/forum/forumpost/c88a671ad083d153?t=c)；其它 SQLite 构建须单独验证。
+
 ## 日常开发：Vite HMR
 
 首次安装后，从仓库根目录启动：

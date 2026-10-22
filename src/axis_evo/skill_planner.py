@@ -6,6 +6,7 @@ import hashlib
 from pathlib import PureWindowsPath
 
 from .hashing import canonical_json_bytes
+from .path_compat import windows_component_is_reserved
 from .models import PlanStep
 from .planning_adapter import (
     MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, PlanningResponse, _strict_json, _text,
@@ -118,7 +119,7 @@ def _static_path(path):
     _text(path)
     windows = PureWindowsPath(path)
     if (windows.drive or windows.root or ":" in path or not windows.parts
-            or ".." in windows.parts or any(PureWindowsPath(part).is_reserved() for part in windows.parts)):
+            or ".." in windows.parts or any(windows_component_is_reserved(part) for part in windows.parts)):
         raise ValueError("Plan path must be a safe relative workspace path without parent traversal")
     # Lexical only. Real symlink, parent, existence and execution checks remain
     # the frozen Sandbox's responsibility; no planning-time filesystem reads.
