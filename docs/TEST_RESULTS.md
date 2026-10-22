@@ -1,7 +1,7 @@
 <!-- PHASE5_STEP3_CURRENT_START -->
 # Phase 5 / Step 3 — 2026-10-22 结果整理
 
-Baseline `65fda2a256462f0df5461fb1cb70788b7d27cbbc`。验证在提交前相同生产字节上完成；实现提交身份随后在文档提交中回填。
+Baseline `65fda2a256462f0df5461fb1cb70788b7d27cbbc`。Tested source `1e742919503d8effadc39001369a2a19985d3e4b`。
 生产源码集合 SHA-256：`486815f8fdc8d11d58e42ef306347f69da7ae8aba6d3a65b39b585b76c2a10e8`。完整原始输出、私有测试、故障 Oracle、截图与冻结清单保留本地审查包；不发布测试或私有研究答案。
 
 | 检查 | 实际结果 |
@@ -14,6 +14,7 @@ Baseline `65fda2a256462f0df5461fb1cb70788b7d27cbbc`。验证在提交前相同�
 | 多轮会话 Browser | 9 passed (4.6m) |
 | 多代流程/视觉 Browser | 11 passed (13.8m) |
 | 键盘 Browser | 1 passed (25.1s) |
+| 实现提交上的离线研究正控制 | Gate10次+research4次本地替身调用；A/B/C各2/2，B/C共用Trial；外部模型调用0 |
 | Frontend typecheck / lint | passed；lint 0 warnings |
 | Frontend unit | 225 passed / 18 files |
 | Frontend build | passed；JS525.68kB/gzip164.71kB；保留Vite >500kB提示 |
@@ -32,6 +33,9 @@ Linux初次全量真实记录53 failed/2899 passed/15 skipped，原因包括受�
 Gate v1原限制独立复现：v2→v3本轮选10个Trial，而历史census为15；全部20个旧Intent/Result保留。显式`evolution-gate-v2`前瞻campaign通过v1→v2→v3→v4离线正控制，共30个新Trial；完整声明、role、额外attempt、UNKNOWN、首次seal、重哈希、profile配置、陈旧Assessment、并发与原子晋升均有负测。晋升/激活分开，祖先rollback只是新增路由；真实新conversation任务仍由原Runner与独立Acceptance完成。
 
 Research dry-run使用隔离副本、精确protocol批准、A/B/C同candidate与精确版本共享结果。所有声明case/失败/UNKNOWN/未提交保留分母；真实submission/Result后的hard exit不重放。正式RESEARCH_DATA holdout在开发加载时不打开，当前API拒绝正式holdout执行。源码commit标签与实际源字节SHA分别记录；export白名单不含Oracle答案、绝对路径或请求响应原文。
+
+提交后另行验证62个Core Python/SQL原始字节与实际实现Git提交一致，固定新protocol后运行正控制；原registry未变、生产Run0。该证明独立于API caller-label字段，旧快照未被改写。脚本批准不当作真人批准或真实LLM收益。
+
 
 真实DeepSeek：两次本轮修订生成均为connection TRANSPORT_FAILURE，失败保留；用户明确选PENDING。本轮无新真实candidate/promotion/activation或计划执行。随后单独最小官方HTTPS诊断HTTP200/OK，reported usage9tokens，仅证明接口连接；`reasoning_effort=none/max_tokens=16`未混入冻结planner参数或实验用量。官方文档：[Chat Completion](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/)。不能据文档默认thinking推断此前失败根因。
 
