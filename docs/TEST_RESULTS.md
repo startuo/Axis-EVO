@@ -3,7 +3,8 @@
 
 **产品判定：PREVIEW_CONTINUES；版本仍为0.1.0 Preview。** Baseline `85a418948a25b3f04cdd3a7d681c6fa9187c4001`。
 本轮结果来自有明确dirty标记的工作区验证；生产源码集合SHA-256 `311ce7bd92d9cc7865e65239a085ebc1dd5f83007b0ca8175ec5936069df47d1`。
-<!-- RELEASE_IMPLEMENTATION_COMMIT -->
+Tested implementation commit：`14d4125c173c827c59ff09fbc2dbd325650ba758`。逐文件验证该提交的全部已发布生产字节与测试快照相同；去除5项忽略的egg-info生成metadata后，已发布源码集合SHA-256 `f94f1088742d9d1ab2435a6547d57090e36b4d777350a187627900c771e69a58`。
+后续仅文档提交记录此身份，不改变已测试生产字节。
 完整私有测试、失败账本、截图、Oracle和审查ZIP保留本地；公共仓库只提交实现、必要说明与本结果。
 
 | 检查 | 当前实际结果与边界 |
