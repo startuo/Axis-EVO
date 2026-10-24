@@ -29,7 +29,9 @@ def main():
         parser.error('Network smoke requires --live-provider; automated tests must stay offline')
     workbench = WorkbenchConfig.from_file(args.workbench_config)
     config = RuntimeConfig.from_file(args.runtime_config, workbench)
-    providers = ProviderStore(config)
+    from web_api.runtime_storage import require_existing_runtime
+    require_existing_runtime(config, workbench)
+    providers = ProviderStore(config, initialize=False)
     if args.phase == 'connection':
         if not args.profile_id or not args.profile_revision:
             parser.error('An exact configured provider revision is required')

@@ -105,7 +105,8 @@ class EvolutionService:
         self._injected = adapter_factory is not None
         self._supervisor = None
         with runtime._web() as c:
-            store.initialize(c)
+            if getattr(runtime.providers, 'initialize_storage', True):store.initialize(c)
+            else:store.guard(c)
         if not worker_mode and not self._injected:
             from .evolution_worker import EvolutionSupervisor
             self._supervisor = EvolutionSupervisor(self)

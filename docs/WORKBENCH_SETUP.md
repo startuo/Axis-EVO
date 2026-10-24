@@ -2,6 +2,8 @@
 
 工作台保留三个独立模式：离线 Demo、Core 只读审查、显式开启的本地 Runtime。Runtime 使用持久化 job/dispatch、独立规划与执行 Worker，以及现有 Skill planner、不可变 Plan Proposal、精确摘要审批、Runner 与独立 Acceptance。进程监督协议见 [RUNTIME_PROCESS_PROTOCOL.md](RUNTIME_PROCESS_PROTOCOL.md)。本轮采用 Web-first 路线，桌面打包延后。
 
+生产启动、显式 store 准备、离线备份/副本升级和 Provider 管理员网络路径见 [RELEASE_OPERATIONS.md](RELEASE_OPERATIONS.md)。正常 HTTP 启动不自动建表或迁移；必须先显式准备 store 并完成包含 `.vite/manifest.json` 的前端构建。
+
 SQLite 也需要核对：`python -c "import sqlite3; print(sqlite3.sqlite_version)"`。当前验证组合为 Windows SQLite 3.49.1、Linux 3.46.1。Linux SQLite 3.40.1 的 JSON 函数标记与 `trusted_schema=OFF` 不兼容，原只读审查会拒绝包含 JSON CHECK 的数据库；此问题也在本轮改动前的基线复现。该组合未认证，不应通过关闭安全检查来运行。背景见 [SQLite 官方问题记录](https://sqlite.org/forum/forumpost/c88a671ad083d153?t=c)；其它 SQLite 构建须单独验证。
 
 ## 日常开发：Vite HMR
@@ -52,6 +54,7 @@ python -m web_api.app --port 8765 --web-root web/dist
 
 ```powershell
 python -m examples.workbench_runtime --admit-example-skill
+python -m web_api.runtime_storage init --config .local/workbench-runtime/workbench.json --runtime-config .local/workbench-runtime/runtime.json
 ```
 
 该标志明确通过现有 **legacy caller-controlled** 生命周期准入示例 Skill，不是 Trust Assessment、governed promotion 或安全证明。生产项目应由项目所有者预先准备准确的 TRUSTED SkillRef 和初始化到 migration 004 的 WAL 数据库；Web 不自动创建或晋升 Skill。

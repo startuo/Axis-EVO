@@ -9,6 +9,7 @@ import os
 import re
 import socket
 import sqlite3
+import time
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -16,8 +17,9 @@ from axis_evo.hashing import canonical_json_bytes
 from axis_evo.planning_adapter import (OpenAICompatiblePlanningAdapter, PlanningResponse,
                                        PlanningTransportError)
 
-from .runtime_config import validate_endpoint, validate_gateway_endpoint
+from .runtime_config import ProviderRoute, validate_endpoint, validate_gateway_endpoint
 from .local_gateway import LocalGatewayPlanningAdapter
+from .provider_network import RoutedPlanningAdapter
 from .schemas import ApiError, no_redirected_parents, public_text
 
 
@@ -129,8 +131,9 @@ def _safe_text(value, limit):
     return value
 
 
-def _configuration(body, config):
-    if type(body) is not dict or body.keys() != _FIELDS:
+def _configuration(body, config, *, stored=False):
+    permitted = (_FIELDS, _FIELDS | {'networkRoute'}) if stored else (_FIELDS,)
+    if type(body) is not dict or body.keys() not in permitted:
         raise ValueError("Unexpected provider profile fields")
     name, model = _safe_text(body["name"], 80), _safe_text(body["modelId"], 128)
     if body["protocol"] not in ("openai-compatible", "deepseek-compatible", "local-gateway"):
@@ -150,8 +153,20 @@ def _configuration(body, config):
     timeout = body["timeout"]
     if type(timeout) is not int or not 1 <= timeout <= 300:
         raise ValueError("Invalid provider timeout")
-    return {"name": name, "protocol": body["protocol"], "endpoint": endpoint,
-            "modelId": model, "credentialRef": alias, "timeout": timeout}
+    value = {"name": name, "protocol": body["protocol"], "endpoint": endpoint,
+             "modelId": model, "credentialRef": alias, "timeout": timeout}
+    if stored and 'networkRoute' in body:
+        route = ProviderRoute.from_dict(body['networkRoute'])
+        if route.endpoint != endpoint or body['protocol'] == 'local-gateway':
+            raise ValueError('Provider route identity mismatch')
+        value['networkRoute'] = route.to_dict()
+    elif not stored and body['protocol'] != 'local-gateway':
+        route = next((r for r in config.provider_routes if r.endpoint == endpoint), None)
+        if route is not None:
+            if time.time() >= route.expires_at:
+                raise ValueError('Configured provider route expired')
+            value['networkRoute'] = route.to_dict()
+    return value
 
 
 def _public_addresses(endpoint):
@@ -196,7 +211,7 @@ class _RestrictedAdapter:
         # Exact endpoint admission is backend-owned. This DNS precheck rejects
         # known private routes; the frozen transport resolves again, so it is
         # not a claim of pinned-IP/DNS-rebinding protection for hostile DNS.
-        if type(self.delegate) is not LocalGatewayPlanningAdapter:
+        if type(self.delegate) not in (LocalGatewayPlanningAdapter, RoutedPlanningAdapter):
             _public_addresses(self.delegate.endpoint)
         response = self.delegate.plan(request_json)
         if (type(response) is not PlanningResponse or key in response.response_text
@@ -208,11 +223,17 @@ class _RestrictedAdapter:
 class ProviderStore:
     """Explicitly initialized Web-only database, with no Core schema changes."""
 
-    def __init__(self, config):
+    def __init__(self, config, *, initialize=True):
         self.config = config
+        self.initialize_storage = initialize
         self.path = config.data_dir / "runtime.sqlite3"
         try:
             no_redirected_parents(config.data_dir)
+            if not initialize:
+                from .runtime_storage import existing_database, require_provider_schema
+                with existing_database(self.path) as connection:
+                    require_provider_schema(connection)
+                return
             config.data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             no_redirected_parents(self.path)
             connection = self.connect()
@@ -234,11 +255,18 @@ class ProviderStore:
 
     def connect(self):
         no_redirected_parents(self.path)
-        connection = sqlite3.connect(self.path, isolation_level=None, timeout=5.0)
+        if self.initialize_storage:
+            connection = sqlite3.connect(self.path, isolation_level=None, timeout=5.0)
+        else:
+            connection = sqlite3.connect(self.path.absolute().as_uri()+'?mode=rw', uri=True,
+                                         isolation_level=None, timeout=5.0)
         connection.row_factory = sqlite3.Row
         try:
             connection.execute("PRAGMA foreign_keys=ON")
-            connection.execute("PRAGMA journal_mode=WAL")
+            if self.initialize_storage:
+                connection.execute("PRAGMA journal_mode=WAL")
+            elif connection.execute('PRAGMA journal_mode').fetchone()[0] != 'wal':
+                raise ValueError('Prepared Runtime WAL storage is required')
             connection.execute("PRAGMA synchronous=FULL")
             connection.execute("PRAGMA busy_timeout=5000")
             return connection
@@ -246,9 +274,9 @@ class ProviderStore:
             connection.close()
             raise
 
-    def _validated(self, body):
+    def _validated(self, body, *, stored=False):
         try:
-            value = _configuration(body, self.config)
+            value = _configuration(body, self.config, stored=stored)
             raw = canonical_json_bytes(value).decode("utf-8")
             self.check_text(raw)
             return raw, hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -265,7 +293,7 @@ class ProviderStore:
         try:
             from .schemas import strict_json
             value = strict_json(row["config_json"])
-            canonical, digest = self._validated(value)
+            canonical, digest = self._validated(value, stored=True)
             if canonical != row["config_json"] or digest != row["config_sha256"] or not _HASH.fullmatch(digest):
                 raise ValueError("Profile integrity")
             self._identity(row["profile_id"], row["revision"])
@@ -395,14 +423,22 @@ class ProviderStore:
             if type(snapshot) is not dict or type(attempt_id) is not str or not _ATTEMPT.fullmatch(attempt_id):
                 raise ValueError("Invalid adapter identity")
             pinned = self.get(snapshot["id"], snapshot["revision"])
-            if any(snapshot.get(key) != pinned[key] for key in _FIELDS | {"id", "revision", "configSha256"}):
+            if (any(snapshot.get(key) != pinned[key] for key in _FIELDS | {"id", "revision", "configSha256"})
+                    or snapshot.get('networkRoute') != pinned.get('networkRoute')):
                 raise ValueError("Changed profile snapshot")
             adapter_name = (f"axis-profile/{pinned['id']}/{pinned['revision']}/"
                             f"{pinned['configSha256']}/attempt/{attempt_id}")
             env = self.config.credentials[pinned["credentialRef"]]
             adapter_type = LocalGatewayPlanningAdapter if pinned['protocol'] == 'local-gateway' else OpenAICompatiblePlanningAdapter
+            options = {}
+            if 'networkRoute' in pinned:
+                route = ProviderRoute.from_dict(pinned['networkRoute'])
+                if route not in self.config.provider_routes or time.time() >= route.expires_at:
+                    raise ValueError('Exact administrator route is unavailable')
+                adapter_type = RoutedPlanningAdapter
+                options['route_json'] = canonical_json_bytes(route.to_dict()).decode('utf-8')
             delegate = adapter_type(endpoint=pinned["endpoint"], model_id=pinned["modelId"],
-                api_key_env=env, adapter_name=adapter_name, timeout_seconds=pinned["timeout"])
+                api_key_env=env, adapter_name=adapter_name, timeout_seconds=pinned["timeout"], **options)
             return _RestrictedAdapter(delegate, env, tuple(self.config.credentials.values()))
         except (ApiError, KeyError, TypeError, ValueError):
             raise ApiError("PROVIDER_INTEGRITY", "The selected provider revision cannot be used.", 409) from None

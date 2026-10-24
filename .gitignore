@@ -108,3 +108,9 @@ node_modules/
 /WEB_SECURITY_REVIEW.md
 /web/step5.playwright.config.ts
 /web/step5-dev.playwright.config.ts
+
+# Private release stabilization evidence
+/RELEASE_READINESS_RISK_REGISTER.md
+/RELEASE_READINESS_MATRIX.md
+/web/release.playwright.config.ts
+/web/release-live.playwright.config.ts

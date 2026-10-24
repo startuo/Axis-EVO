@@ -11,7 +11,7 @@ export default defineConfig({
     strictPort: true,
     proxy: { "/api": { target: backend, changeOrigin: false } },
   },
-  build: { sourcemap: false },
+  build: { sourcemap: false, manifest: true },
   test: {
     environment: "jsdom",
     include: ["tests/**/*.test.{ts,tsx}"],

@@ -35,7 +35,7 @@ def development_commands(port, config, runtime_config):
     vite = ROOT / 'web/node_modules/vite/bin/vite.js'
     if not node or not vite.is_file():
         raise ValueError('Node.js and installed web dependencies are required; run npm ci in web')
-    backend = [sys.executable, '-u', '-m', 'web_api.app', '--port', str(port)]
+    backend = [sys.executable, '-u', '-m', 'web_api.app', '--api-only', '--port', str(port)]
     if config:
         path = Path(config).absolute()
         workbench = WorkbenchConfig.from_file(path)

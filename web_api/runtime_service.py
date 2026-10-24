@@ -77,6 +77,8 @@ def registry():
 class RuntimeService:
     def __init__(self, config, workbench_config, providers, *, adapter_factory=None,
                  worker_mode=False, worker_launcher=None):
+        from .runtime_storage import require_runtime_interpreter
+        require_runtime_interpreter()
         self.config, self.workbench, self.providers = config, workbench_config, providers
         self.facade = ReadFacade(workbench_config)
         self._adapter_factory = adapter_factory or providers.adapter
@@ -91,16 +93,24 @@ class RuntimeService:
         self._closed = False
         directory = self.config.data_dir / "threads"
         no_redirected_parents(directory)
-        directory.mkdir(exist_ok=True)
+        initialize = getattr(self.providers, 'initialize_storage', True)
+        if initialize:
+            directory.mkdir(exist_ok=True)
+        elif not directory.is_dir():
+            raise ValueError('Explicit Runtime storage setup is required')
         with self._web() as c:
             existing = _schema_objects(c)
             if existing and existing != _expected_schema():
                 raise ApiError("RUNTIME_STORE_INTEGRITY", "Runtime history schema is unexpected.", 422)
-            c.executescript("BEGIN IMMEDIATE;" + _SCHEMA)
-            if _schema_objects(c) != _expected_schema():
-                raise ApiError("RUNTIME_STORE_INTEGRITY", "Runtime history schema is unexpected.", 422)
-            c.commit()
-            runtime_jobs.initialize(c)
+            if initialize:
+                c.executescript("BEGIN IMMEDIATE;" + _SCHEMA)
+                if _schema_objects(c) != _expected_schema():
+                    raise ApiError("RUNTIME_STORE_INTEGRITY", "Runtime history schema is unexpected.", 422)
+                c.commit()
+                runtime_jobs.initialize(c)
+            else:
+                from .runtime_storage import require_base_schema
+                require_base_schema(c)
         if self._isolated and not worker_mode:
             self._coordinator_lock = CoordinatorLock(config.data_dir)
         if not worker_mode:

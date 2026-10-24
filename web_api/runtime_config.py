@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import ipaddress
 from pathlib import Path
 import re
+import time
 from types import MappingProxyType
 from urllib.parse import urlsplit
 
@@ -104,6 +105,52 @@ def _path(value, *, existing=False, directory=False):
 
 
 @dataclass(frozen=True)
+class ProviderRoute:
+    """Explicit administrator CONNECT target, never inferred from proxy env."""
+    endpoint: str
+    proxy: str
+    address: str
+    expires_at: int
+
+    def __post_init__(self):
+        validate_endpoint(self.endpoint)
+        match = re.fullmatch(r'http://127\.0\.0\.1:([1-9][0-9]{0,4})', self.proxy) if type(self.proxy) is str else None
+        if not match or int(match[1]) > 65535:
+            raise ValueError('An explicit literal loopback HTTP proxy is required')
+        try:
+            address = ipaddress.ip_address(self.address)
+        except (ValueError, TypeError):
+            raise ValueError('A canonical public IPv4 CONNECT target is required') from None
+        if (type(self.address) is not str or type(address) is not ipaddress.IPv4Address
+                or str(address) != self.address or not address.is_global
+                or address.is_reserved or address.is_multicast):
+            raise ValueError('A canonical public IPv4 CONNECT target is required')
+        # Expired facts remain readable; current authorization is checked only
+        # when attempting network I/O. A new route cannot be pinned indefinitely.
+        if type(self.expires_at) is not int or not 0 < self.expires_at <= time.time() + 86400:
+            raise ValueError('A bounded route expiration is required')
+
+    def to_dict(self):
+        return {'endpoint': self.endpoint, 'proxy': self.proxy,
+                'address': self.address, 'expires_at': self.expires_at}
+
+    @classmethod
+    def from_dict(cls, value):
+        if type(value) is not dict or value.keys() != {'endpoint', 'proxy', 'address', 'expires_at'}:
+            raise ValueError('Unexpected provider route authority')
+        return cls(**value)
+
+
+def parse_provider_routes(value, endpoints):
+    if type(value) is not list or len(value) > 8:
+        raise ValueError('A bounded explicit provider route allowlist is required')
+    routes = tuple(ProviderRoute.from_dict(item) for item in value)
+    if len({r.endpoint for r in routes}) != len(routes) or any(r.endpoint not in endpoints for r in routes):
+        raise ValueError('Provider routes must bind unique authorized endpoints')
+    return routes
+
+
+@dataclass(frozen=True)
 class RuntimeProject:
     id: str
     task_spec_path: Path
@@ -131,6 +178,7 @@ class RuntimeConfig:
     credentials: dict[str, str]
     endpoints: tuple[str, ...] = DEFAULT_ENDPOINTS
     local_gateways: tuple[LocalGateway, ...] = ()
+    provider_routes: tuple[ProviderRoute, ...] = ()
 
     def __post_init__(self):
         # A frozen dataclass alone does not freeze nested configuration objects.
@@ -142,6 +190,12 @@ class RuntimeConfig:
                 or len({item.endpoint for item in self.local_gateways}) != len(self.local_gateways)):
             raise ValueError('Invalid local gateway authority')
         object.__setattr__(self, 'local_gateways', tuple(self.local_gateways))
+        routes = tuple(self.provider_routes)
+        if (len(routes) > 8 or any(type(item) is not ProviderRoute for item in routes)
+                or len({item.endpoint for item in routes}) != len(routes)
+                or any(item.endpoint not in self.endpoints for item in routes)):
+            raise ValueError('Invalid administrator provider routes')
+        object.__setattr__(self, 'provider_routes', routes)
 
     @classmethod
     def from_file(cls, path, workbench_config):
@@ -151,7 +205,7 @@ class RuntimeConfig:
             with source.open("rb") as stream:
                 value = strict_json(stream.read(MAX_CONFIG_BYTES + 1))
             required = {"data_dir", "projects", "credentials"}
-            if type(value) is not dict or not required <= value.keys() <= required | {"endpoints", "local_gateways"}:
+            if type(value) is not dict or not required <= value.keys() <= required | {"endpoints", "local_gateways", "provider_routes"}:
                 raise ValueError("Unexpected runtime configuration")
             data_dir = _path(value["data_dir"])
             if type(value["projects"]) is not list or not 1 <= len(value["projects"]) <= 16:
@@ -202,7 +256,8 @@ class RuntimeConfig:
             if len(set(endpoints)) != len(endpoints):
                 raise ValueError("Duplicate configured endpoint")
             gateways = parse_local_gateways(value.get('local_gateways', []))
-            return cls(data_dir, tuple(projects), dict(credentials), endpoints, gateways)
+            routes = parse_provider_routes(value.get('provider_routes', []), endpoints)
+            return cls(data_dir, tuple(projects), dict(credentials), endpoints, gateways, routes)
         except (ApiError, OSError, ValueError, TypeError, KeyError, RuntimeError, UnicodeError):
             raise ApiError("INVALID_RUNTIME_CONFIG", "The backend runtime configuration is invalid.") from None
 

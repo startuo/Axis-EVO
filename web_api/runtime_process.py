@@ -64,6 +64,8 @@ class ProcessSupervisor:
             'workbench': {'projects': [{'id': p.id, 'name': p.name, 'database': str(p.database), 'workspace_roots': [str(r) for r in p.workspace_roots]} for p in workbench.projects],
                           'allowed_origins': list(workbench.allowed_origins)}}
         self.descriptor = config.data_dir / ('worker-config-' + uuid4().hex + '.json')
+        if config.provider_routes:
+            descriptor['runtime']['provider_routes'] = [r.to_dict() for r in config.provider_routes]
         with self.descriptor.open('x', encoding='utf-8') as stream:
             json.dump(descriptor, stream, ensure_ascii=False)
 

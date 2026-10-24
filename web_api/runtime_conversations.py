@@ -188,7 +188,9 @@ def _record_state(service,thread_id):
 class ConversationService:
     def __init__(self,runtime):
         self.runtime=runtime
-        with runtime._web() as c:store.initialize(c)
+        with runtime._web() as c:
+            if getattr(runtime.providers, 'initialize_storage', True):store.initialize(c)
+            else:store.guard(c)
 
     def _rows(self,project_id,conversation_id):
         self.runtime._project(project_id)

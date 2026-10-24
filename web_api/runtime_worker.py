@@ -5,7 +5,7 @@ import re
 import sys
 
 from .provider_store import ProviderStore
-from .runtime_config import RuntimeConfig, RuntimeProject, parse_local_gateways
+from .runtime_config import RuntimeConfig, RuntimeProject, parse_local_gateways, parse_provider_routes
 from .runtime_service import RuntimeService
 from .runtime_jobs import claim
 from .schemas import Project, WorkbenchConfig, strict_json
@@ -22,8 +22,11 @@ def load_service(descriptor_path):
         tuple(SkillRef(**r) for r in p['skill_refs']),
         tuple((name, Path(path)) for name, path in p.get('task_templates', {}).items()),
         p.get('allow_evolved_skills', False)) for p in rc['projects']), rc['credentials'], tuple(rc['endpoints']),
-        parse_local_gateways(rc.get('local_gateways', [])))
-    return RuntimeService(config, workbench, ProviderStore(config), worker_mode=True)
+        parse_local_gateways(rc.get('local_gateways', [])),
+        parse_provider_routes(rc.get('provider_routes', []), tuple(rc['endpoints'])))
+    from .runtime_storage import require_sqlite_compatibility
+    require_sqlite_compatibility()
+    return RuntimeService(config, workbench, ProviderStore(config, initialize=False), worker_mode=True)
 
 
 def run_worker(descriptor_path, phase, job, worker, dispatch):

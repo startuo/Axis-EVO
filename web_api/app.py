@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 from pathlib import Path
 import socket
+import sqlite3
 from socketserver import ThreadingMixIn
 import threading
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -32,7 +33,7 @@ class WorkbenchServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     request_queue_size = 8
 
-    def __init__(self, address, facade, *, web_root=None, allowed_origins=()):
+    def __init__(self, address, facade, *, web_root=None, allowed_origins=(), bound_socket=None):
         if address[0] != "127.0.0.1":
             raise ValueError("The Workbench bridge binds only to 127.0.0.1")
         self.facade = facade
@@ -45,7 +46,13 @@ class WorkbenchServer(ThreadingMixIn, HTTPServer):
                 raise ValueError("A built frontend directory with index.html is required")
             self.web_root = root
         self._slots = threading.BoundedSemaphore(4)
-        super().__init__(address, WorkbenchHandler)
+        super().__init__(address, WorkbenchHandler, bind_and_activate=bound_socket is None)
+        if bound_socket is not None:
+            self.socket.close()
+            self.socket = bound_socket
+            self.server_address = bound_socket.getsockname()
+            self.server_name, self.server_port = self.server_address
+            self.server_activate()
         self.origin = f"http://127.0.0.1:{self.server_port}"
         # The checked-in Vite configuration proxies without rewriting Host.
         # This explicit development origin is never reflected as arbitrary CORS.
@@ -257,25 +264,46 @@ def main(argv=None):
     parser.add_argument("--runtime-config", type=Path, help="Explicit opt-in runtime configuration; backend credential references only")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--web-root", type=Path, default=Path("web/dist"), help="Built frontend assets only")
+    parser.add_argument('--api-only', action='store_true', help='Explicit API-only mode for the Vite development proxy')
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("port must be between 1 and 65535")
+    bound = runtime = None
     try:
+        from .runtime_storage import require_frontend, require_existing_runtime, require_sqlite_compatibility
         config = WorkbenchConfig.from_file(args.config) if args.config else WorkbenchConfig()
-        root = args.web_root if args.web_root.is_dir() else None
+        root = None if args.api_only else require_frontend(args.web_root)
+        if config.projects:
+            require_sqlite_compatibility()
         if args.runtime_config:
             from .runtime_config import RuntimeConfig
             from .provider_store import ProviderStore
             from .runtime_service import RuntimeService
             from .runtime_http import RuntimeServer
             runtime_config = RuntimeConfig.from_file(args.runtime_config, config)
-            runtime = RuntimeService(runtime_config, config, ProviderStore(runtime_config))
-            server = RuntimeServer(("127.0.0.1", args.port), ReadFacade(config), runtime, web_root=root)
+            require_existing_runtime(runtime_config, config)
+        # Reserve the actual listening socket before any coordinator recovery
+        # facts or descriptor writes; do not check-and-close a racy probe socket.
+        bound = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            bound.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         else:
-            server = WorkbenchServer(("127.0.0.1", args.port), ReadFacade(config), web_root=root)
-    except (ApiError, OSError, ValueError):
-        parser.error("The explicit local configuration, frontend or loopback port is unavailable")
-    print(f"Axis-Evo read-only bridge: {server.origin}; configured projects: {len(config.projects)}")
+            bound.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        bound.bind(('127.0.0.1', args.port))
+        if args.runtime_config:
+            runtime = RuntimeService(runtime_config, config, ProviderStore(runtime_config, initialize=False))
+            server = RuntimeServer(("127.0.0.1", args.port), ReadFacade(config), runtime,
+                                   web_root=root, bound_socket=bound)
+        else:
+            server = WorkbenchServer(("127.0.0.1", args.port), ReadFacade(config), web_root=root, bound_socket=bound)
+        bound = None  # Server now owns the reserved socket.
+    except (ApiError, OSError, ValueError, sqlite3.Error):
+        if bound is not None:
+            bound.close()
+        if runtime is not None:
+            runtime.close(wait=False)
+        parser.error("Prepared storage, compatible SQLite, built frontend and an available loopback port are required; see docs/RELEASE_OPERATIONS.md")
+    print(f"Axis-Evo local bridge: {server.origin}; configured projects: {len(config.projects)}")
     if args.runtime_config:
         print("Runtime explicitly enabled. Enter this one-use local session code in Runtime permissions:",
               server.sessions.bootstrap_code)

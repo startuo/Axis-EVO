@@ -5,6 +5,7 @@ import http.client
 import json
 from math import isfinite
 import os
+import re
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -13,6 +14,52 @@ from .hashing import canonical_json_bytes
 
 MAX_RESPONSE_BYTES = 64 * 1024
 MAX_REQUEST_BYTES = 128 * 1024
+
+
+def _response_bytes(response):
+    """Bound both body and framing; http.client tolerates some truncated EOFs."""
+    # In-process adapter doubles may expose only read(). Real HTTPResponse
+    # always exposes parsed headers, which are checked before reading bytes.
+    headers = getattr(response, "headers", None)
+    if headers is not None and headers.defects:
+        raise PlanningTransportError("transport_framing")
+    content_encodings = headers.get_all("Content-Encoding", []) if headers is not None else []
+    if len(content_encodings) > 1 or content_encodings and content_encodings[0].lower() != "identity":
+        raise PlanningTransportError("transport_framing")
+    lengths = headers.get_all("Content-Length", []) if headers is not None else []
+    encodings = headers.get_all("Transfer-Encoding", []) if headers is not None else []
+    if (len(lengths) > 1 or lengths and encodings or len(encodings) > 1
+            or encodings and encodings[0].lower() != "chunked"):
+        raise PlanningTransportError("transport_framing")
+    declared = None
+    if lengths:
+        if not lengths[0].isascii() or not lengths[0].isdecimal() or len(lengths[0]) > 10:
+            raise PlanningTransportError("transport_framing")
+        declared = int(lengths[0])
+        if declared > MAX_RESPONSE_BYTES:
+            raise PlanningTransportError("oversized_response")
+    if encodings:
+        raw = bytearray()
+        for _ in range(1024):
+            line = response.fp.readline(33)
+            if not re.fullmatch(rb"[0-9a-fA-F]{1,16}\r\n", line):
+                raise PlanningTransportError("transport_framing")
+            size = int(line[:-2], 16)
+            if len(raw) + size > MAX_RESPONSE_BYTES:
+                raise PlanningTransportError("oversized_response")
+            chunk = response.fp.read(size) if size else b""
+            if len(chunk) != size or response.fp.read(2) != b"\r\n":
+                raise PlanningTransportError("transport_framing")
+            if not size:
+                return bytes(raw)
+            raw.extend(chunk)
+        raise PlanningTransportError("transport_framing")
+    raw = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise PlanningTransportError("oversized_response")
+    if declared is not None and len(raw) != declared:
+        raise PlanningTransportError("transport_framing")
+    return raw
 
 
 def _text(value, *, nonempty=True):
@@ -143,8 +190,9 @@ class OpenAICompatiblePlanningAdapter:
         })
         parsed = urlsplit(self.endpoint)
         connection = None
+        response = None
         try:
-            connection = http.client.HTTPSConnection(parsed.hostname, parsed.port, timeout=self.timeout_seconds)
+            connection = self._connection(parsed)
             connection.request("POST", parsed.path or "/", body=wire, headers={
                 "Authorization": "Bearer " + key, "Content-Type": "application/json",
                 "Accept": "application/json", "Accept-Encoding": "identity",
@@ -152,9 +200,7 @@ class OpenAICompatiblePlanningAdapter:
             response = connection.getresponse()
             if not 200 <= response.status < 300:
                 raise PlanningTransportError("http", response.status)
-            raw = response.read(MAX_RESPONSE_BYTES + 1)
-            if len(raw) > MAX_RESPONSE_BYTES:
-                raise PlanningTransportError("oversized_response")
+            raw = _response_bytes(response)
         except PlanningTransportError:
             raise
         except TimeoutError:
@@ -162,6 +208,14 @@ class OpenAICompatiblePlanningAdapter:
         except (OSError, http.client.HTTPException, UnicodeError):
             raise PlanningTransportError("connection") from None
         finally:
+            # A will-close HTTPResponse may already be detached from its
+            # connection. Closing only the connection can retain its stream.
+            close_response = getattr(response, "close", None)
+            if close_response is not None:
+                try:
+                    close_response()
+                except (OSError, http.client.HTTPException):
+                    pass
             if connection is not None:
                 try:
                     connection.close()
@@ -190,3 +244,7 @@ class OpenAICompatiblePlanningAdapter:
             raise PlanningTransportError("assistant_content") from None
         # Provider self-reported model/request metadata is not authentication.
         return PlanningResponse(content, self.adapter_name, self.model_id)
+
+    def _connection(self, parsed):
+        """Transport hook; the default remains a single direct verified HTTPS call."""
+        return http.client.HTTPSConnection(parsed.hostname, parsed.port, timeout=self.timeout_seconds)

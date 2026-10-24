@@ -227,7 +227,10 @@ def _capture_workspace(workspace):
                 entries.append({"path": relative, "type": "file", "size_bytes": len(data), "sha256": _sha(data)})
             else:
                 raise ValueError("Checkpoint supports regular files and directories only")
-        if before != _fingerprint(directory.lstat()):
+        # Directory timestamps may be delayed/coarse on a supported filesystem.
+        # Also reject a visible namespace change instead of omitting late files.
+        if (children != sorted(directory.iterdir(), key=lambda p: p.name)
+                or before != _fingerprint(directory.lstat())):
             raise CheckpointIntegrityError("Directory changed during checkpoint capture")
     visit(root)
     text = canonical_json_bytes({"schema_version": 1, "entries": entries}).decode("utf-8")

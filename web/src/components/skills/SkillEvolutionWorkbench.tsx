@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BookOpen, GitBranch, RefreshCw } from 'lucide-react';
 import { evolutionApi, generationSource, record, text, validDraft, type EvidencePreview, type EvolutionFact,
   type EvolutionLibrary, type EvolutionReport, type RevisionGeneration } from '../../lib/evolution';
@@ -51,6 +51,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
   const [busy, setBusy] = useState('');
   const pending = useRef(false);
   const alive = useRef(true);
+  const viewEpoch = useRef(0);
   const reload = useCallback(() => setRevision(value => value + 1), []);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
@@ -64,6 +65,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
   const sourceKey = skill ? refLabel(skill.skillRef) : '';
   const sourceId = skill?.skillRef.skill_id;
   const sourceVersion = skill?.skillRef.skill_version;
+  useLayoutEffect(() => { viewEpoch.current++; }, [projectId, caseId, sourceKey]);
   const evidence = preview?.ref === sourceKey ? preview.data : null;
   useEffect(() => {
     if (!sourceId || !sourceVersion) return;
@@ -101,13 +103,15 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
   async function perform(label: string, path: string[], body: unknown, after?: (fact: EvolutionFact) => void) {
     if (pending.current) return;
     pending.current = true; setBusy(label);
+    const requestedView = viewEpoch.current;
+    const current = () => alive.current && viewEpoch.current === requestedView;
     try {
       const fact = await evolutionApi.mutate(projectId, path, body, token);
       if (alive.current) {
         // This is the validated committed HTTP receipt, never a predicted
         // transition. Complete lineage reads can be slower than an approval;
         // keep the exact returned proposal reviewable while they refresh.
-        if (path[0] === 'cases' && path[1] === caseId && fact.kind === 'OP_RESULT') {
+        if (current() && path[0] === 'cases' && path[1] === caseId && fact.kind === 'OP_RESULT') {
           setCommittedOperation({ caseId, fact });
           if (fact.body.action === 'activation-approve' && record(fact.body.skillRef)) {
             const target = fact.body.skillRef;
@@ -117,9 +121,10 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
                 activationHeadId: text(fact.body, 'activationId') } : value) }));
           }
         }
-        after?.(fact); reload();
+        if (current()) after?.(fact);
+        reload();
       }
-    } catch (error) { if (alive.current) onError(error); }
+    } catch (error) { if (current()) onError(error); }
     finally { pending.current = false; if (alive.current) setBusy(''); }
   }
   const currentReport = report?.case.id === caseId ? report : null;

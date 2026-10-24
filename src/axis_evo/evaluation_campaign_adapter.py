@@ -1,5 +1,6 @@
 """Local, nonsecret transport configuration binding; no provider authenticity claim."""
 from dataclasses import dataclass, field
+import ipaddress
 from math import isfinite
 from urllib.parse import urlsplit
 
@@ -14,7 +15,8 @@ def validate_transport(value):
         _keys(value, ('kind', 'config_id'))
         _text(value['config_id'], 256)
     else:
-        _keys(value, ('kind', 'adapter_type', 'endpoint', 'timeout_seconds'))
+        route_keys = ('network_route',) if 'network_route' in value else ()
+        _keys(value, ('kind', 'adapter_type', 'endpoint', 'timeout_seconds') + route_keys)
         if value['kind'] != 'configured-network':
             raise ValueError('Unsupported campaign transport projection')
         _text(value['adapter_type'], 256)
@@ -27,6 +29,19 @@ def validate_transport(value):
         timeout = value['timeout_seconds']
         if type(timeout) not in (int, float) or not isfinite(timeout) or not 0 < timeout <= 300:
             raise ValueError('Campaign timeout must be bounded and finite')
+        if route_keys:
+            route = value['network_route']
+            _keys(route, ('endpoint', 'proxy', 'address', 'expires_at'))
+            _text(route['proxy'], 128)
+            proxy = urlsplit(route['proxy'])
+            address = ipaddress.ip_address(route['address'])
+            if (route['endpoint'] != value['endpoint'] or url.scheme != 'https'
+                    or proxy.scheme != 'http' or proxy.hostname != '127.0.0.1'
+                    or not proxy.port or proxy.username or proxy.password or proxy.path or proxy.query or proxy.fragment
+                    or type(address) is not ipaddress.IPv4Address or not address.is_global
+                    or address.is_reserved or address.is_multicast or str(address) != route['address']
+                    or type(route['expires_at']) is not int or route['expires_at'] <= 0):
+                raise ValueError('Invalid nonsecret administrator route projection')
     return value
 
 
@@ -35,9 +50,13 @@ def describe_campaign_transport(adapter):
     # Read only configuration fields; never credentials or environment values.
     delegate = getattr(adapter, 'delegate', adapter)
     if hasattr(delegate, 'endpoint') and hasattr(delegate, 'timeout_seconds'):
-        return validate_transport({'kind': 'configured-network',
+        value = {'kind': 'configured-network',
             'adapter_type': type(delegate).__module__ + '.' + type(delegate).__qualname__,
-            'endpoint': delegate.endpoint, 'timeout_seconds': delegate.timeout_seconds})
+            'endpoint': delegate.endpoint, 'timeout_seconds': delegate.timeout_seconds}
+        route = getattr(delegate, 'network_route', None)
+        if route is not None:
+            value['network_route'] = route
+        return validate_transport(value)
     projection = getattr(delegate, 'campaign_transport', None)
     if type(projection) is not dict or projection.get('kind') != 'injected-test':
         raise ValueError('Injected campaign adapters must explicitly identify test transport configuration')

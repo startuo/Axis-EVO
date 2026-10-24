@@ -1,3 +1,50 @@
+<!-- RELEASE_READINESS_CURRENT_START -->
+# Release readiness — 2026-10-24
+
+**产品判定：PREVIEW_CONTINUES；版本仍为0.1.0 Preview。** Baseline `85a418948a25b3f04cdd3a7d681c6fa9187c4001`。
+本轮结果来自有明确dirty标记的工作区验证；生产源码集合SHA-256 `311ce7bd92d9cc7865e65239a085ebc1dd5f83007b0ca8175ec5936069df47d1`。
+<!-- RELEASE_IMPLEMENTATION_COMMIT -->
+完整私有测试、失败账本、截图、Oracle和审查ZIP保留本地；公共仓库只提交实现、必要说明与本结果。
+
+| 检查 | 当前实际结果与边界 |
+|---|---|
+| Windows 普通 CPython 3.13.5 / SQLite 3.49.1 完整回归 | `3032 passed, 14 skipped, 784 warnings in 1152.58s (0:19:12)`；3046 collected |
+| 最终 Windows WebAPI 源快照 | 442 passed, 1 failed in 279.58s；唯一失败是隔离副本尚缺 node_modules，补齐既有依赖后原 case 1 passed in 0.07s。保留失败，属于组合验证，不改写为一次全绿 |
+| 最终 Store Runtime 准入负测及相关启动 | 23 passed in 13.05s；构造器与正式 CLI 均拒绝 |
+| Linux Python 3.12.14 / SQLite 3.46.1 完整回归 | `3032 passed, 15 skipped in 864.38s (0:14:24)`；3047 collected；当前最终全部生产字节一致 |
+| Python 3.11 / 3.12 受限文件路径专项 | 各185 passed（1.49s / 1.52s）；Store解释器，仅传输/Checkpoint，不是Runtime认证 |
+| Frontend typecheck / lint | passed；lint 0 warnings |
+| Frontend unit | 235 passed / 19 files，11.65s |
+| Frontend build | passed；入口472.49kB/gzip149.93kB；设置/演化首次导航加载，未调整500kB阈值 |
+| 默认 browser E2E | 27 passed (37.9s) |
+| production dist / TCP Gateway browser | 7 passed (1.6m)，六尺寸；实际Worker/审批/独立验收，模型为离线替身 |
+| 真实已记录DeepSeek事实 browser | 1 passed (30.4s)，25轮导航；无新增模型调用 |
+| production CLI / Crash B / 重启 / 原路径恢复 | 3 passed (9.84s)，新环境与副本，未动用户生产安装 |
+| Core wheel | 固定SOURCE_DATE_EPOCH与构建工具，两次字节一致；全新venv离线安装、仓库外导入与12个SQL资源通过 |
+| public offline smoke | 源码安装路径3.11/3.12/3.13通过；真实Runner/SQLite/文件验收，0模型调用 |
+
+Windows完整运行启动早于最后一项构造器防护提取及其新增负测；最终WebAPI组合验证、23项准入测试及Linux完整最终快照覆盖该变更。不能把3046冒充3047 collected的一次Windows全量。
+
+Windows最终14 skips为13项symlink权限限制与1项POSIX FIFO；Linux15 skips全部是Windows专用实验。3.13完整回归784条warning均来自冻结`validators.py:40`的`PureWindowsPath.is_reserved()`；未使用warning过滤。Node `NO_COLOR`/`FORCE_COLOR`提示保留。
+
+早期失败没有删除：Store3.12为2 failed/3018 passed/14 skipped；普通3.13为1 failed/3019 passed/14 skipped/784 warnings；Store3.11为3 failed/3021 passed/14 skipped。实际暴露目录时间戳遗漏新增文件和Store进程后代清理问题；后者具体broker机制未独立证明。Checkpoint增加名称集合复核，Store Runtime明确拒绝；普通Windows3.11/3.12分发下载因timeout/TLS EOF未能完成，资格认证PENDING。首次Linux初始化中止；下一完整运行1 failed/3027 passed/15 skipped仅因旧私有Oracle输出父目录缺失，最终runner准备该目录后全量通过，旧测试不改。
+
+其它开发RED/错误设置均保留：HTTP定界/关闭、晚到ACK、维护sidecar别名、缺lazy资产、构造器准入的反例；早期Legacy拆包导致17旧前端用例失败，已完全撤回`App.tsx`变更；3版公开smoke最初缺安装、旧脚本路径及新测试double/fixture设置修正见本地账本。未将这些尝试重标为PASS。
+
+真实DeepSeek在一次性环境完成1次修订+10次封闭配对+1次新任务规划，无重试。configuration.patch@3为5/5，参考@1为4/5，改善1/回归0/UNKNOWN0；用户分别批准候选、SHADOW、晋升、激活及精确Plan。真实Run有3个Intent/Result，独立验收后COMPLETED；旧失败/Trial保持。11次可审计usage合计35085 tokens，最后普通规划Worker的usage未保留、不可补造。实际live发生在Store3.12限制前，不等于该Runtime已认证；普通3.13最终闭环回归使用离线模型。
+
+真实网络使用新管理员显式、限时、固定公网IP CONNECT路由，保留官方TLS/SNI/Host；系统Fake-IP DNS的直连仍拒绝，旧连接失败不能追认为同一唯一根因。代理最终peer属于管理员信任假设；不读取系统代理作为隐式fallback、不读取Harness凭据。新网络调用在route过期后拒绝，历史已规划证据仍可读。授权header/密钥未进入Git或ZIP。
+
+冻结核验：152个旧测试文件、15个SQL迁移字节相同；62个Core文件中59个不变，仅`planning_adapter.py`（HTTP framing/清理）、`evaluation_campaign_adapter.py`（实际非秘密route绑定）、`checkpoint_manager.py`（目录复核）三个明确例外。Runner/tools/storage/Inspector/SkillManager/Binding/Recovery均未改；Crash B和UNKNOWN语义保留。依赖锁、品牌资产、版本未变。
+
+两个Core wheel SHA-256均为`a66473b215e5de1e8a6137498d995bbe1b4f217e51b499133faf0aed5ce71a79`。Web安装需完整checkout和显式build；正常启动不隐式迁移，DB-only备份不能替代完整同停机窗口数据备份。仅支持已验证原绝对路径离线恢复，不透明搬迁历史workspace。详见[运行与维护约定](RELEASE_OPERATIONS.md)。
+
+生产浏览器Edge155.0.4283.62，六尺寸1920×1080、1440×900、1366×768、1280×800、1024×768、390×844，91张实际截图；25轮导航DOM441/监听器208稳定，JS heap4.38→5.11MB。不是长时soak、实体手机或其它浏览器认证。Node24.14.0/npm11.9.0；未声称所有Node22+组合均独立复验。
+
+**正式Holdout NOT_FROZEN_NOT_RUN；论文主实验NOT_STARTED。** 五个开发封闭用例不证明泛化、模型语义服从或Skill因果收益。没有tag、GA下载发布、Phase5Step4、自动审批、UNKNOWN重放或生产安装迁移。
+
+<!-- RELEASE_READINESS_CURRENT_END -->
+
 <!-- PHASE5_STEP3_CURRENT_START -->
 # Phase 5 / Step 3 — 2026-10-22 结果整理
 

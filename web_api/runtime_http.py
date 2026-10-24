@@ -13,15 +13,19 @@ def runtime_envelope(data):
 
 
 class RuntimeServer(WorkbenchServer):
-    def __init__(self, address, facade, runtime, *, web_root=None, allowed_origins=(), sessions=None):
+    def __init__(self, address, facade, runtime, *, web_root=None, allowed_origins=(), sessions=None, bound_socket=None):
         self.runtime = runtime
-        from .runtime_conversations import ConversationService
-        self.conversations = ConversationService(runtime)
-        from .evolution_service import EvolutionService
-        self.evolution = EvolutionService(runtime)
         self.sessions = sessions or RuntimeSessions()
-        super().__init__(address, facade, web_root=web_root, allowed_origins=allowed_origins)
-        self.RequestHandlerClass = RuntimeHandler
+        super().__init__(address, facade, web_root=web_root, allowed_origins=allowed_origins, bound_socket=bound_socket)
+        try:
+            from .runtime_conversations import ConversationService
+            self.conversations = ConversationService(runtime)
+            from .evolution_service import EvolutionService
+            self.evolution = EvolutionService(runtime)
+            self.RequestHandlerClass = RuntimeHandler
+        except BaseException:
+            self.server_close()
+            raise
 
     def server_close(self):
         if hasattr(self, 'evolution'):

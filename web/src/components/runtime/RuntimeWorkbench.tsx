@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Activity, ArrowLeft, ArrowUp, BookOpen, ChevronRight, Folder, LoaderCircle, Moon, PanelRight, RefreshCw, Server, ShieldCheck, Sun, X } from "lucide-react";
 import { useRuntimeWorkbench } from "../../hooks/useRuntimeWorkbench";
 import { useWorkbenchLayout } from "../../hooks/useWorkbenchLayout";
@@ -8,10 +8,12 @@ import { PopoverSelect } from "../ui/PopoverSelect";
 import { Badge, EmptyState, Loading } from "../ui/Primitives";
 import { RuntimeInspector, type RuntimeTab } from "./RuntimeInspector";
 import { RuntimePermissions } from "./RuntimePermissions";
-import { RuntimeProviders } from "./RuntimeProviders";
 import { RuntimeThreadView, threadLabels } from "./RuntimeThreadView";
 import { RuntimeContext } from './RuntimeContext';
-import { SkillEvolutionWorkbench } from '../skills/SkillEvolutionWorkbench';
+const RuntimeProviders = lazy(() => import("./RuntimeProviders")
+  .then(module => ({ default: module.RuntimeProviders })));
+const SkillEvolutionWorkbench = lazy(() => import("../skills/SkillEvolutionWorkbench")
+  .then(module => ({ default: module.SkillEvolutionWorkbench })));
 
 export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: string; navigate: (path: string) => void; dark: boolean; setDark: (value: boolean) => void }) {
   const data = useRuntimeWorkbench(route, navigate);
@@ -90,12 +92,12 @@ export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: st
     <div className={`runtime-scroll cds-page-scroll ${onHome ? "cds-home-scroll" : ""}`} tabIndex={onHome ? undefined : 0} aria-label="运行页面内容">
       {onHome ? <div className="cds-home"><div className="cds-welcome"><h1>今天，想完成什么？</h1></div>{composer}</div> : <>
         {data.error && <div className="runtime-error" role="alert"><strong>操作未确认</strong><p>{data.error}</p><button className="text-button" onClick={() => data.setError("")}>关闭提示</button></div>}
-        {data.initializing ? <Loading /> : !knownRoute ? <EmptyState title="运行页面不可用">返回新对话，或选择已有线程。</EmptyState> : onPermissions || !data.token ? permissions : onProviders ? <RuntimeProviders data={data.profiles} token={data.token} reload={data.reload} reportError={data.reportError} /> : onSkills ? project ? <SkillEvolutionWorkbench key={project.id} projectId={project.id} token={data.token} profiles={data.profiles?.profiles ?? []} onError={data.reportError} onTask={ref => { data.setSelectedSkill(`${ref.skill_id}@${ref.skill_version}`); data.refresh(); go("/runtime"); }} /> : <EmptyState title="请先配置运行项目">Skills 演化仅面向后端明确配置的项目。</EmptyState> : onActivity ? <div className="runtime-settings-page"><div className="runtime-page-heading"><h1>运行活动</h1><p>查看本地记录的任务状态与执行结果。</p></div>{data.rows.length ? <div className="runtime-activity-list">{[...data.rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(item => <button key={item.id} onClick={() => data.openThread(item.id)}><Activity size={16} /><span><strong>{item.title}</strong><small>{item.updatedAt}</small></span><Badge>{threadLabels[item.status]}</Badge><ChevronRight size={14} /></button>)}</div> : <EmptyState title="没有运行活动">新建任务后会显示真实规划与执行状态。</EmptyState>}</div>  : data.loadingThread && !thread ? <Loading /> : parsed.conversationId && data.sessionConversation ? <div className="runtime-multiturn">
+        <Suspense fallback={<Loading />}>{data.initializing ? <Loading /> : !knownRoute ? <EmptyState title="运行页面不可用">返回新对话，或选择已有线程。</EmptyState> : onPermissions || !data.token ? permissions : onProviders ? <RuntimeProviders data={data.profiles} token={data.token} reload={data.reload} reportError={data.reportError} /> : onSkills ? project ? <SkillEvolutionWorkbench key={project.id} projectId={project.id} token={data.token} profiles={data.profiles?.profiles ?? []} onError={data.reportError} onTask={ref => { data.setSelectedSkill(`${ref.skill_id}@${ref.skill_version}`); data.refresh(); go("/runtime"); }} /> : <EmptyState title="请先配置运行项目">Skills 演化仅面向后端明确配置的项目。</EmptyState> : onActivity ? <div className="runtime-settings-page"><div className="runtime-page-heading"><h1>运行活动</h1><p>查看本地记录的任务状态与执行结果。</p></div>{data.rows.length ? <div className="runtime-activity-list">{[...data.rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(item => <button key={item.id} onClick={() => data.openThread(item.id)}><Activity size={16} /><span><strong>{item.title}</strong><small>{item.updatedAt}</small></span><Badge>{threadLabels[item.status]}</Badge><ChevronRight size={14} /></button>)}</div> : <EmptyState title="没有运行活动">新建任务后会显示真实规划与执行状态。</EmptyState>}</div>  : data.loadingThread && !thread ? <Loading /> : parsed.conversationId && data.sessionConversation ? <div className="runtime-multiturn">
           <nav className="runtime-turn-nav" aria-label="对话轮次">{data.sessionConversation.turns.map(turn => <button key={turn.id} className={turn.id === data.selectedTurn?.id ? 'selected' : ''} aria-current={turn.id === data.selectedTurn?.id ? 'step' : undefined} onClick={() => data.openTurn(turn.id)}><span>第 {turn.number} 轮</span><small>{threadLabels[turn.webStatus]}{turn.coreOutcome ? ` · Core ${turn.coreOutcome}` : ''}</small></button>)}</nav>
           {turnContent}
           {data.selectedTurn && <RuntimeContext key={data.selectedTurn.id} project={data.projectId} conversation={parsed.conversationId} turn={data.selectedTurn.id} digest={data.selectedTurn.contextSha256} />}
           <section className="runtime-followup" aria-label="跟进最新一轮"><h2>跟进最新一轮</h2><p className="caption">后端独立验收模板决定完成条件。新输入使用最新已验证工作区；当前显示第 {data.selectedTurn?.number} 轮。每轮重新批准。</p>{composer}</section>
-        </div> : turnContent}
+        </div> : turnContent}</Suspense>
       </>}
     </div>
   </WorkbenchShell>;
