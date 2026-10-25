@@ -1,3 +1,38 @@
+<!-- AGENT_UX_CURRENT_START -->
+# Conversation-first Workbench — 2026-10-25
+
+**体验改造已实现，产品仍为 0.1.0 Preview。** 基线 `d3177601deb073e5515a976b558bbebee7fc0ee8`；最终生产集合 SHA-256 `7eeab09659d55047a8f436a0dd5bb6e3bc4969836d60611c0b5e48fa0b9dd3c4`。
+Tested implementation commit：`b7d6760a17f01836d2c5e84367a908aead848e4a`。已逐文件核对该提交的166个生产文件与最终测试快照完全一致；剔除5项忽略的egg-info生成metadata后，已发布生产集合SHA-256 `42d08a9a7fc370bb1e895de2df10f74e192e9710aa474829da63d2e8ffc400d6`。本次仅文档提交记录此身份，测试源码及完整证据仍为本地私有。
+
+本轮包含真实无工具模型回复、CHAT/TASK 有序对话、紧凑活动与按需已提交工具正文、Windows 后端原生密钥登记、可信 CLI 自动会话交接、明确路径范围的纯读策略和一次上下文写入批准。Core Runner/Tool Intent/Acceptance/Inspector/Checkpoint/Recovery、Skill 和研究协议均保持冻结。策略收据明确为 POLICY，不冒充人工批准。
+
+| 检查 | 最终结果 |
+|---|---|
+| Windows 普通 CPython 3.13.5 / SQLite 3.49.1 完整回归 | 3110 passed, 14 skipped, 784 warnings in 1074.48s (0:17:54)；3124 collected |
+| Provider/凭据/历史/HTTP/进程专项 | 107 passed in 7.06s；包含解码后的引号/反斜杠秘密过滤 |
+| 前端 unit | 259 passed，26 files，10.97s |
+| typecheck / lint / build | passed；lint 0 warnings；入口 476.13kB/gzip150.59kB，Markdown 首次正文另外加载 117.54kB；未放宽分块警告阈值 |
+| npm production audit | 0 vulnerabilities；不等于所有安全保证已证明 |
+| 最终 Runtime 浏览器 | 4 passed (1.0m)；1440/1024/390，实际 HTTP/SQLite/隔离 Worker/Runner/文件与 Acceptance；完整纯读、重复点击、写入、UNKNOWN、正文、键盘、连续导航和明暗 |
+| 默认浏览器回归 | 27 passed (33.4s)；已批准 UI 文案的测试断言同步，原件归档 |
+| Windows Provider 登记浏览器 | 1 passed (3.8s)；原生 vault + HTTP，Provider 为离线替身；原生合成 key 存储/重开/清除独立通过 |
+| 正式 CLI 自动登录与重启 | 两次真实进程生命周期；0 手工代码；旧会话 401、新交接、旧标签刷新通过；0 模型/工具调用 |
+| 演化到真实复用 | 最终完整浏览器 9 passed (3.5m)：实际编辑/Candidate/SHADOW/Gate/晋升/激活/后续 Runner 复用和8组明暗视觉；早期选择器失败保留 |
+| 原生浏览器缩放 | tabs.setZoom 125%/200% 实测 ratio=1.25/2，1440px 视口 CSS 宽度1152/720，无横向溢出 |
+| 新 Linux / 新真实 Provider | NOT RUN：Docker Desktop 启动故障；本轮没有新外网模型调用。历史结果不是本轮认证 |
+
+最终性能为原 d317 前端和新构建在同样离线 fixture 的单次样本：入口472497→476127 bytes；首次已认证就绪179.39/172.80ms。共享主机负载，不作统计提速或长期无泄漏结论；不能把 jsdom/build/离线模型验证称为真实 DeepSeek 联机认证。采样 axe 0 violation 不等于全部辅助技术认证。没有外部用户计时研究。
+
+原始失败和跳过未删除。初始隔离全量1 failed/3107 passed/14 skipped因旧 Oracle 父目录未准备；补齐后原用例通过，随后完整快照3108 passed/14 skipped/784 warnings；新增最后两项 JSON 转义反例和最小字段过滤后再跑最终完整回归。开发 RED/选择器/错误命令/中途检查记录均在本地账本，未改旧 Core/WebAPI 测试、未过滤 Python warnings。最终14 skipped为13项Windows symlink权限与1项POSIX FIFO；784 warnings均来自冻结validators.py的PureWindowsPath.is_reserved()弃用提示。
+
+冻结比较：基线323项、193冻结条目无变化/缺失；62个Core文件、128个旧Core/WebAPI测试文件和15个历史SQL迁移均字节相同。9个前端测试按实际UI/文案更新断言，原件本地归档。新持久化仅Web016/017，须显式初始化/离线副本升级，普通读取不迁移。新依赖：MIT Radix Colors3.0.0、react-markdown10.1.0、Windows可选keyring25.7.0；undici锁定仅7.30.0→7.30.1补丁，Core依赖仍为空。
+
+私有测试/fixture/交付报告/日志/截图/ZIP不推送。可复现说明见[对话与任务](CONVERSATION_WORKBENCH.md)、[启动说明](WORKBENCH_SETUP.md)与[界面规范](WORKBENCH_UI_SPEC.md)。Windows 自助预设仅DeepSeek；Linux无明文密钥fallback；Worker不是OS安全沙箱；范围授权不承诺执行预检之后的即时撤回；正文过滤不是完整DLP；模型文字不能授予权限或决定Acceptance。
+
+**Holdout NOT_FROZEN_NOT_RUN，论文主实验 NOT_STARTED；无 Phase5Step4、GA/tag、自动 UNKNOWN 重派或研究协议修改。** 以下为历史阶段记录，不能冒充本轮测试。
+
+<!-- AGENT_UX_CURRENT_END -->
+
 <!-- RELEASE_READINESS_CURRENT_START -->
 # Release readiness — 2026-10-24
 
