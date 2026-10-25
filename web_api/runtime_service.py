@@ -7,6 +7,7 @@ import hashlib
 import re
 import sqlite3
 import threading
+import time
 from uuid import uuid4
 
 from axis_evo.events import utc_now
@@ -24,7 +25,7 @@ from .read_facade import ReadFacade, committed_snapshot
 from .runtime_policy import (FILE_TOOLS, MAX_PROMPT_CHARS, MAX_FILE_BYTES, load_template, snapshot_task,
                              preflight_plan, seed_manifest, verify_snapshot)
 from .schemas import ApiError, MAX_DATABASE_BYTES, no_redirected_parents, strict_json
-from . import runtime_jobs
+from . import runtime_jobs, runtime_read_policy
 from .runtime_process import CoordinatorLock, ProcessSupervisor
 
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
@@ -67,9 +68,9 @@ def _expected_schema():
         c.close()
 
 
-def registry():
+def registry(*, read_only=False):
     value = PluginRegistry()
-    for tool in (ReadFileTool(), WriteFileTool(), PatchFileTool()):
+    for tool in ((ReadFileTool(),) if read_only else (ReadFileTool(), WriteFileTool(), PatchFileTool())):
         value.register(tool)
     return value
 
@@ -90,6 +91,7 @@ class RuntimeService:
         self._supervisor = None
         self._slots = threading.BoundedSemaphore(8)
         self._futures = {}
+        self._planning_completions = {}
         self._closed = False
         directory = self.config.data_dir / "threads"
         no_redirected_parents(directory)
@@ -108,11 +110,18 @@ class RuntimeService:
                     raise ApiError("RUNTIME_STORE_INTEGRITY", "Runtime history schema is unexpected.", 422)
                 c.commit()
                 runtime_jobs.initialize(c)
+                runtime_read_policy.initialize(c)
             else:
                 from .runtime_storage import require_base_schema
                 require_base_schema(c)
         if self._isolated and not worker_mode:
             self._coordinator_lock = CoordinatorLock(config.data_dir)
+        if not worker_mode:
+            with self._web() as c:
+                if runtime_read_policy.available(c):
+                    runtime_read_policy.synchronize(c, config.projects)
+                elif any(p.read_policy is not None for p in config.projects):
+                    raise ValueError('Explicit read policy storage setup is required')
         if not worker_mode:
             with self._web() as c, runtime_jobs.transaction(c):
                 for row in c.execute("SELECT job_id FROM main.runtime_jobs WHERE state IN ('QUEUED','PLANNING','DISPATCH_RESERVED','EXECUTING')").fetchall():
@@ -165,12 +174,22 @@ class RuntimeService:
             c.close()
 
     def capabilities(self, authenticated=False):
+        read_policies = {}
+        if authenticated:
+            with self._web() as web:
+                if runtime_read_policy.available(web):
+                    read_policies = {p.id: runtime_read_policy.current(web, p.id) for p in self.config.projects}
         return {"enabled": True, "authenticated": authenticated,
             "projects": [{"id": p.id, "name": self.workbench.project(p.id).name,
                           "skills": [s.to_dict() for s in self._enabled_skills(p)],
                           "taskTemplates": [{'id': 'default', 'name': '默认验收'}] +
-                              [{'id': name, 'name': name} for name, _ in p.task_templates]} for p in self.config.projects],
-            "supportsConversations": True, "maximumPromptCodepoints": MAX_PROMPT_CHARS,
+                              [{'id': name, 'name': name, **({'readPolicy': {
+                                  'allowedPaths': read_policies[p.id]['policy']['allowed_paths'],
+                                  'policySha256': read_policies[p.id]['policySha256'],
+                                  'authorityId': read_policies[p.id]['authorityId']}}
+                                if read_policies.get(p.id) and read_policies[p.id]['policy']['task_template_id'] == name else {})}
+                                for name, _ in p.task_templates]} for p in self.config.projects],
+            "supportsConversations": True, "supportsReplies": True, "maximumPromptCodepoints": MAX_PROMPT_CHARS,
             "promptLengthUnit": "UNICODE_CODEPOINTS", "maximumConversationTurns": 16,
             "allowedTools": list(FILE_TOOLS), "blockedTools": ["run_tests"],
             "executionMode": "process-isolated" if self._isolated else "in-process-test-injection",
@@ -223,7 +242,7 @@ class RuntimeService:
         # Crash after Core proposal COMMIT and before Web association: find only
         # this configured attempt identity. Never call the provider again.
         if proposal is None and row["status"] == "UNKNOWN":
-            adapter = self._adapter_factory(strict_json(row["profile_json"]), row["id"])
+            adapter = self.providers.adapter_identity(strict_json(row["profile_json"]), row["id"])
             ids = c.execute("SELECT proposal_id FROM plan_proposals WHERE adapter_name=?", (adapter.adapter_name,)).fetchall()
             if len(ids) == 1:
                 proposal = get_plan_proposal(c, ids[0][0])
@@ -231,7 +250,7 @@ class RuntimeService:
                 raise ApiError("THREAD_PROVENANCE_MISMATCH", "The planning attempt has ambiguous proposals.", 422)
         if proposal is not None:
             profile = strict_json(row["profile_json"])
-            adapter = self._adapter_factory(profile, row["id"])
+            adapter = self.providers.adapter_identity(profile, row["id"])
             manifest = strict_json(row["manifest_json"])
             if (proposal.skill_ref.to_dict() != strict_json(row["skill_json"])
                     or proposal.task_spec_sha256 != manifest["taskSha256"]
@@ -255,6 +274,66 @@ class RuntimeService:
                 item["runId"] = row["reserved_run_id"]
             result.append(item)
         return result
+
+    def invocation(self, project_id, thread_id, call_id):
+        """Authenticated Runtime detail, never added to the public ReadFacade.
+
+        Return bounded committed evidence for this exact approved invocation;
+        never reread current file content or manufacture a missing Tool Result.
+        """
+        if type(call_id) is not str or not re.fullmatch('call_[0-9a-f]{32}', call_id):
+            raise ApiError('INVOCATION_UNAVAILABLE', 'Invocation details are unavailable.', 404)
+        row = self._row(project_id, thread_id)
+        self._verify_job(row)
+        project, _ = self._project(project_id)
+        with self._core(project) as c:
+            proposal = self._proposal(row, c)
+            if proposal is None or row['approved_digest'] != proposal.plan_sha256:
+                raise ApiError('INVOCATION_UNAVAILABLE', 'No approved invocation evidence exists.', 404)
+            facts = c.execute("SELECT * FROM main.events WHERE run_id=? AND tool_call_id=? "
+                "AND event_type IN ('TOOL_INTENT','TOOL_RESULT') ORDER BY seq LIMIT 3", (row['reserved_run_id'], call_id)).fetchall()
+        if not facts or facts[0]['event_type'] != 'TOOL_INTENT' or len(facts) > 2:
+            raise ApiError('INVOCATION_UNAVAILABLE', 'Invocation evidence is incomplete or inconsistent.', 409)
+        intent = facts[0]
+        if len(intent['payload_json'].encode()) > MAX_FILE_BYTES*2:
+            raise ApiError('INVOCATION_UNAVAILABLE', 'Invocation evidence exceeds its detail budget.', 422)
+        planned = next((step for step in proposal.plan if step.step_id == intent['step_id']), None)
+        data = strict_json(intent['payload_json'], MAX_FILE_BYTES*2)
+        if (planned is None or planned.tool_name not in FILE_TOOLS
+                or data.get('tool_name') != planned.tool_name or data.get('arguments') != planned.arguments):
+            raise ApiError('INVOCATION_UNAVAILABLE', 'Invocation does not match the approved Plan.', 409)
+        result = None
+        if len(facts) == 2:
+            fact = facts[1]
+            if (fact['event_type'] != 'TOOL_RESULT' or fact['step_id'] != intent['step_id']
+                    or fact['seq'] <= intent['seq'] or len(fact['payload_json'].encode()) > MAX_FILE_BYTES*2):
+                raise ApiError('INVOCATION_UNAVAILABLE', 'Result evidence is inconsistent or exceeds its budget.', 409)
+            raw = strict_json(fact['payload_json'], MAX_FILE_BYTES*2)
+            if (raw.keys() != {'tool_name','status','message','duration_ms','result'}
+                    or raw['tool_name'] != planned.tool_name or raw['status'] not in ('SUCCESS','FAILED','TIMEOUT')
+                    or type(raw['message']) is not str or type(raw['result']) is not dict):
+                raise ApiError('INVOCATION_UNAVAILABLE', 'Result evidence is invalid.', 409)
+            result = {'eventId': fact['event_id'], 'seq': fact['seq'], 'payloadSha256': hashlib.sha256(fact['payload_json'].encode()).hexdigest(),
+                'status': raw['status'], 'message': raw['message'], 'data': raw['result']}
+        value = {'threadId': thread_id, 'runId': row['reserved_run_id'], 'toolCallId': call_id,
+            'stepId': planned.step_id, 'toolName': planned.tool_name, 'arguments': data['arguments'],
+            'intentEventId': intent['event_id'], 'intentSeq': intent['seq'], 'result': result,
+            'source': 'COMMITTED_CORE_EVENTS'}
+        encoded = canonical_json_bytes(value)
+        if len(encoded) > MAX_FILE_BYTES*3:
+            raise ApiError('INVOCATION_UNAVAILABLE', 'Invocation details exceed their byte budget.', 422)
+        pending = [value]
+        while pending:
+            item = pending.pop()
+            if type(item) is str:
+                self.providers.check_text(item)
+            elif type(item) is dict:
+                pending.extend(item.keys())
+                pending.extend(item.values())
+            elif type(item) is list:
+                pending.extend(item)
+        self.providers.check_text(encoded.decode('utf-8'))
+        return value
 
     @staticmethod
     def _summary(row):
@@ -286,7 +365,7 @@ class RuntimeService:
             run = self.facade.run(project_id, result["runId"])
             for event in run["events"]:
                 if type(event["summary"]) is dict:
-                    event["summary"] = " · ".join(f"{k}: {v}" for k, v in event["summary"].items() if v is not None)
+                    event["summary"] = "，".join(f"{k}: {v}" for k, v in event["summary"].items() if v is not None)
             run["inspection"]["issues"] = [i["code"] for i in run["inspection"]["issues"]]
             if run["inspection"]["status"] == "UNSUPPORTED":
                 try:
@@ -305,6 +384,12 @@ class RuntimeService:
                     pass  # bounded observation unavailable; do not fabricate a classification
             result["run"] = run
         supervision = result['supervision']
+        with self._web() as web:
+            policy = runtime_read_policy.describe(web, thread_id)
+        if policy is not None:
+            completion = self._planning_completions.get(thread_id)
+            policy['autoApprovalPending'] = bool(completion is not None and not completion.is_set())
+            result['readPolicy'] = policy
         if supervision is not None:
             inspection = result['run']['inspection'] if result['run'] else {}
             terminal_facts = [event for event in result['run']['events'] if event['type'] in ('RUN_COMPLETED','RUN_FAILED')] if result['run'] else []
@@ -367,7 +452,14 @@ class RuntimeService:
                 raise ApiError("SKILL_NOT_TRUSTED", "The exact Skill must remain TRUSTED.", 422)
             self.providers.check_text(card.canonical_bytes().decode("utf-8"))
         template_path = runtime.task_spec_path if _turn is None else runtime.template(_turn.template_id)
-        template, _, seed_facts = load_template(template_path, self.providers.check_text)
+        read_selection = None
+        if _turn is not None:
+            read_fact = strict_json(_turn.context_json).get('read_policy')
+            if read_fact is not None:
+                read_selection = {'authorityId': read_fact['authority_id'], 'policySha256': read_fact['policy_sha256'],
+                    'policy': {k: v for k, v in read_fact.items() if k not in ('authority_id','policy_sha256')}}
+        scope = read_selection['policy']['allowed_paths'] if read_selection else None
+        template, _, seed_facts = load_template(template_path, self.providers.check_text, allowed_paths=scope)
         if _turn is not None:
             if canonical_json_bytes(asdict(template)).decode() != _turn.template_json:
                 raise ApiError('TASK_TEMPLATE_CHANGED', 'The selected acceptance template changed.', 409)
@@ -406,7 +498,11 @@ class RuntimeService:
                 if _turn is not None:
                     job_identity.update(conversationId=_turn.conversation_id, turnId=_turn.turn_id,
                                         contextSha256=_turn.context_sha)
+                if read_selection:
+                    job_identity['readPolicySha256'] = read_selection['policySha256']
                 runtime_jobs.admission(c, thread_id, job_identity)
+                if read_selection:
+                    runtime_read_policy.record_admission(c, thread_id, read_selection)
                 if _turn is not None:
                     from .runtime_conversations import record_admission
                     record_admission(self, c, _turn, thread_id, run_id, prompt)
@@ -426,7 +522,11 @@ class RuntimeService:
             if copied != manifest:
                 raise ApiError('SEED_CHANGED', 'The admitted snapshot changed.', 422)
             if self._supervisor:
+                if read_selection:
+                    self._planning_completions[thread_id] = threading.Event()
                 self._futures[thread_id] = self._supervisor.submit(thread_id, 'planning')
+                if read_selection:
+                    self._futures[thread_id].add_done_callback(lambda future: self._complete_policy_read(thread_id))
             else:
                 self._submit(thread_id, lambda: self._plan(self._row_unscoped(thread_id)))
         except BaseException:
@@ -437,7 +537,7 @@ class RuntimeService:
             raise
         return self.get_thread(project_id, thread_id)
 
-    def _verify_job(self, row):
+    def _verify_job(self, row, *, _read_scope=None):
         profile, manifest, ref = (strict_json(row[key]) for key in ('profile_json', 'manifest_json', 'skill_json'))
         with self._web() as c:
             job = runtime_jobs.snapshot(c, row['id'])
@@ -461,7 +561,11 @@ class RuntimeService:
             'seedManifestSha256': hashlib.sha256(canonical_json_bytes(manifest['seed'])).hexdigest(),
             'reservedRunId': row['reserved_run_id']}
         from .runtime_conversations import verify_binding
-        expected.update(verify_binding(self, row, job['identity']))
+        expected.update(verify_binding(self, row, job['identity'], read_scope=_read_scope))
+        with self._web() as web:
+            selection = runtime_read_policy.bound(web, row['id'])
+        if selection:
+            expected['readPolicySha256'] = selection['policySha256']
         current = self.providers.get(profile['id'], profile['revision'])
         if job['identity'] != expected or current['configSha256'] != profile['configSha256']:
             raise ApiError('JOB_IDENTITY_MISMATCH', 'Pinned job identity cannot be verified.', 422)
@@ -473,20 +577,52 @@ class RuntimeService:
             self._verify_job(row)
             self._status(thread_id, 'PLANNING')
             manifest, profile = strict_json(row['manifest_json']), strict_json(row['profile_json'])
-            verify_snapshot(self._directory(thread_id), manifest, self.providers.check_text)
+            with self._web() as web:
+                selection = runtime_read_policy.bound(web, thread_id, require_current=True)
+            scope = selection['policy']['allowed_paths'] if selection else None
+            verify_snapshot(self._directory(thread_id), manifest, self.providers.check_text, allowed_paths=scope)
             project, _ = self._project(row['project_id'])
             adapter = self._adapter_factory(profile, thread_id)
             with self._core(project) as c:
                 proposal = generate_skill_plan(c, self._directory(thread_id) / 'task.json',
-                    SkillRef(**strict_json(row['skill_json'])), registry(), adapter)
-            preflight_plan(self._directory(thread_id), proposal, manifest, self.providers.check_text)
+                    SkillRef(**strict_json(row['skill_json'])), registry(read_only=bool(selection)), adapter)
+            preflight_plan(self._directory(thread_id), proposal, manifest, self.providers.check_text, allowed_paths=scope)
+            if selection:
+                runtime_read_policy.validate_plan(self._directory(thread_id), proposal, selection)
             self._status(thread_id, 'AWAITING_APPROVAL', proposal_id=proposal.proposal_id)
         except PlanningTransportError as error:
             self._status(thread_id, 'FAILED', 'PROVIDER_' + error.category.upper())
         except Exception:
             self._status(thread_id, 'FAILED', 'PLANNING_REJECTED')
 
-    def approve(self, project_id, thread_id, body):
+    def _complete_policy_read(self, thread_id):
+        try:
+            self._approve_policy_read(thread_id)
+        finally:
+            self._planning_completions[thread_id].set()
+
+    def _approve_policy_read(self, thread_id):
+        # Only a fresh coordinator completion callback, never startup/GET/worker.
+        if self._closed or self._worker_mode or self._supervisor is None:
+            return
+        try:
+            row = self._row_unscoped(thread_id)
+            if row['status'] != 'AWAITING_APPROVAL':
+                return
+            with self._web() as c:
+                if runtime_read_policy.bound(c, thread_id, require_current=True) is None:
+                    return
+                runtime_read_policy.normal_planning_worker(c, thread_id)
+            project, _ = self._project(row['project_id'])
+            with self._core(project) as c:
+                proposal = self._proposal(row, c)
+            self.approve(row['project_id'], thread_id, {'proposalId': proposal.proposal_id,
+                'approvedPlanSha256': proposal.plan_sha256}, _policy_approval=True)
+        except (ApiError, ValueError, KeyError, sqlite3.Error):
+            # No reservation means no authorization; preserve the proposal for review.
+            return
+
+    def approve(self, project_id, thread_id, body, *, _policy_approval=False):
         row = self._row(project_id, thread_id)
         project, _ = self._project(project_id)
         if (type(body) is not dict or body.keys() != {"proposalId", "approvedPlanSha256"}
@@ -494,11 +630,16 @@ class RuntimeService:
                 or row["status"] != "AWAITING_APPROVAL" or body["proposalId"] != row["proposal_id"]):
             raise ApiError("APPROVAL_REJECTED", "Approve the exact pending proposal digest.", 409)
         self._verify_job(row)
+        with self._web() as web:
+            selection = runtime_read_policy.bound(web, thread_id, require_current=True)
+        scope = selection['policy']['allowed_paths'] if selection else None
         with self._core(project) as c:
             proposal = self._proposal(row, c)
             if body["approvedPlanSha256"] != proposal.plan_sha256:
                 raise ApiError("APPROVAL_REJECTED", "The approval digest does not match the immutable plan.", 409)
-            preflight_plan(self._directory(thread_id), proposal, strict_json(row["manifest_json"]), self.providers.check_text)
+            preflight_plan(self._directory(thread_id), proposal, strict_json(row["manifest_json"]), self.providers.check_text, allowed_paths=scope)
+            if selection:
+                runtime_read_policy.validate_plan(self._directory(thread_id), proposal, selection)
         # Re-load immutable provider revision; editing an active profile cannot
         # silently replace the transport identity pinned by this thread.
         profile = strict_json(row["profile_json"])
@@ -516,6 +657,14 @@ class RuntimeService:
                 if cursor.rowcount != 1:
                     raise ApiError("APPROVAL_REJECTED", "This proposal already has an execution reservation.", 409)
                 dispatch, worker = runtime_jobs.reserve(c, row, proposal)
+                if selection:
+                    if runtime_read_policy.bound(c, thread_id, require_current=True) != selection:
+                        raise ApiError('READ_POLICY_REJECTED', 'The current read authority changed.', 409)
+                    runtime_read_policy.validate_plan(self._directory(thread_id), proposal, selection)
+                if _policy_approval:
+                    if not self._isolated or self._worker_mode:
+                        raise ApiError('READ_POLICY_REJECTED', 'Policy dispatch requires coordinator process supervision.', 409)
+                    runtime_read_policy.record_approval(c, row, proposal, dispatch)
                 c.commit()
         except BaseException:
             self._slots.release()
@@ -547,10 +696,16 @@ class RuntimeService:
                     dispatch = web.execute('SELECT * FROM main.runtime_dispatches WHERE job_id=?', (thread_id,)).fetchone()
                 if not dispatch or (dispatch['proposal_id'], dispatch['approved_plan_sha256'], dispatch['reserved_run_id']) != (proposal.proposal_id, proposal.plan_sha256, row['reserved_run_id']):
                     raise ValueError('dispatch evidence mismatch')
-                preflight_plan(self._directory(thread_id), proposal, strict_json(row['manifest_json']), self.providers.check_text)
+                with self._web() as web:
+                    selection = runtime_read_policy.bound(web, thread_id, require_current=True)
+                    runtime_read_policy.describe(web, thread_id)
+                scope = selection['policy']['allowed_paths'] if selection else None
+                preflight_plan(self._directory(thread_id), proposal, strict_json(row['manifest_json']), self.providers.check_text, allowed_paths=scope)
+                if selection:
+                    runtime_read_policy.validate_plan(self._directory(thread_id), proposal, selection)
                 execute_approved_skill_plan(c, proposal.proposal_id, row['approved_digest'],
                     self._directory(thread_id) / 'task.json', self._directory(thread_id) / 'workspace',
-                    registry(), run_id=row['reserved_run_id'])
+                    registry(read_only=bool(selection)), run_id=row['reserved_run_id'])
             self._status(thread_id, 'FINISHED')
         except Exception:
             with self._core(project) as c:
@@ -570,9 +725,16 @@ class RuntimeService:
 
     def wait(self, project_id, thread_id, timeout=10):
         """Deterministic local test/CLI helper; HTTP uses bounded polling."""
+        deadline = time.monotonic() + timeout
         future = self._futures.get(thread_id)
         if future:
-            future.result(timeout=timeout)
+            future.result(timeout=max(0, deadline-time.monotonic()))
+            completion = self._planning_completions.get(thread_id)
+            if completion is not None and not completion.wait(max(0, deadline-time.monotonic())):
+                raise TimeoutError('Planning completion observation timed out')
+            latest = self._futures.get(thread_id)
+            if latest is not future:
+                latest.result(timeout=max(0, deadline-time.monotonic()))
         return self.get_thread(project_id, thread_id)
 
     def close(self, *, wait=True):

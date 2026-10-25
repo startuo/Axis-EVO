@@ -14,45 +14,45 @@
 .evolution-card { padding: 24px; border: 1px solid var(--border); border-radius: 14px; min-width: 0; }
 .evolution-card h2, .evolution-card h3 { display: flex; align-items: center; gap: 8px; }
 .evolution-card h3 { margin-top: 24px; }
-.evolution-card pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; font-size: 12px; max-height: 360px; overflow-y: auto; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.evolution-card pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; font-size: 13px; max-height: 360px; overflow-y: auto; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
 .evolution-json { max-height: 360px; overflow: auto; margin-block: 12px; }
 .evolution-json > pre { max-height: none; overflow: visible; margin-block: 0; }
 .evolution-table-scroll { overflow-x: auto; margin-block: 16px; }
-.evolution-evidence-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+.evolution-evidence-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
 .evolution-evidence-table + .evolution-evidence-table { margin-top: 20px; }
 .evolution-evidence-table th, .evolution-evidence-table td { text-align: left; vertical-align: top; padding: 10px 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .evolution-evidence-table th { font-weight: 600; }
 .evolution-evidence-row { display: flex !important; align-items: flex-start; padding: 10px; border-bottom: 1px solid var(--border); }
 .evolution-evidence-row span { display: grid; gap: 6px; overflow-wrap: anywhere; min-width: 0; }
-.evolution-evidence-row code { font-size: 10px; }
+.evolution-evidence-row code { font-size: 13px; }
 .revision-side-by-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .revision-side-by-side section { min-width: 0; }
 .revision-side-by-side textarea { height: 260px; }
 .revision-review fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-block: 20px; }
 .evolution-checkbox { display: inline-flex !important; align-items: center; margin-right: 18px; }
 .instruction-diff span { display: block; }
-.diff-removed { color: #a93c36; background: #b44b4310; }
-.diff-added { color: #39744b; background: #39744b10; }
-[data-theme=dark] .diff-removed { color: #f39b91; }
-[data-theme=dark] .diff-added { color: #9cd5aa; }
+.diff-removed { color: var(--error); background: var(--error-bg); }
+.diff-added { color: var(--success); background: var(--success-bg); }
+[data-theme=dark] .diff-removed { color: var(--error); }
+[data-theme=dark] .diff-added { color: var(--success); }
 .evolution-approval { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 20px; }
-.evolution-approval input { font-family: monospace !important; font-size: 11px !important; }
+.evolution-approval input { font-family: monospace !important; font-size: 13px !important; }
 .generation-history { list-style: none; padding: 0; display: grid; gap: 14px; }
 .generation-history > li { border-left: 2px solid var(--border); padding: 8px 0 8px 16px; min-width: 0; }
 .generation-history small, .block-caption { display: block; color: var(--muted); margin-top: 6px; }
-.generation-facts { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.generation-facts { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .campaign-evidence { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 16px; min-width: 0; }
 .campaign-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-block: 20px; }
 .campaign-counts > div { display: grid; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
-.campaign-counts strong { font-size: 22px; font-weight: 600; }
-.campaign-counts span { font-size: 12px; color: var(--muted); }
+.campaign-counts strong { font-size: 20px; font-weight: 600; }
+.campaign-counts span { font-size: 13px; color: var(--muted); }
 .campaign-history { display: grid; gap: 12px; padding-left: 18px; overflow-wrap: anywhere; }
-.campaign-history li span { display: block; font-size: 12px; margin-top: 5px; }
+.campaign-history li span { display: block; font-size: 13px; margin-top: 5px; }
 .research-readiness > summary { cursor: pointer; font-weight: 600; }
 .research-view-switch { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 20px; }
 .research-view-switch [aria-pressed=true] { border-color: var(--accent); background: var(--hover); }
 .research-role-list { display: grid; gap: 14px; }
-.research-role-list dt { font-size: 12px; font-weight: 600; }
+.research-role-list dt { font-size: 13px; font-weight: 600; }
 .research-role-list dd { color: var(--muted); margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
 @media (max-width: 1180px) { .revision-side-by-side { grid-template-columns: minmax(0, 1fr); } .evolution-card { padding: 18px; } }
 @media (max-width: 760px) { .evolution-workbench-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; } .evolution-library { position: static; max-height: 300px; } .evolution-card { padding: 15px; } .evolution-card .button { max-width: 100%; white-space: normal; } }

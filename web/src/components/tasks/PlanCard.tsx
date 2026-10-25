@@ -21,10 +21,10 @@ export function PlanCard({
     plan.approvedPlanSha256 === plan.planSha256 &&
     plan.approvalStatus === "APPROVED";
   const approvalLabel = approved
-    ? "APPROVED · 摘要已确认"
+    ? "APPROVED，摘要已确认"
     : ["PROPOSED", "APPROVED"].includes(plan.approvalStatus)
-      ? "PROPOSED · 未获批准"
-      : `${plan.approvalStatus} · 无已核验批准`;
+      ? "PROPOSED，未获批准"
+      : `${plan.approvalStatus}，无已核验批准`;
   return (
     <section className="plan-card" aria-label="结构化计划">
       <header>
@@ -78,7 +78,7 @@ export function PlanCard({
         <ShieldCheck size={14} />
         <span>
           {plan.skillRef
-            ? `${plan.skillRef.skill_id} · v${plan.skillRef.skill_version}`
+            ? `${plan.skillRef.skill_id}，v${plan.skillRef.skill_version}`
             : "此计划未记录 SkillRef"}
         </span>
         {plan.proposalId && inspectProposal && (

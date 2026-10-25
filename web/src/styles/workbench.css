@@ -13,7 +13,7 @@ body,
 }
 body {
   font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", "Segoe UI", sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.6;
   color: var(--text);
   background: var(--canvas);
@@ -71,7 +71,7 @@ p {
   margin: 0;
 }
 h1 {
-  font-size: 23px;
+  font-size: 20px;
   line-height: 1.4;
   font-weight: 600;
   letter-spacing: -0.7px;
@@ -134,7 +134,7 @@ svg {
   flex-shrink: 0;
 }
 small {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .sr-only {
@@ -176,7 +176,7 @@ small {
   display: inline-flex;
   gap: 5px;
   align-items: center;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--accent);
   padding: 4px 0;
@@ -208,7 +208,7 @@ small {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.25px;
   line-height: 1.4;
@@ -231,7 +231,7 @@ small {
   color: var(--error);
 }
 .caption {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   line-height: 1.7;
 }
@@ -249,11 +249,11 @@ small {
 }
 .empty-state h2 {
   color: var(--text);
-  font-size: 14px;
+  font-size: 15px;
 }
 .empty-state p {
   max-width: 440px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .loading {
   display: flex;
@@ -304,7 +304,7 @@ small {
   gap: 9px;
 }
 .brand-row strong {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.6px;
 }
@@ -331,7 +331,7 @@ small {
   border-color: var(--border-strong);
 }
 kbd {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-left: auto;
   font-weight: 400;
@@ -341,7 +341,7 @@ kbd {
   align-items: center;
   gap: 9px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin: 11px 4px 19px;
   padding: 4px;
 }
@@ -376,7 +376,7 @@ nav[aria-label="主导航"] {
   display: flex;
   justify-content: space-between;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.3px;
   padding: 0 10px;
   margin: 28px 0 10px;
@@ -396,10 +396,10 @@ nav[aria-label="主导航"] {
   padding: 8px 0;
   background: transparent;
   appearance: none;
-  font-size: 12px;
+  font-size: 13px;
 }
 .task-search {
-  font-size: 12px;
+  font-size: 13px;
   padding: 6px 9px;
   background: transparent;
   border-color: transparent;
@@ -423,7 +423,7 @@ nav[aria-label="主导航"] {
   width: 100%;
   text-align: left;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .task-item > svg {
@@ -437,7 +437,7 @@ nav[aria-label="主导航"] {
 }
 .task-item small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.3px;
   margin-top: 3px;
   color: var(--muted);
@@ -474,11 +474,11 @@ nav[aria-label="主导航"] {
   padding: 14px 9px 0;
   margin-top: 10px;
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
 }
 .local-note small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
 }
 .local-avatar {
   display: grid;
@@ -487,13 +487,13 @@ nav[aria-label="主导航"] {
   height: 27px;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 13px;
   background: var(--surface);
 }
 .version {
   margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .app-toolbar {
   grid-column: 2/-1;
@@ -513,7 +513,7 @@ nav[aria-label="主导航"] {
   align-items: center;
   gap: 11px;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .toolbar-identity {
   color: var(--muted);
@@ -530,7 +530,7 @@ nav[aria-label="主导航"] {
   flex-shrink: 0;
 }
 .model-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   padding-right: 10px;
   border-right: 1px solid var(--border);
@@ -540,7 +540,7 @@ nav[aria-label="主导航"] {
   white-space: nowrap;
 }
 .mode-picker select {
-  font-size: 12px;
+  font-size: 13px;
   padding: 5px 6px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -562,7 +562,7 @@ nav[aria-label="主导航"] {
   gap: 12px;
   border-bottom: 1px solid var(--border);
   padding: 0 24px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   min-width: 0;
   background: var(--surface-subtle);
@@ -584,7 +584,7 @@ nav[aria-label="主导航"] {
   flex-shrink: 0;
 }
 .source-strip select {
-  font-size: 12px;
+  font-size: 13px;
   border: 0;
   padding: 2px 0;
   background: transparent;
@@ -592,7 +592,7 @@ nav[aria-label="主导航"] {
   color: var(--muted);
 }
 .source-strip .text-button {
-  font-size: 12px;
+  font-size: 13px;
 }
 .core-strip .source-dot {
   background: var(--accent);
@@ -609,7 +609,7 @@ nav[aria-label="主导航"] {
   margin: 0 auto;
 }
 .page-eyebrow {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   letter-spacing: 1px;
   display: flex;
@@ -619,7 +619,7 @@ nav[aria-label="主导航"] {
   font-weight: 500;
 }
 .page-description {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin: 12px 0 28px;
   max-width: 680px;
@@ -635,7 +635,7 @@ nav[aria-label="主导航"] {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.8;
   padding: 13px;
   border: 1px solid var(--border);
@@ -659,13 +659,13 @@ nav[aria-label="主导航"] {
   border-radius: 11px;
 }
 .home-page .page-eyebrow {
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 2px;
   color: var(--accent);
   margin-bottom: 12px;
 }
 .home-page h1 {
-  font-size: 28px;
+  font-size: 20px;
   letter-spacing: -0.9px;
 }
 .home-page > p {
@@ -686,7 +686,7 @@ nav[aria-label="主导航"] {
 }
 .home-workspace small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 3px;
 }
 .home-workspace > svg:last-child {
@@ -697,7 +697,7 @@ nav[aria-label="主导航"] {
   margin-top: 29px;
 }
 .home-recent h2 {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 550;
 }
 .recent-row {
@@ -713,20 +713,20 @@ nav[aria-label="主导航"] {
   background: var(--surface-subtle);
 }
 .recent-row > span:nth-child(2) {
-  font-size: 12px;
+  font-size: 13px;
   flex: 1;
   min-width: 0;
 }
 .recent-row small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 3px;
 }
 .recent-row > svg:last-child {
   color: var(--muted);
 }
 .recent-row .badge {
-  font-size: 12px;
+  font-size: 13px;
 }
 .composer-area {
   width: min(760px, calc(100% - 64px));
@@ -771,7 +771,7 @@ nav[aria-label="主导航"] {
   gap: 8px;
 }
 .composer-mode {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .send-button {
@@ -793,7 +793,7 @@ nav[aria-label="主导航"] {
   justify-content: space-between;
   gap: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   margin: 8px 4px 0;
 }
 .composer-caption > span:last-child {
@@ -814,7 +814,7 @@ nav[aria-label="主导航"] {
   gap: 14px;
 }
 .task-heading h1 {
-  font-size: 22px;
+  font-size: 20px;
 }
 .eyebrow-line {
   width: 14px;
@@ -825,7 +825,7 @@ nav[aria-label="主导航"] {
   display: flex;
   align-items: center;
   gap: 13px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 13px;
 }
@@ -850,10 +850,10 @@ nav[aria-label="主导航"] {
   background: var(--neutral-bg);
   color: var(--muted);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .objective-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .objective-block p {
@@ -867,11 +867,11 @@ nav[aria-label="主导航"] {
   margin: 26px 0 14px;
 }
 .core-activity-label strong {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 550;
 }
 .core-activity-label > span {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-left: auto;
 }
@@ -888,7 +888,7 @@ nav[aria-label="主导航"] {
   gap: 10px;
   padding: 12px 15px;
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
 }
 .plan-card > header > span {
   display: flex;
@@ -897,30 +897,30 @@ nav[aria-label="主导航"] {
   flex-wrap: wrap;
 }
 .plan-card > header .badge {
-  font-size: 12px;
+  font-size: 13px;
 }
 .plan-step > summary {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 15px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .plan-step > summary > .muted {
-  font-size: 12px;
+  font-size: 13px;
   margin-left: auto;
 }
 .step-number {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .step-label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
 }
 .step-label small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 2px;
 }
 .detail-body {
@@ -933,7 +933,7 @@ nav[aria-label="主导航"] {
   gap: 7px;
   padding: 8px 14px;
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   min-width: 0;
 }
@@ -943,7 +943,7 @@ nav[aria-label="主导航"] {
   white-space: nowrap;
 }
 .digest-short {
-  font-size: 12px;
+  font-size: 13px;
   margin-left: auto;
 }
 .copy-button {
@@ -954,7 +954,7 @@ nav[aria-label="主导航"] {
   margin-top: 30px;
 }
 .execution-heading h2 {
-  font-size: 12px;
+  font-size: 13px;
 }
 .timeline {
   list-style: none;
@@ -999,19 +999,19 @@ nav[aria-label="主导航"] {
   background: var(--surface-subtle);
 }
 .event-title {
-  font-size: 12px;
+  font-size: 13px;
   flex: 1;
   min-width: 0;
 }
 .event-title small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.4px;
   color: var(--muted);
   margin-top: 2px;
 }
 .event-seq {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .timeline-note {
@@ -1019,7 +1019,7 @@ nav[aria-label="主导航"] {
   justify-content: space-between;
   align-items: center;
   margin: 5px 0 0 35px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .validation-summary {
@@ -1032,11 +1032,11 @@ nav[aria-label="主导航"] {
   color: var(--success);
 }
 .validation-summary strong {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 550;
 }
 .validation-summary p {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 3px;
 }
@@ -1061,15 +1061,15 @@ nav[aria-label="主导航"] {
   margin-top: 2px;
 }
 .unknown-callout h2 {
-  font-size: 14px;
+  font-size: 15px;
 }
 .unknown-callout p {
-  font-size: 12px;
+  font-size: 13px;
   margin: 6px 0;
 }
 .unknown-callout span {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
 }
 .unknown-callout .text-button {
   color: var(--warning);
@@ -1095,7 +1095,7 @@ nav[aria-label="主导航"] {
   align-items: center;
   justify-content: space-between;
   padding: 13px 18px;
-  font-size: 12px;
+  font-size: 13px;
   min-height: 51px;
 }
 .inspector-header > span {
@@ -1114,7 +1114,7 @@ nav[aria-label="主导航"] {
 .inspector-tabs button {
   padding: 10px 8px;
   border-bottom: 2px solid transparent;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .inspector-tabs button[aria-selected="true"] {
@@ -1130,11 +1130,11 @@ nav[aria-label="主导航"] {
   min-width: 0;
 }
 .inspector-scroll h2 {
-  font-size: 14px;
+  font-size: 15px;
   margin-bottom: 15px;
 }
 .inspector-scroll h3 {
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 23px;
 }
 .panel-heading {
@@ -1148,17 +1148,17 @@ nav[aria-label="主导航"] {
   margin: 0;
 }
 .inspector-scroll .caption {
-  font-size: 12px;
+  font-size: 13px;
 }
 .fact-field {
   border-bottom: 1px solid var(--border);
   padding: 11px 0;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .fact-field > span {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-bottom: 4px;
 }
@@ -1179,7 +1179,7 @@ nav[aria-label="主导航"] {
   align-items: flex-start;
   gap: 7px;
   margin-bottom: 10px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--warning);
   overflow-wrap: anywhere;
 }
@@ -1189,7 +1189,7 @@ nav[aria-label="主导航"] {
 .inspector-footer {
   border-top: 1px solid var(--border);
   padding: 10px 19px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   display: flex;
   gap: 6px;
@@ -1197,7 +1197,7 @@ nav[aria-label="主导航"] {
 }
 .inspector-scroll .plan-card > header {
   padding: 10px;
-  font-size: 12px;
+  font-size: 13px;
   flex-wrap: wrap;
 }
 .inspector-scroll .plan-step > summary {
@@ -1208,12 +1208,12 @@ nav[aria-label="主导航"] {
   display: none;
 }
 .inspector-scroll .plan-card footer {
-  font-size: 12px;
+  font-size: 13px;
   padding: 8px;
   flex-wrap: wrap;
 }
 .inspector-scroll .notice {
-  font-size: 12px;
+  font-size: 13px;
 }
 .event-filters {
   display: flex;
@@ -1223,16 +1223,16 @@ nav[aria-label="主导航"] {
 }
 .event-filters input {
   width: 100%;
-  font-size: 12px;
+  font-size: 13px;
   padding: 7px 8px;
 }
 .event-filters select {
-  font-size: 12px;
+  font-size: 13px;
   padding: 6px 8px;
   width: 100%;
 }
 .code-block {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.9;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
@@ -1250,19 +1250,19 @@ nav[aria-label="主导航"] {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .field-label select {
   width: 100%;
-  font-size: 12px;
+  font-size: 13px;
 }
 .section-label {
   display: flex;
   align-items: center;
   gap: 7px;
   margin: 18px 0 8px;
-  font-size: 12px;
+  font-size: 13px;
   min-width: 0;
 }
 .path-label {
@@ -1274,7 +1274,7 @@ nav[aria-label="主导航"] {
   gap: 6px;
   align-items: center;
   margin: 20px 0 10px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .file-toolbar > .copy-button {
@@ -1284,7 +1284,7 @@ nav[aria-label="主导航"] {
   border: 1px solid var(--border);
   border-radius: 5px;
   overflow: auto;
-  font-size: 12px;
+  font-size: 13px;
 }
 .diff-view > div {
   display: flex;
@@ -1315,7 +1315,7 @@ nav[aria-label="主导航"] {
 }
 .wide-search {
   width: 100%;
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 24px;
   background: var(--surface);
 }
@@ -1350,24 +1350,24 @@ nav[aria-label="主导航"] {
 }
 .skill-row-top {
   margin-bottom: 5px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .skill-row-top strong {
   font-weight: 550;
 }
 .skill-row-top > span {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .skill-row .caption {
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .skill-row-bottom {
   margin-top: 12px;
 }
 .preferred-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent);
 }
 .skill-detail {
@@ -1376,18 +1376,18 @@ nav[aria-label="主导航"] {
   padding-left: 25px;
 }
 .skill-detail > p {
-  font-size: 12px;
+  font-size: 13px;
   margin: 16px 0;
 }
 .version-label {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .version-label select {
-  font-size: 12px;
+  font-size: 13px;
   padding: 5px 7px;
   max-width: 140px;
 }
@@ -1395,7 +1395,7 @@ nav[aria-label="主导航"] {
   padding: 13px;
   background: var(--surface-subtle);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: 13px;
   white-space: pre-wrap;
 }
 .tool-tags {
@@ -1404,13 +1404,13 @@ nav[aria-label="主导航"] {
   gap: 7px;
 }
 .tool-tags code {
-  font-size: 12px;
+  font-size: 13px;
   background: var(--neutral-bg);
   padding: 4px 8px;
   border-radius: 4px;
 }
 .skill-detail details summary {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent);
   padding: 10px 0;
 }
@@ -1447,7 +1447,7 @@ nav[aria-label="主导航"] {
   border-radius: 6px;
   padding: 11px;
   gap: 10px;
-  font-size: 12px;
+  font-size: 13px;
   background: var(--surface);
 }
 .evolution-flow button.active {
@@ -1456,11 +1456,11 @@ nav[aria-label="主导航"] {
 }
 .evolution-flow small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 4px;
 }
 .evolution-number {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   font-family: Consolas, monospace;
 }
@@ -1477,7 +1477,7 @@ nav[aria-label="主导航"] {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .settings-grid {
   display: grid;
@@ -1499,11 +1499,11 @@ nav[aria-label="主导航"] {
   align-items: center;
   gap: 9px;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
 }
 .profile-row small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
 }
 .profile-form {
   min-width: 0;
@@ -1514,18 +1514,18 @@ nav[aria-label="主导航"] {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin: 17px 0;
 }
 .profile-form input,
 .profile-form select {
   width: 100%;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
 }
 .profile-form small {
-  font-size: 12px;
+  font-size: 13px;
 }
 .unsupported-setting {
   display: flex;
@@ -1534,17 +1534,17 @@ nav[aria-label="主导航"] {
   padding: 15px 0;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
 }
 .unsupported-setting small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 3px;
 }
 .unsupported-setting select {
   width: 80px;
   margin-left: auto;
-  font-size: 12px;
+  font-size: 13px;
 }
 .form-actions {
   display: flex;
@@ -1553,7 +1553,7 @@ nav[aria-label="主导航"] {
   margin: 20px 0 12px;
 }
 .form-error {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--error);
   margin-top: 15px;
 }
@@ -1618,7 +1618,7 @@ dialog {
   padding: 0;
 }
 dialog::backdrop {
-  background: rgba(18, 27, 23, 0.34);
+  background: var(--ui-overlay);
   backdrop-filter: blur(2px);
 }
 .command-dialog {
@@ -1626,7 +1626,7 @@ dialog::backdrop {
   max-height: 70dvh;
   border-radius: 10px;
   margin: 14dvh auto auto;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 14px 40px var(--ui-shadow);
 }
 .command-search {
   display: flex;
@@ -1647,7 +1647,7 @@ dialog::backdrop {
   outline: none;
 }
 .keyboard-key {
-  font-size: 12px;
+  font-size: 13px;
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 2px 6px;
@@ -1666,14 +1666,14 @@ dialog::backdrop {
   text-align: left;
   padding: 10px 12px;
   border-radius: 5px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .command-options > button.active {
   background: var(--active);
   color: var(--accent);
 }
 .command-options small {
-  font-size: 12px;
+  font-size: 13px;
 }
 .command-options > .caption {
   padding: 16px;
@@ -1685,7 +1685,7 @@ dialog::backdrop {
   padding: 10px 18px;
   border-top: 1px solid var(--border);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .command-dialog footer > span {
   display: flex;
@@ -1736,12 +1736,12 @@ dialog::backdrop {
   max-width: calc(100vw - 32px);
   background: var(--text);
   color: var(--canvas);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
   padding: 12px 17px;
   border-radius: 7px;
   z-index: 80;
-  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 3px 16px var(--ui-shadow);
 }
 @media (min-width: 1600px) {
   .home-page {
@@ -1813,7 +1813,7 @@ dialog::backdrop {
   }
   .toolbar-identity {
     gap: 7px;
-    font-size: 12px;
+    font-size: 13px;
   }
   .toolbar-identity > .lucide-folder-open,
   .toolbar-identity > .lucide-chevron-right,
@@ -1825,7 +1825,7 @@ dialog::backdrop {
     gap: 4px;
   }
   .mode-picker select {
-    font-size: 12px;
+    font-size: 13px;
     max-width: 103px;
     padding: 5px 2px;
   }
@@ -1836,7 +1836,7 @@ dialog::backdrop {
   .source-strip {
     padding: 5px 15px;
     gap: 5px;
-    font-size: 12px;
+    font-size: 13px;
   }
   .source-strip > span {
     white-space: normal;
@@ -1848,11 +1848,11 @@ dialog::backdrop {
     margin-top: 5px;
   }
   .source-strip select {
-    font-size: 12px;
+    font-size: 13px;
     max-width: 90px;
   }
   .source-strip .text-button {
-    font-size: 12px;
+    font-size: 13px;
     white-space: normal;
   }
   .home-page {
@@ -1862,10 +1862,10 @@ dialog::backdrop {
     margin-bottom: 19px;
   }
   .home-page h1 {
-    font-size: 24px;
+    font-size: 20px;
   }
   .home-page > p {
-    font-size: 12px;
+    font-size: 13px;
   }
   .home-workspace {
     margin-top: 22px;
@@ -1877,14 +1877,14 @@ dialog::backdrop {
     gap: 9px;
   }
   .recent-row > span:nth-child(2) {
-    font-size: 12px;
+    font-size: 13px;
   }
   .recent-row .badge {
-    font-size: 12px;
+    font-size: 13px;
     padding: 3px 5px;
   }
   .recent-row small {
-    font-size: 12px;
+    font-size: 13px;
   }
   .composer-area {
     width: calc(100% - 32px);
@@ -1894,11 +1894,11 @@ dialog::backdrop {
     padding: 10px 11px 8px;
   }
   .composer-box textarea {
-    font-size: 12px;
+    font-size: 13px;
     min-height: 65px;
   }
   .composer-caption {
-    font-size: 12px;
+    font-size: 13px;
     margin-top: 7px;
   }
   .composer-caption > span:last-child {
@@ -1915,12 +1915,12 @@ dialog::backdrop {
     font-size: 20px;
   }
   .task-heading .badge {
-    font-size: 12px;
+    font-size: 13px;
     margin-top: 5px;
   }
   .task-meta {
     gap: 7px;
-    font-size: 12px;
+    font-size: 13px;
     flex-wrap: wrap;
   }
   .task-meta span + span {
@@ -1931,24 +1931,24 @@ dialog::backdrop {
     gap: 10px;
   }
   .objective-block p {
-    font-size: 12px;
+    font-size: 13px;
   }
   .core-activity-label {
     gap: 7px;
   }
   .core-activity-label > span {
-    font-size: 12px;
+    font-size: 13px;
   }
   .core-activity-label strong {
-    font-size: 12px;
+    font-size: 13px;
   }
   .plan-card > header {
     padding: 11px;
-    font-size: 12px;
+    font-size: 13px;
     flex-wrap: wrap;
   }
   .plan-card .badge {
-    font-size: 12px;
+    font-size: 13px;
   }
   .plan-step > summary {
     gap: 8px;
@@ -1958,7 +1958,7 @@ dialog::backdrop {
     display: none;
   }
   .plan-card footer {
-    font-size: 12px;
+    font-size: 13px;
     flex-wrap: wrap;
     gap: 5px;
     padding: 8px 10px;
@@ -1967,10 +1967,10 @@ dialog::backdrop {
     padding: 28px 21px;
   }
   .page h1 {
-    font-size: 22px;
+    font-size: 20px;
   }
   .page-description {
-    font-size: 12px;
+    font-size: 13px;
   }
   .skills-split,
   .evolution-grid,
@@ -2003,7 +2003,7 @@ dialog::backdrop {
     grid-column: auto;
   }
   .evolution-flow button {
-    font-size: 12px;
+    font-size: 13px;
   }
   .settings-grid > .profile-form {
     padding-top: 22px;
@@ -2012,7 +2012,7 @@ dialog::backdrop {
     left: 10px;
   }
   .toast {
-    font-size: 12px;
+    font-size: 13px;
     width: calc(100vw - 32px);
     bottom: 16px;
   }
@@ -2034,7 +2034,7 @@ dialog::backdrop {
   border-radius: 6px;
   background: var(--error-bg);
   color: var(--error);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .diff-removed {
@@ -2046,7 +2046,7 @@ dialog::backdrop {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .composer-context > span {

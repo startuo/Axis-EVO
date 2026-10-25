@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { runtimeApi, RuntimeError, validateTurnBinding, type RuntimeCapabilities, type RuntimeProfiles, type RuntimeThread, type RuntimeThreadSummary, type RuntimeConversation, type RuntimeTurn } from "../lib/runtime";
+import {completeLaunchHandoff} from '../lib/runtimeLaunch';
 
 const active = (status: string) => ["QUEUED", "PLANNING", "DISPATCH_RESERVED", "EXECUTING"].includes(status);
 
@@ -24,6 +25,7 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
   const [profiles, setProfiles] = useState<RuntimeProfiles | null>(null);
   const [selectedProfile, setSelectedProfile] = useState("");
   const [selectedSkill, setSelectedSkill] = useState("");
+  const [interactionMode, setInteractionMode] = useState<'chat'|'task'>('chat');
   const [catalog, setCatalog] = useState<{ project: string; data: RuntimeThreadSummary[] }>({ project: "", data: [] });
   const [detail, setDetail] = useState<{ scope: string; data: RuntimeThread | null }>({ scope: "", data: null });
   const [loadingThread, setLoadingThread] = useState(false);
@@ -45,6 +47,7 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
   const selectedTurn = conversationData.scope === scope && token ? conversationData.turn : null;
   const profile = profiles?.profiles.find(item => `${item.id}@${item.revision}` === selectedProfile);
   const skill = project?.skills.find(item => `${item.skill_id}@${item.skill_version}` === selectedSkill);
+  const isChat = capabilities?.supportsReplies === true && interactionMode === 'chat';
   const draftKey = `${projectId}:${parsed.conversationId ?? `home:${conversation}`}`;
   const prompt = drafts[draftKey] ?? "";
   const promptLimit = capabilities?.maximumPromptCodepoints ?? 8192;
@@ -58,7 +61,7 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
       setBusy('');
       setCapabilities(current => current ? { ...current, authenticated: false } : current);
     }
-    setError(failure instanceof RuntimeError ? `${failure.code} · ${failure.message}` : "REQUEST_FAILED · 操作未能确认完成。请重新读取真实记录，不会自动重试。");
+    setError(failure instanceof RuntimeError ? `${failure.code}，${failure.message}` : "REQUEST_FAILED，操作未能确认完成。请重新读取真实记录，不会自动重试。");
   }, []);
   const reload = useCallback(() => setRevision(value => value + 1), []);
   const refresh = useCallback(() => { authorizationEpoch.current++; setConnectionRevision(value => value + 1); setRevision(value => value + 1); }, []);
@@ -70,11 +73,16 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     const requestAuthorization = authorizationEpoch.current;
     void (async () => {
       try {
+        const handoffConfirmed=await completeLaunchHandoff();
+        if(controller.signal.aborted||authorizationEpoch.current!==requestAuthorization)return;
         const current = await runtimeApi.capabilities(controller.signal);
         if (controller.signal.aborted || authorizationEpoch.current !== requestAuthorization) return;
         setCapabilities(current);
         setSelectedProject(selected => selected || current.projects[0]?.id || "");
-        if (!current.enabled || !current.authenticated) setToken(null);
+        if (!current.enabled || !current.authenticated) {
+          setToken(null);
+          if(!handoffConfirmed)setError('未能确认本地启动授权。请从启动器重新打开页面；没有重发任务。');
+        }
         if (current.enabled && current.authenticated) {
           try { const restored = await runtimeApi.restoreSession(controller.signal); if (!controller.signal.aborted && authorizationEpoch.current === requestAuthorization) setToken(restored.csrfToken); }
           catch { if (!controller.signal.aborted && authorizationEpoch.current === requestAuthorization) { setToken(null); setCapabilities(value => value ? { ...value, authenticated: false } : value); } }
@@ -103,6 +111,11 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     return () => controller.abort();
   }, [token, revision, reportError]);
   useEffect(() => { setSelectedSkill(""); setSelectedTemplate('default'); }, [projectId]);
+  useEffect(() => {
+    if (capabilities?.supportsReplies && project?.skills.length === 1) {
+      const only=project.skills[0];setSelectedSkill(value=>value||`${only.skill_id}@${only.skill_version}`);
+    }
+  },[capabilities?.supportsReplies,project]);
   useEffect(() => { if (parsed.project && capabilities?.projects.some(item => item.id === parsed.project)) setSelectedProject(parsed.project); }, [parsed.project, capabilities]);
   useEffect(() => {
     if (!token || !project) return;
@@ -131,22 +144,29 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     setLoadingThread(true);
     const read = async () => {
       try {
-        let data: RuntimeThread;
+        let data: RuntimeThread | null;
         let live = false;
         if (parsed.conversationId) {
           const c = await runtimeApi.conversation(project.id, parsed.conversationId, controller.signal);
-          const turnId = parsed.turnId ?? c.turns.at(-1)!.id;
+          const turnId = parsed.turnId ?? c.turns.at(-1)?.id;
+          if (!turnId) {
+            if (!c.items?.length || parsed.turnId) throw new RuntimeError('TURN_NOT_FOUND','对话记录无法核验。');
+            if (controller.signal.aborted) return;
+            setConversationData({scope,data:c,turn:null});data=null;
+            live=c.replies?.some(r=>r.status==='QUEUED'||r.status==='RESPONDING')===true;
+          } else {
           const summary = c.turns.find(t => t.id === turnId);
           if (!summary) throw new RuntimeError('TURN_NOT_FOUND', '本轮不属于当前对话。');
           const t = await runtimeApi.turn(project.id, c.id, turnId, controller.signal);
           validateTurnBinding(summary, t);
           if (controller.signal.aborted) return;
           setConversationData({ scope, data: c, turn: t }); data = t.thread;
-          live = c.turns.some(t => active(t.webStatus));
+          live = c.turns.some(t => active(t.webStatus)) || c.replies?.some(r=>r.status==='QUEUED'||r.status==='RESPONDING')===true;
+          }
         } else data = await runtimeApi.thread(project.id, parsed.id!, controller.signal);
         if (controller.signal.aborted) return;
         setDetail({ scope, data }); setLoadingThread(false);
-        if (active(data.status) || live) timer = setTimeout(() => void read(), 1000);
+        if (data && (active(data.status) || data.readPolicy?.autoApprovalPending) || live) timer = setTimeout(() => void read(), 1000);
       } catch (failure) { if (!controller.signal.aborted) { setLoadingThread(false); setDetail({ scope, data: null }); reportError(failure); } }
     };
     void read();
@@ -171,27 +191,36 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     try {
       const data = await runtimeApi.session(code);
       if (!mounted.current || authorizationEpoch.current !== requestAuthorization) return;
-      setToken(data.csrfToken); setCapabilities(current => current ? { ...current, authenticated: true } : current); reload();
+      setToken(data.csrfToken); setCapabilities(current => current ? { ...current, authenticated: true } : current); setConnectionRevision(value=>value+1); reload();
       if (epoch.current === requestEpoch) go("/runtime");
     } catch (failure) { if (mounted.current && epoch.current === requestEpoch) reportError(failure); }
     finally { mutations.current.delete("session"); if (mounted.current && epoch.current === requestEpoch) setBusy(""); }
   }
   async function plan() {
-    if (!token || !profile?.credentialConfigured || !skill || !project || !prompt.trim() || !promptValid || parsed.conversationId && !sessionConversation?.canContinue) return;
+    if (!token || !profile?.credentialConfigured || !project || !prompt.trim() || !promptValid || !isChat && !skill || parsed.conversationId && (isChat ? !sessionConversation?.canChat : !sessionConversation?.canContinue)) return;
     const requestEpoch = epoch.current;
     const key = `plan:${requestEpoch}:${project.id}`;
     if (mutations.current.has(key)) return;
     mutations.current.add(key); setBusy("planning"); setError("");
     try {
+      if (isChat) {
+        const reply=await runtimeApi.sendReply(project.id,parsed.conversationId,{
+          prompt,messageId:'msg_'+crypto.randomUUID().replaceAll('-',''),profileId:profile.id,profileRevision:profile.revision,
+        },token);
+        if (!mounted.current) return;
+        reload();setDrafts(current=>current[draftKey]===prompt?{...current,[draftKey]:''}:current);
+        if (epoch.current===requestEpoch) openThread(reply.conversationId,reply.projectId);
+        return;
+      }
       if (capabilities?.supportsConversations) {
-        const created = await runtimeApi.planTurn(project.id, parsed.conversationId, { prompt, messageId: 'msg_' + crypto.randomUUID().replaceAll('-', ''), profileId: profile.id, profileRevision: profile.revision, skillRef: skill, taskTemplateId: selectedTemplate }, token);
+        const created = await runtimeApi.planTurn(project.id, parsed.conversationId, { prompt, messageId: 'msg_' + crypto.randomUUID().replaceAll('-', ''), profileId: profile.id, profileRevision: profile.revision, skillRef: skill!, taskTemplateId: selectedTemplate, ...(() => { const policy=project.taskTemplates?.find(t=>t.id===selectedTemplate)?.readPolicy; return policy?{readPolicy:{policySha256:policy.policySha256,authorityId:policy.authorityId}}:{}; })() }, token);
         if (!mounted.current) return;
         reload();
         setDrafts(current => current[draftKey] === prompt ? { ...current, [draftKey]: '' } : current);
         if (epoch.current === requestEpoch) openThread(created.id, created.projectId);
         return;
       }
-      const created = await runtimeApi.plan(project.id, { prompt, profileId: profile.id, profileRevision: profile.revision, skillRef: skill }, token);
+      const created = await runtimeApi.plan(project.id, { prompt, profileId: profile.id, profileRevision: profile.revision, skillRef: skill! }, token);
       if (!mounted.current) return;
       // A committed job is kept in the catalog even if its originating view was reset.
       reload();
@@ -223,6 +252,6 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     } catch (failure) { if (mounted.current && epoch.current === requestEpoch) reportError(failure); }
     finally { mutations.current.delete(key); if (mounted.current && epoch.current === requestEpoch) setBusy(""); }
   }
-  const canPlan = !!token && !!project && !!profile?.credentialConfigured && !!skill && !!prompt.trim() && promptValid && !busy && (!parsed.conversationId || !!sessionConversation?.canContinue);
-  return { parsed, capabilities, initializing, token, error, setError, busy, projectId, project, profiles, selectedProfile, setSelectedProfile, selectedSkill, setSelectedSkill, selectedTemplate, setSelectedTemplate, rows, thread, sessionConversation, selectedTurn, openTurn, loadingThread, prompt, promptLength, promptLimit, promptValid, setPrompt: (value: string) => setDrafts(current => ({ ...current, [draftKey]: value })), conversation, reportError, reload, refresh, go, openThread, newConversation, selectProject, unlock, plan, approve, canPlan, profile, skill };
+  const canPlan = !!token && !!project && !!profile?.credentialConfigured && (isChat || !!skill) && !!prompt.trim() && promptValid && !busy && (!parsed.conversationId || (isChat ? !!sessionConversation?.canChat : !!sessionConversation?.canContinue));
+  return { parsed, capabilities, initializing, token, error, setError, busy, projectId, project, profiles, selectedProfile, setSelectedProfile, selectedSkill, setSelectedSkill, selectedTemplate, setSelectedTemplate, rows, thread, sessionConversation, selectedTurn, openTurn, loadingThread, prompt, promptLength, promptLimit, promptValid, setPrompt: (value: string) => setDrafts(current => ({ ...current, [draftKey]: value })), conversation, reportError, reload, refresh, go, openThread, newConversation, selectProject, unlock, plan, approve, canPlan, profile, skill, isChat, interactionMode, setInteractionMode };
 }

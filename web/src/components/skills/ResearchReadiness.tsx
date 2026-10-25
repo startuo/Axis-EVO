@@ -15,7 +15,7 @@ export function ResearchReadiness({ projectId, onError }: { projectId: string; o
     return () => controller.abort();
   }, [projectId, open, onError]);
   return <details className="evolution-card research-readiness" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary>实验准备与证据 · 独立于生产任务</summary>
+    <summary>实验准备与证据，独立于生产任务</summary>
     <div className="research-view-switch" role="group" aria-label="研究视图">
       <button type="button" className="button secondary" aria-pressed={view === 'setup'} onClick={() => setView('setup')}>实验设置</button>
       <button type="button" className="button secondary" aria-pressed={view === 'evidence'} onClick={() => setView('evidence')}>实验事实</button>
@@ -33,7 +33,7 @@ export function ResearchReadiness({ projectId, onError }: { projectId: string; o
       <h2>已登记研究快照</h2>
       {!data.experiments.length && <p className="notice">后台尚未登记研究快照。没有可报告的 holdout 结果，不能据此判断演化收益。</p>}
       {data.experiments.map(experiment => <section className="campaign-evidence" key={experiment.experimentId}>
-        <h3>{experiment.experimentId}</h3><Badge>{experiment.runKind} · {experiment.caseRole}</Badge>
+        <h3>{experiment.experimentId}</h3><Badge>{experiment.runKind}，{experiment.caseRole}</Badge>
         <Field label="协议 SHA-256" value={experiment.protocolSha256} copy />
         <Field label="数据集 manifest SHA-256" value={experiment.datasetManifestSha256} copy />
         <Field label="快照 Core 源码 SHA-256" value={experiment.sourceTreeSha256} copy />

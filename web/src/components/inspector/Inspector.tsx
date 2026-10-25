@@ -89,15 +89,15 @@ export function Inspector({
                 </div>
                 <p className="caption">
                   {mode === "demo"
-                    ? "预设演示数据 · 非真实执行历史"
-                    : "来自本地 Core · 只读已提交记录"}
+                    ? "预设演示数据，非真实执行历史"
+                    : "来自本地 Core，只读已提交记录"}
                 </p>
                 <Field label="Run ID" value={run.id} copy />
                 <Field label="Task ID" value={run.taskId} copy />
                 <Field label="开始时间" value={run.startedAt} />
                 <Field
                   label="结束时间"
-                  value={run.endedAt ?? "NULL · 尚未结束"}
+                  value={run.endedAt ?? "NULL，尚未结束"}
                 />
                 <Field
                   label="轨迹一致性"
@@ -250,7 +250,7 @@ export function Inspector({
       </div>
       <footer className="inspector-footer">
         <LockKeyhole size={12} />{" "}
-        {mode === "demo" ? "DEMO · 预设证据" : "Core · READ ONLY"}
+        {mode === "demo" ? "DEMO，预设证据" : "Core，READ ONLY"}
       </footer>
     </div>
   );

@@ -144,14 +144,14 @@ export function LegacyWorkbench({ route, navigate, dark, setDark }: {
       { label: "设置", Icon: Settings, action: () => go("/settings"), active: route === "/settings" },
       { label: "进入真实运行", Icon: Server, action: () => go("/runtime") },
     ]}
-    modeLabel={mode === "demo" ? "DEMO · 演示" : "CORE · 只读"}
+    modeLabel={mode === "demo" ? "DEMO，演示" : "CORE，只读"}
     modeHint={mode === "demo" ? "预设示例，非真实执行历史" : "已配置的本地只读记录"}
   />;
   const toolbar = <>
     <div className="cds-toolbar-identity"><span className="toolbar-task">{run?.title ?? (route === "/skills" ? "Skills" : route === "/settings" ? "模型配置草稿" : route === "/activity" ? "活动" : evolutionId ? "演化证据" : "新对话")}</span></div>
     <div className="cds-toolbar-actions">
       {run?.model.modelId && <span className="model-label" title="记录中的模型">{run.model.modelId}</span>}
-      <label className="mode-picker cds-mode-picker"><span className="sr-only">数据模式</span><select aria-label="数据模式" value={mode} onChange={(event) => changeMode(event.target.value as Mode)}><option value="demo">DEMO · 演示</option><option value="connected">CORE · 只读</option></select></label>
+      <label className="mode-picker cds-mode-picker"><span className="sr-only">数据模式</span><select aria-label="数据模式" value={mode} onChange={(event) => changeMode(event.target.value as Mode)}><option value="demo">DEMO，演示</option><option value="connected">CORE，只读</option></select></label>
       <button className="icon-button" aria-label="切换主题" onClick={() => setDark(!dark)}>{dark ? <Sun size={17} /> : <Moon size={17} />}</button>
       {runId && <button className="icon-button" aria-label="查看证据" aria-expanded={layout.narrow ? layout.sheet : layout.inspector} onClick={toggleInspector}><PanelRight size={17} /></button>}
     </div>
@@ -174,9 +174,9 @@ export function LegacyWorkbench({ route, navigate, dark, setDark }: {
       </>}
       <Composer key={conversation} visible={home || !!runId} scope={`${mode}:${projectId}:${runId ?? "new"}`} notify={notify}
         projectSelection={{ value: projectId, options: data.projects.data.map((item) => ({ value: item.id, label: item.name })), onChange: setProject }}
-        profileSelection={{ value: profile ?? "", options: [{ value: "", label: "配置草稿 · 未选择" }, ...profiles.map((item) => ({ value: item.id, label: item.name, description: `草稿 · ${item.modelId}` }))], onChange: (value) => setProfile(value || null) }}
-        skillSelection={{ value: skill, options: [{ value: "", label: "Skill · 未选择" }, ...data.catalog.data.skills.map((item) => ({ value: `${item.id}@${item.version}`, label: `${item.name} · v${item.version}` }))], onChange: setSkill }}
-        status={sourceError ? `只读后端不可用 · ${sourceError}` : mode === "connected" && data.projects.state === "loading" ? "正在读取本地数据源…" : undefined}
+        profileSelection={{ value: profile ?? "", options: [{ value: "", label: "配置草稿，未选择" }, ...profiles.map((item) => ({ value: item.id, label: item.name, description: `草稿，${item.modelId}` }))], onChange: (value) => setProfile(value || null) }}
+        skillSelection={{ value: skill, options: [{ value: "", label: "Skill，未选择" }, ...data.catalog.data.skills.map((item) => ({ value: `${item.id}@${item.version}`, label: `${item.name}，v${item.version}` }))], onChange: setSkill }}
+        status={sourceError ? `只读后端不可用，${sourceError}` : mode === "connected" && data.projects.state === "loading" ? "正在读取本地数据源…" : undefined}
         statusAction={sourceError ? () => setRevision((value) => value + 1) : undefined}
       />
     </div>
@@ -189,15 +189,15 @@ function TaskView({ run, inspect }: { run: RunView; inspect: (tab: InspectorTab)
   return <article className="task-page cds-conversation">
     <div className="page-eyebrow"><span className="eyebrow-line" />TASK / {run.taskId}</div>
     <div className="task-heading"><h1>{run.title}</h1><Badge tone={runTone(run.status)}>{run.status}</Badge></div>
-    <div className="task-meta"><span>存储状态 · {run.status}</span><span>{run.events.length} / {run.eventCount} 条可见事件</span><span>计划版本 · {run.plan?.skillRef ? `v${run.plan.skillRef.skill_version}` : "未记录"}</span></div>
+    <div className="task-meta"><span>存储状态，{run.status}</span><span>{run.events.length} / {run.eventCount} 条可见事件</span><span>计划版本，{run.plan?.skillRef ? `v${run.plan.skillRef.skill_version}` : "未记录"}</span></div>
     <section className="cds-user-message"><p>{run.goal ?? "此源没有可显示的任务目标，不从计划或事件推测用户原话。"}</p></section>
     <div className="cds-assistant-content">
-      <div className="core-activity-label"><AxisLogo size={22} /><strong>结构化执行事实</strong><span>系统活动 · 非对话转写</span></div>
-      {run.inspection.traceConsistent === false && <section className="integrity-callout" role="alert"><strong>INTEGRITY_FAILURE · 轨迹核验未通过</strong><p>轨迹包含完整性问题。存储状态与验收事件按原值展示，不代表证据已通过核验。</p></section>}
-      {unknown && <section className="unknown-callout"><CircleDot size={19} /><div><h2>执行结果尚不确定</h2><p>TOOL_INTENT 已记录，但 TOOL_RESULT 未持久化。当前文件变化不能证明工具执行因果。</p><span>EXECUTION_RESULT_UNKNOWN · Source outcome: UNKNOWN</span><button className="text-button" onClick={() => inspect("恢复")}>查看独立恢复证据<ArrowRight size={13} /></button></div></section>}
+      <div className="core-activity-label"><AxisLogo size={22} /><strong>结构化执行事实</strong><span>系统活动，非对话转写</span></div>
+      {run.inspection.traceConsistent === false && <section className="integrity-callout" role="alert"><strong>INTEGRITY_FAILURE，轨迹核验未通过</strong><p>轨迹包含完整性问题。存储状态与验收事件按原值展示，不代表证据已通过核验。</p></section>}
+      {unknown && <section className="unknown-callout"><CircleDot size={19} /><div><h2>执行结果尚不确定</h2><p>TOOL_INTENT 已记录，但 TOOL_RESULT 未持久化。当前文件变化不能证明工具执行因果。</p><span>EXECUTION_RESULT_UNKNOWN，Source outcome: UNKNOWN</span><button className="text-button" onClick={() => inspect("恢复")}>查看独立恢复证据<ArrowRight size={13} /></button></div></section>}
       <PlanCard plan={run.plan} inspectProposal={() => inspect("计划")} />
       <details className="cds-event-disclosure"><summary>执行记录<span>{run.events.length} 条事件</span></summary><div className="section-heading execution-heading"><h2>执行记录</h2><button className="text-button" onClick={() => inspect("事件")}>查看事件<ArrowRight size={13} /></button></div><Timeline events={run.events} /></details>
-      <section className={`validation-summary ${validation?.type === "VALIDATION_FAILED" ? "validation-failed" : ""}`}><ShieldCheck size={17} /><div><strong>独立验收 · {validation ? validation.type === "VALIDATION_PASSED" ? "PASSED" : "FAILED" : "尚无结果"}</strong><p>{validation ? "任务完成由独立 Acceptance 决定，与工具返回状态分别记录。" : run.eventsTruncated || run.eventCount > run.events.length ? "当前已加载前缀没有验收结果；后续事件未加载，不推断其是否持久化。" : "当前已加载事件未包含验收结果，不显示任务已通过。"}</p></div><button className="icon-button" aria-label="查看验收证据" onClick={() => inspect("概览")}><FileCheck2 size={17} /></button></section>
+      <section className={`validation-summary ${validation?.type === "VALIDATION_FAILED" ? "validation-failed" : ""}`}><ShieldCheck size={17} /><div><strong>独立验收，{validation ? validation.type === "VALIDATION_PASSED" ? "PASSED" : "FAILED" : "尚无结果"}</strong><p>{validation ? "任务完成由独立 Acceptance 决定，与工具返回状态分别记录。" : run.eventsTruncated || run.eventCount > run.events.length ? "当前已加载前缀没有验收结果；后续事件未加载，不推断其是否持久化。" : "当前已加载事件未包含验收结果，不显示任务已通过。"}</p></div><button className="icon-button" aria-label="查看验收证据" onClick={() => inspect("概览")}><FileCheck2 size={17} /></button></section>
     </div>
   </article>;
 }

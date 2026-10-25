@@ -4,14 +4,14 @@
 
 生产启动、显式 store 准备、离线备份/副本升级和 Provider 管理员网络路径见 [RELEASE_OPERATIONS.md](RELEASE_OPERATIONS.md)。正常 HTTP 启动不自动建表或迁移；必须先显式准备 store 并完成包含 `.vite/manifest.json` 的前端构建。
 
-SQLite 也需要核对：`python -c "import sqlite3; print(sqlite3.sqlite_version)"`。当前验证组合为 Windows SQLite 3.49.1、Linux 3.46.1。Linux SQLite 3.40.1 的 JSON 函数标记与 `trusted_schema=OFF` 不兼容，原只读审查会拒绝包含 JSON CHECK 的数据库；此问题也在本轮改动前的基线复现。该组合未认证，不应通过关闭安全检查来运行。背景见 [SQLite 官方问题记录](https://sqlite.org/forum/forumpost/c88a671ad083d153?t=c)；其它 SQLite 构建须单独验证。
+SQLite 也需要核对：`python -c "import sqlite3; print(sqlite3.sqlite_version)"`。本轮完整验证使用 Windows SQLite 3.49.1；Linux 3.46.1 是此前发布稳定性验证，不是本轮 UX 的新回归结果。Linux SQLite 3.40.1 的 JSON 函数标记与 `trusted_schema=OFF` 不兼容，原只读审查会拒绝包含 JSON CHECK 的数据库；此问题在 UX 基线前已复现。该组合未认证，不应通过关闭安全检查来运行。背景见 [SQLite 官方问题记录](https://sqlite.org/forum/forumpost/c88a671ad083d153?t=c)；其它 SQLite 构建须单独验证。
 
 ## 日常开发：Vite HMR
 
 首次安装后，从仓库根目录启动：
 
 ```powershell
-python -m pip install -e .
+python -m pip install -e ".[web]"
 npm --prefix web ci
 python -m examples.workbench_dev --check
 python -m examples.workbench_dev
@@ -59,17 +59,21 @@ python -m web_api.runtime_storage init --config .local/workbench-runtime/workben
 
 该标志明确通过现有 **legacy caller-controlled** 生命周期准入示例 Skill，不是 Trust Assessment、governed promotion 或安全证明。生产项目应由项目所有者预先准备准确的 TRUSTED SkillRef 和初始化到 migration 004 的 WAL 数据库；Web 不自动创建或晋升 Skill。
 
-在启动服务的终端环境配置所选 Provider 的凭据变量。不要把密钥写入配置 JSON、浏览器、命令历史、仓库或审查材料。示例使用 `AXIS_EVO_API_KEY` / `AXIS_EVO_DEEPSEEK_API_KEY`；此文档不提供包含真实密钥的命令。
+普通 Windows 使用 Web 自助连接 DeepSeek，不需要编辑凭据环境变量或配置文件。`.[web]` 安装固定版本的 Windows 凭据管理依赖；密钥只保存在当前用户、当前 Runtime 的 OS 凭据目标中。其它兼容服务或明确授权的本机 Gateway 继续使用管理员配置的后端凭据引用，不读取其它应用的凭据存储。
 
 ```powershell
-python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime-config .local/workbench-runtime/runtime.json --port 8765 --web-root web/dist
+python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime-config .local/workbench-runtime/runtime.json --port 8765 --web-root web/dist --open-browser
 ```
 
-在新对话页点击“连接与权限”，或通过侧栏“更多功能 → 权限与环境”，在权限页输入终端显示的一次性本地会话代码。代码有效期 10 分钟；会话有效期 1 小时。刷新可凭 HttpOnly cookie 恢复页面内存中的 CSRF token；重启服务后需要新的代码。应用不使用 localStorage/sessionStorage 保存授权值。
+启动器通过 60 秒单次能力自动建立会话，地址随即清理；无须复制会话代码。会话 Cookie 为 HttpOnly/SameSite=Strict，CSRF 仅保存在页面内存；刷新和新标签可恢复会话。服务重启后重新使用 `--open-browser`，新页连接后旧标签刷新即可恢复。没有从网页签发启动能力的接口。启动器不可用时给出重新打开提示，终端代码只作为高级 fallback；应用不持久化授权值或重发任务。
 
-在 Provider 配置页创建模型配置，选择后台允许的 Endpoint 与凭据引用，填写明确 model ID。保存、编辑、设为默认和测试连接都会调用真实后端；编辑创建新 revision。连接测试发送一次固定无任务数据请求，成功只表示该版本完成一次响应。未支持的 Reasoning/Retry 不生效；没有自动重试。
+打开“模型设置”，使用 DeepSeek 预设，录入 API Key，测试连接，选择已核对的模型，再开始对话。密钥输入会清空，不写入浏览器存储、URL 或配置版本；当前 API 不静默替换不同的既有密钥。高级配置与版本历史按需展开。编辑创建独立 revision；测试只说明该版本收到响应，不等于计划有效或任务完成。未支持的 Reasoning/Retry 不生效，没有自动重试。Linux 本轮未实现安全的自助密钥存储，已有后端配置仍可使用。
 
-在 Runtime 首页选择项目、Provider revision 与准确 SkillRef，输入“将 config.txt 的 timeout=10 修改为 timeout=20”。“生成计划”只请求规划。审查全部步骤、原样 arguments 和 Plan SHA-256 后，勾选明确批准并执行。Core 重新核验持久化 proposal/Skill/TaskSpec，只有独立 Acceptance 通过才可能 RUN_COMPLETED。
+首页默认“对话”：普通问题返回实际 Adapter 响应正文，不需要 Skill、seed、Plan、Run 或工具批准。对话内容是不可信模型文本，不能授予工具权限。
+
+需要文件操作时选择“文件任务”、已配置项目与精确 Skill，输入“将 config.txt 的 timeout=10 修改为 timeout=20”。先查看受影响文件、拟替换片段和全部参数，再点击一次“批准并执行”。完整摘要可在详情与 Inspector 核对；后端仍提交并重新验证同一个精确 Plan SHA-256。只有独立 Acceptance 通过才可能 RUN_COMPLETED。
+
+工具活动默认是一行，展开可读取该 invocation 的已保存参数和结果；不会为了展示旧结果重新读取当前文件。公开 Core 只读接口继续隐藏正文。工具成功、Web FINISHED、任务完成和 UNKNOWN 是不同事实。
 
 服务只监听 `127.0.0.1`，mutation 需要精确 Host/Origin、origin-bound session、HttpOnly SameSite=Strict cookie 和自定义 CSRF header。任务在独立进程执行；这不提供 TLS、独立 OS 账户、文件系统或网络权限沙箱。不要将此服务反向代理到公网。
 
@@ -126,6 +130,25 @@ TaskSpec 模板提供固定 seed 和 Acceptance；单任务 API 的 prompt 成�
 - Web job 不是 Core event。派发保留与一次性 Worker claim 均在执行前 COMMIT；重启不补派已保留身份。Worker 退出和丢失监督分别记录，Core 原子终态事实决定已完成结果；未决执行显示 UNKNOWN。既有 Run/TOOL_INTENT/缺失 TOOL_RESULT 保持原样。文件变化不证明工具因果，UNKNOWN 不表示可安全重试。
 - 只读桥预算继续生效：64 MiB 数据库/逻辑快照、64应用表、20,000行、每 Run 5,000事件、详情最多500条。非 Runtime 私有 workspace 的现场检查仍可能 UNSUPPORTED；不补造证据。
 
+## 可选的明确读取策略
+
+默认所有文件计划保留精确人工批准。管理员可为命名验收模板配置纯读取授权，例如项目条目中增加：
+
+```json
+{
+  "task_templates": {"read_config":"C:/absolute/assets/read_config.json"},
+  "read_policy": {"task_template_id":"read_config","allowed_paths":["config.txt"]}
+}
+```
+
+读取模板仍须提供安全 seed 与独立文件验收；实际 seed、继承工作区和历史 private seed 的所有文件都必须在该范围内。策略路径不是通配符，也不是主机目录访问权。页面提交前展示路径，并携带所见策略摘要/版本；策略变化会在读取正文前拒绝。
+
+该模式的模型上下文只含授权文件，不携带旧聊天/任务正文或验收详情。完整计划只能包含授权路径的 `read_file`，不能混入写入。只有新规划进程正常退出的证据完整时，协调器才按策略批准；收据明确为 POLICY，不能冒充人工批准。收据与既有精确摘要派发 CAS 原子提交，仍由原 Runner 执行和独立验收。
+
+修改/移除配置并重启会追加当前授权或撤回记录。批准和执行预检都会重新核对持久化当前授权；不承诺越过执行预检后的即时撤回。启动、GET、UNKNOWN 或旧 pending 记录都不自动补派。队列满或监督证据不完整时不会自动执行。
+
+新增 Web 016/017 必须通过显式 init 或离线副本升级准备；普通读 API 不迁移。不要删除新事实表来伪装回退。升级和回退的程序/数据副本应配套保留，复制数据库不等于恢复工作区。
+
 ## 验证与审查
 
 公共仓库按 AGENTS.md 发布实现、说明和 `docs/TEST_RESULTS.md`，不发布私有测试、fixture、报告和 ZIP。完整本地审查包提供这些材料；历史 baseline 测试需要完整 Git clone 历史，将审查包覆盖到该 checkout 后运行：
@@ -142,7 +165,7 @@ npm run build
 npm run test:e2e
 ```
 
-当前多轮 Runtime QA 使用私有 `web/step4.playwright.config.ts`，Gateway QA 使用 `web/step5.playwright.config.ts`，干净开发入口/HMR 使用 `web/step5-dev.playwright.config.ts`。对应 harness 只替代 Provider transport，真实 Runner、SQLite、文件副作用与 Acceptance 仍执行；它们不随公共仓库发布。默认测试不调用真实外网模型。历史 `runtime.playwright.config.ts` / `step3.playwright.config.ts` 仍等待旧 UI 的 `/threads` 请求，已在本轮基线复现不适用于多轮 UI；原样保留并如实记录失败，不作为当前接口启动指引。完整结果见 [TEST_RESULTS.md](TEST_RESULTS.md)，布局约定见 [WORKBENCH_UI_SPEC.md](WORKBENCH_UI_SPEC.md)。目前没有 Windows EXE 或桌面安装包。
+本轮对话 UX QA 使用私有 `web/ux-after.playwright.config.ts`，模型录入与正式 CLI 交接分别使用 `ux-connect` / `ux-launch`，演化使用 `ux-evolution`。它们保留在本地审查包，不随公共仓库发布。对应 harness 只替代 Provider transport，真实 Runner、SQLite、文件副作用与 Acceptance 仍执行；默认测试不调用真实外网模型。此前多轮/Gateway/HMR 的 `step4` / `step5` / `step5-dev` 仍保留历史记录；`runtime` / `step3` 配置等待旧 `/threads` UI 请求，原样保留且失败如实记录，不作为新接口启动指引。完整结果见 [TEST_RESULTS.md](TEST_RESULTS.md)，操作示例见 [CONVERSATION_WORKBENCH.md](CONVERSATION_WORKBENCH.md)，布局约定见 [WORKBENCH_UI_SPEC.md](WORKBENCH_UI_SPEC.md)。目前没有 Windows EXE 或桌面安装包。
 
 历史 Step 3 进程监督 QA 留存在审查包；当前六尺寸和 UNKNOWN UI 由多轮/Gateway QA 覆盖。Windows 实际 junction、孙进程清理与硬退出已有独立证据；本轮没有可用 Linux 环境。POSIX 文件复制失败时，存在部分文件的目录保守保留，以避免不具备原子身份条件的删除；POSIX 静默脱离后代清理不等同于 Windows Job Object。不要把 Windows 结果外推为 Linux 认证。
 

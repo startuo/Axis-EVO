@@ -169,7 +169,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
 
   if (!library) return <Loading />;
   return <div className="skill-evolution-workbench runtime-settings-page">
-    <div className="runtime-page-heading"><div className="page-eyebrow"><GitBranch size={15} /> 证据驱动 · 明确授权</div>
+    <div className="runtime-page-heading"><div className="page-eyebrow"><GitBranch size={15} /> 证据驱动，明确授权</div>
       <div className="section-heading"><h1>Skills 与演化</h1><button className="icon-button" aria-label="刷新 Skill 演化事实" onClick={reload}><RefreshCw size={16} /></button></div>
       <p>模型提出建议，用户审阅，Core 独立评估。TRUSTED、首选版本与任务成功是不同事实。</p></div>
     {!library.evolutionSchemaAvailable && <p className="notice">此项目尚未由管理员初始化 Core 演化治理；当前只展示注册表，不自动迁移或创建可信版本。</p>}
@@ -179,7 +179,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
       {filterSkills.map(s => <button className={`evolution-skill-row ${sourceKey === refLabel(s.skillRef) ? 'selected' : ''}`} key={refLabel(s.skillRef)}
         onClick={() => { setSelected(refLabel(s.skillRef)); setSelectedRuns([]); }}><strong>{s.name}</strong><small>{refLabel(s.skillRef)}</small><span><Badge>{s.state}</Badge>{s.preferred && <Badge>首选</Badge>}</span></button>)}
       <h2>演化记录</h2>{library.cases.map(c => <button className={`evolution-skill-row ${c.id === caseId ? 'selected' : ''}`} key={c.id}
-        onClick={() => { setCaseId(c.id); setSelected(refLabel(c.sourceSkillRef)); setSelectedRuns([]); }}><span>{c.objective}</span><small>{refLabel(c.sourceSkillRef)} · {c.origin}</small></button>)}
+        onClick={() => { setCaseId(c.id); setSelected(refLabel(c.sourceSkillRef)); setSelectedRuns([]); }}><span>{c.objective}</span><small>{refLabel(c.sourceSkillRef)}，{c.origin}</small></button>)}
     </aside><section className="evolution-detail" aria-label="演化工作区">
       {currentReport && <GenerationHistory report={currentReport} cases={library.cases}
         focusRef={candidateRef ?? (caseBody && record(caseBody.sourceSkillRef) ? caseBody.sourceSkillRef as SkillRef : null)} onCase={id => {
@@ -196,7 +196,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
           {evidence.integrityIssues.length > 0 && <p role="alert" className="form-error">历史完整性问题阻断新 Case。</p>}
           {evidence.runs.length ? evidence.runs.map(run => <label className="evolution-evidence-row" key={run.run_id}><input type="checkbox" checked={selectedRuns.includes(run.run_id)}
             onChange={e => setSelectedRuns(current => e.target.checked ? [...current, run.run_id] : current.filter(id => id !== run.run_id))} />
-            <span>{run.run_id}<small>{run.observed_outcome} · {run.attribution}</small><code>{run.source_evidence_sha256}</code></span></label>) : <p className="caption">尚无历史 Run。可明确提出用户改进请求，不标记为缺陷修复。</p>}
+            <span>{run.run_id}<small>{run.observed_outcome}，{run.attribution}</small><code>{run.source_evidence_sha256}</code></span></label>) : <p className="caption">尚无历史 Run。可明确提出用户改进请求，不标记为缺陷修复。</p>}
           <Field label="完整历史摘要" value={evidence.evidenceSha256} copy />
           {skill.state === 'TRUSTED' && library.evolutionSchemaAvailable && <form className="evolution-request" onSubmit={event => {
             event.preventDefault(); void perform('create-case', ['cases'], { sourceSkillRef: skill.skillRef,
@@ -206,7 +206,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
             <label>改进目标<textarea rows={3} value={objective} onChange={e => setObjective(e.target.value)} maxLength={2048} /></label>
             <label>观察与归因限制<textarea rows={2} value={problem} onChange={e => setProblem(e.target.value)} maxLength={2048} /></label>
             <label>修订模型（固定版本）<select value={profile ? `${profile.id}@${profile.revision}` : ''} onChange={e => setProfileKey(e.target.value)}>
-              {profiles.map(p => <option key={`${p.id}@${p.revision}`} value={`${p.id}@${p.revision}`}>{p.name} · {p.modelId} · r{p.revision}{p.credentialConfigured ? '' : ' · 未配置凭据'}</option>)}</select></label>
+              {profiles.map(p => <option key={`${p.id}@${p.revision}`} value={`${p.id}@${p.revision}`}>{p.name}，{p.modelId}，r{p.revision}{p.credentialConfigured ? '' : '，未配置凭据'}</option>)}</select></label>
             <button className="button primary" disabled={!!busy || !objective.trim() || !profile?.credentialConfigured || !!evidence.integrityIssues.length || origin === 'EVIDENCE_DRIVEN' && !selectedRuns.length}>建立 Evolution Case</button>
             <button type="button" className="button secondary" disabled={!!busy || !objective.trim() || !profile?.credentialConfigured
               || selectedRuns.length !== 1 || !evidence.runs.some(run => selectedRuns[0] === run.run_id && run.observed_outcome === 'VERIFIED_TASK_SUCCESS')}
@@ -218,7 +218,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
       {currentReport ? <section className="evolution-card" aria-label="当前 Evolution Case">
         <h2>演化工作区</h2><Field label="Web Case" value={caseId} copy /><Field label="改进目标" value={caseBody ? text(caseBody, 'objective') : ''} />
         <Field label="来源" value={caseBody ? text(caseBody, 'origin') : ''} />
-        {caseBody && record(caseBody.provider) && <Field label="固定 Provider / Model" value={`${text(caseBody.provider, 'id')} · r${String(caseBody.provider.revision)} · ${text(caseBody.provider, 'modelId')}`} />}
+        {caseBody && record(caseBody.provider) && <Field label="固定 Provider / Model" value={`${text(caseBody.provider, 'id')}，r${String(caseBody.provider.revision)}，${text(caseBody.provider, 'modelId')}`} />}
         <p className="notice">归因 INDETERMINATE。Core 引用完整历史 Assessment；用户选定子集只用于修订上下文。
           {currentReport.campaignPolicyEnabled ? ' Gate v2 为每代预先声明新试次，并保留既有历史。' : ' Gate v1 保持原有完整 census 与多代限制。'}</p>
         {!currentGeneration && <button className="button primary" disabled={!!busy} onClick={() => void perform('generate', ['cases', caseId, 'generate'], {}, intent =>
@@ -251,7 +251,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
           <Field label="源成功 Run" value={text(traceProposal.body, 'sourceRunId')} copy />
           <p>源 Run 只证明其独立验收成功；此提案仅授权创建新的 CANDIDATE，不授权晋升或使用。</p></ExactEvolutionApproval>}
         {candidateAuth && !candidate && <p className="notice">候选创建已授权，但 Web 尚无完整 Receipt。不得重放；需核对 Core 事实。</p>}
-        {candidate && candidateRef && <><h3>候选版本 · {refLabel(candidateRef)}</h3><Field label="候选 Card SHA-256" value={text(candidate.body, 'cardSha256')} copy />
+        {candidate && candidateRef && <><h3>候选版本，{refLabel(candidateRef)}</h3><Field label="候选 Card SHA-256" value={text(candidate.body, 'cardSha256')} copy />
           <Field label="当前生命周期" value={candidateSkill?.state ?? '未重新核验'} />
           {candidateSkill?.state === 'CANDIDATE' && <ExactEvolutionApproval title="进入 SHADOW" digest={text(candidate.body, 'cardSha256')} busy={!!busy}
             onApprove={approvedCardSha256 => action('shadow', { candidateReceiptId: candidate.id, approvedCardSha256 })} />}

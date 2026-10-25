@@ -13,8 +13,9 @@ def runtime_envelope(data):
 
 
 class RuntimeServer(WorkbenchServer):
-    def __init__(self, address, facade, runtime, *, web_root=None, allowed_origins=(), sessions=None, bound_socket=None):
+    def __init__(self, address, facade, runtime, *, web_root=None, allowed_origins=(), sessions=None, bound_socket=None, credential_manager=None):
         self.runtime = runtime
+        self.credential_manager = credential_manager
         self.sessions = sessions or RuntimeSessions()
         super().__init__(address, facade, web_root=web_root, allowed_origins=allowed_origins, bound_socket=bound_socket)
         try:
@@ -22,17 +23,25 @@ class RuntimeServer(WorkbenchServer):
             self.conversations = ConversationService(runtime)
             from .evolution_service import EvolutionService
             self.evolution = EvolutionService(runtime)
+            from .conversation_replies import ReplyService
+            self.replies = ReplyService(runtime)
             self.RequestHandlerClass = RuntimeHandler
         except BaseException:
             self.server_close()
             raise
 
     def server_close(self):
-        if hasattr(self, 'evolution'):
-            self.evolution.close()
-        super().server_close()
-        if hasattr(self, "runtime"):
-            self.runtime.close(wait=False)
+        try:
+            if hasattr(self, 'replies'):
+                self.replies.close(wait=False)
+            if hasattr(self, 'evolution'):
+                self.evolution.close()
+            super().server_close()
+            if hasattr(self, "runtime"):
+                self.runtime.close(wait=False)
+        finally:
+            if getattr(self,'credential_manager',None) is not None:
+                self.credential_manager.close()
 
 
 class RuntimeHandler(WorkbenchHandler):
@@ -139,7 +148,10 @@ class RuntimeHandler(WorkbenchHandler):
         self._authenticated()
         parts = path.strip("/").split("/")
         if parts == ["api", "runtime", "providers"]:
-            return runtime.providers.list()
+            value=runtime.providers.list()
+            if self.server.credential_manager is not None:
+                value['credentialEnrollment']=self.server.credential_manager.describe()
+            return value
         if len(parts) == 5 and parts[:3] == ['api', 'runtime', 'providers'] and parts[4] == 'history':
             return runtime.providers.history(parts[3])
         if len(parts) >= 6 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'skill-evolution':
@@ -161,6 +173,8 @@ class RuntimeHandler(WorkbenchHandler):
                 return runtime.list_threads(parts[3])
             if len(parts) == 6:
                 return runtime.get_thread(parts[3], parts[5])
+            if len(parts) == 8 and parts[6] == 'invocations':
+                return runtime.invocation(parts[3], parts[5], parts[7])
         if len(parts) >= 5 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'conversations':
             conversations = self.server.conversations
             if len(parts) == 5:
@@ -171,6 +185,8 @@ class RuntimeHandler(WorkbenchHandler):
                 return conversations.get_turn(parts[3], parts[5], parts[7])
             if len(parts) == 9 and parts[6] == 'turns' and parts[8] == 'context':
                 return conversations.context(parts[3], parts[5], parts[7])
+        if len(parts) == 6 and parts[:3] == ['api','runtime','projects'] and parts[4] == 'replies':
+            return self.server.replies.get(parts[3], parts[5])
         raise ApiError("ROUTE_NOT_FOUND", "The runtime route does not exist.", 404)
 
     def do_GET(self):
@@ -196,11 +212,13 @@ class RuntimeHandler(WorkbenchHandler):
             if not path.startswith("/api/runtime/"):
                 return self._unsupported_method()
             origin = self._origin(mutation=True)
-            if path == "/api/runtime/session":
+            if path in ('/api/runtime/session', '/api/runtime/session/launch'):
                 body = self._body()
-                if body.keys() != {"code"}:
-                    raise ApiError("INVALID_SESSION", "Only the local bootstrap code is accepted.")
-                session, csrf = self.server.sessions.create(body["code"], origin)
+                field = 'capability' if path.endswith('/launch') else 'code'
+                if body.keys() != {field}:
+                    raise ApiError("INVALID_SESSION", "An exact local authorization body is required.")
+                session, csrf = (self.server.sessions.redeem_launch(body[field], origin) if field == 'capability'
+                                 else self.server.sessions.create(body[field], origin))
                 # Secure requires HTTPS; this explicitly loopback HTTP listener
                 # uses HttpOnly/SameSite and never claims transport encryption.
                 self.send_response(200)
@@ -218,7 +236,17 @@ class RuntimeHandler(WorkbenchHandler):
             body = self._body()
             runtime, parts = self.server.runtime, path.strip("/").split("/")
             status = 200
-            if parts == ["api", "runtime", "providers"]:
+            if parts == ['api','runtime','credentials','enroll']:
+                if self.server.credential_manager is None:
+                    raise ApiError('CREDENTIAL_STORE_UNAVAILABLE','Secure credential enrollment is unavailable.',503)
+                result=self.server.credential_manager.enroll(body)
+            elif len(parts) == 5 and parts[:3] == ['api','runtime','projects'] and parts[4] == 'replies':
+                result = self.server.replies.send(parts[3], body)
+                status = 202
+            elif len(parts) == 7 and parts[:3] == ['api','runtime','projects'] and parts[4] == 'conversations' and parts[6] == 'replies':
+                result = self.server.replies.send(parts[3], body, parts[5])
+                status = 202
+            elif parts == ["api", "runtime", "providers"]:
                 result = runtime.providers.create(body)
                 status = 201
             elif (len(parts) == 7 and parts[:3] == ['api', 'runtime', 'providers']

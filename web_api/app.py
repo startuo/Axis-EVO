@@ -265,10 +265,13 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--web-root", type=Path, default=Path("web/dist"), help="Built frontend assets only")
     parser.add_argument('--api-only', action='store_true', help='Explicit API-only mode for the Vite development proxy')
+    parser.add_argument('--open-browser', action='store_true', help='Open the built Web UI using a 60-second single-use local session handoff')
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("port must be between 1 and 65535")
-    bound = runtime = None
+    if args.open_browser and (args.api_only or not args.runtime_config):
+        parser.error('--open-browser requires a Runtime configuration and built frontend; API-only mode has no launch page')
+    bound = runtime = credentials = None
     try:
         from .runtime_storage import require_frontend, require_existing_runtime, require_sqlite_compatibility
         config = WorkbenchConfig.from_file(args.config) if args.config else WorkbenchConfig()
@@ -281,6 +284,9 @@ def main(argv=None):
             from .runtime_service import RuntimeService
             from .runtime_http import RuntimeServer
             runtime_config = RuntimeConfig.from_file(args.runtime_config, config)
+            from .provider_credentials import BackendCredentials
+            credentials = BackendCredentials(runtime_config)
+            runtime_config = credentials.config
             require_existing_runtime(runtime_config, config)
         # Reserve the actual listening socket before any coordinator recovery
         # facts or descriptor writes; do not check-and-close a racy probe socket.
@@ -293,26 +299,44 @@ def main(argv=None):
         if args.runtime_config:
             runtime = RuntimeService(runtime_config, config, ProviderStore(runtime_config, initialize=False))
             server = RuntimeServer(("127.0.0.1", args.port), ReadFacade(config), runtime,
-                                   web_root=root, bound_socket=bound)
+                                   web_root=root, bound_socket=bound, credential_manager=credentials)
         else:
             server = WorkbenchServer(("127.0.0.1", args.port), ReadFacade(config), web_root=root, bound_socket=bound)
         bound = None  # Server now owns the reserved socket.
-    except (ApiError, OSError, ValueError, sqlite3.Error):
-        if bound is not None:
-            bound.close()
-        if runtime is not None:
-            runtime.close(wait=False)
-        parser.error("Prepared storage, compatible SQLite, built frontend and an available loopback port are required; see docs/RELEASE_OPERATIONS.md")
+    except BaseException as error:
+        try:
+            if bound is not None:
+                bound.close()
+            if runtime is not None:
+                runtime.close(wait=False)
+        finally:
+            if credentials is not None:
+                credentials.close()
+        if isinstance(error,(ApiError, OSError, ValueError, sqlite3.Error)):
+            parser.error("Prepared storage, compatible SQLite, built frontend and an available loopback port are required; see docs/RELEASE_OPERATIONS.md")
+        raise
     print(f"Axis-Evo local bridge: {server.origin}; configured projects: {len(config.projects)}")
-    if args.runtime_config:
+    if args.runtime_config and not args.open_browser:
         print("Runtime explicitly enabled. Enter this one-use local session code in Runtime permissions:",
               server.sessions.bootstrap_code)
+    elif args.open_browser:
+        import webbrowser
+        try:
+            opened = webbrowser.open(server.sessions.issue_launch(server.origin), new=2)
+        except Exception:
+            opened = False
+        # Never print a capability-bearing URL, including on launch failure.
+        print('Local launch requested.' if opened else 'Browser launch unavailable. Restart this command with --open-browser using a supported local browser.')
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
+        try:
+            server.server_close()
+        finally:
+            if credentials is not None:
+                credentials.close()
 
 
 if __name__ == "__main__":

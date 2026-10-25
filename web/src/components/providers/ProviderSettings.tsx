@@ -139,10 +139,10 @@ export function ProviderSettings({
               onChange={(e) => edit("protocol", e.target.value)}
             >
               <option value="openai-compatible">
-                OpenAI-compatible · 配置草稿
+                OpenAI-compatible，配置草稿
               </option>
-              <option disabled>DeepSeek native · 尚不支持</option>
-              <option disabled>其他原生协议 · 尚不支持</option>
+              <option disabled>DeepSeek native，尚不支持</option>
+              <option disabled>其他原生协议，尚不支持</option>
             </select>
           </label>
           <label>

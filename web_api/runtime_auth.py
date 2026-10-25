@@ -1,6 +1,7 @@
 """Short-lived local launch authorization, separate from model credentials."""
 
 import hmac
+import hashlib
 import re
 import secrets
 import threading
@@ -15,6 +16,9 @@ BOOTSTRAP_TTL_SECONDS = 600
 SESSION_TTL_SECONDS = 3600
 BOOTSTRAP_ATTEMPT_WINDOW_SECONDS = 60
 MAX_BOOTSTRAP_ATTEMPTS = 5
+LAUNCH_TTL_SECONDS = 60
+MAX_PENDING_LAUNCHES = 8
+MAX_LOCAL_SESSIONS = 64
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{40,128}\Z")
 
 
@@ -49,6 +53,8 @@ class RuntimeSessions:
         self._bootstrap_used = False
         self._attempts = []
         self._sessions = {}
+        self._launches = {}
+        self._launch_attempts = []
         self._lock = threading.Lock()
 
     @property
@@ -68,10 +74,49 @@ class RuntimeSessions:
             if (self._bootstrap_used or now >= self._bootstrap_deadline or type(code) is not str
                     or not code.isascii() or not hmac.compare_digest(code, self._bootstrap_code)):
                 raise ApiError("BOOTSTRAP_REJECTED", "The local authorization code is invalid or expired.", 401)
-            token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-            self._sessions[token] = (csrf, origin, now + SESSION_TTL_SECONDS)
+            token, csrf = self._new_session(origin, now)
             self._bootstrap_used = True
             return token, csrf
+
+    def _new_session(self, origin, now):
+        # Caller holds _lock. Refresh/multitab reuse the existing HttpOnly cookie.
+        self._sessions = {key:value for key,value in self._sessions.items() if now < value[2]}
+        if len(self._sessions) >= MAX_LOCAL_SESSIONS:
+            raise ApiError('SESSION_LIMIT', 'Local session capacity is full.', 429)
+        token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+        self._sessions[token] = (csrf, origin, now + SESSION_TTL_SECONDS)
+        return token, csrf
+
+    def issue_launch(self, origin):
+        """Trusted local launcher only. There is deliberately no HTTP issuer."""
+        origin = _origin(origin)
+        with self._lock:
+            now = time.monotonic()
+            self._launches = {key:value for key,value in self._launches.items() if now < value[1]}
+            if len(self._launches) >= MAX_PENDING_LAUNCHES:
+                raise ApiError('LAUNCH_LIMIT', 'Local launch capacity is full.', 429)
+            capability = secrets.token_urlsafe(32)
+            self._launches[hashlib.sha256(capability.encode('ascii')).digest()] = (origin, now + LAUNCH_TTL_SECONDS)
+        return origin + '/#/runtime?launch=' + capability
+
+    def redeem_launch(self, capability, origin):
+        origin = _origin(origin)
+        with self._lock:
+            now = time.monotonic()
+            self._launch_attempts = [value for value in self._launch_attempts
+                                     if now - value < BOOTSTRAP_ATTEMPT_WINDOW_SECONDS]
+            if len(self._launch_attempts) >= MAX_BOOTSTRAP_ATTEMPTS:
+                raise ApiError('LAUNCH_RATE_LIMIT', 'Too many local launch attempts.', 429)
+            self._launch_attempts.append(now)
+            if type(capability) is not str or not _TOKEN.fullmatch(capability):
+                raise ApiError('LAUNCH_REJECTED', 'Local launch authorization is invalid or expired.', 401)
+            digest = hashlib.sha256(capability.encode('ascii')).digest()
+            issued = self._launches.get(digest)
+            if issued is None or issued[0] != origin or now >= issued[1]:
+                raise ApiError('LAUNCH_REJECTED', 'Local launch authorization is invalid or expired.', 401)
+            result = self._new_session(origin, now)
+            del self._launches[digest]
+            return result
 
     def verify(self, cookie_header, csrf, origin, *, mutation):
         origin = _origin(origin)

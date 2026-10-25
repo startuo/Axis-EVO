@@ -23,7 +23,7 @@ export function GenerationHistory({ report, cases, onCase, focusRef }: {
     const owners = cases.filter(c => c.coreCaseId === generation.evolutionCaseId);
     return <li key={ref(generation.skillRef)}>
       <div className="section-heading"><strong>{ref(generation.skillRef)}</strong><Badge>{generation.state}</Badge></div>
-      <small>父版本：{ref(generation.parentSkillRef)} · {generation.policyId ?? '无晋升策略记录'}</small>
+      <small>父版本：{ref(generation.parentSkillRef)}，{generation.policyId ?? '无晋升策略记录'}</small>
       <Field label="Card SHA-256" value={generation.cardSha256} copy />
       <div className="generation-facts"><span>候选 Receipt：{short(generation.candidateReceiptSha256)}</span>
         <span>晋升 Receipt：{short(generation.promotionReceiptSha256)}</span></div>
@@ -34,9 +34,9 @@ export function GenerationHistory({ report, cases, onCase, focusRef }: {
     <div className="section-heading"><h2>版本与授权链</h2><Badge>{report.campaignPolicyEnabled ? 'Gate v2 已显式启用' : 'Gate v1'}</Badge></div>
     <p className="caption">每代使用精确父版本。晋升与首选激活分开记录；尚未测量独立 holdout 改善。</p>
     <ol className="generation-history">{ancestry.map(renderGeneration)}</ol>
-    {!!branches.length && <details><summary>其他已记录版本 · {branches.length} 个（含未晋升分支）</summary>
+    {!!branches.length && <details><summary>其他已记录版本，{branches.length} 个（含未晋升分支）</summary>
       <ol className="generation-history">{branches.map(renderGeneration)}</ol></details>}
-    {!!report.activations?.length && <details><summary>首选激活与路由回退 · {report.activations.length} 条事实</summary>
+    {!!report.activations?.length && <details><summary>首选激活与路由回退，{report.activations.length} 条事实</summary>
       <ol className="generation-history">{report.activations.map(activation => <li key={activation.activationId}>
         <strong>#{activation.sequence} → {ref(activation.skillRef)}</strong><Field label="激活摘要" value={activation.sha256} copy />
       </li>)}</ol></details>}
@@ -49,7 +49,7 @@ export function CampaignEvidencePanel({ campaign, bridgeComplete }: { campaign: 
     <p>{ref(campaign.referenceSkillRef)} → {ref(campaign.candidateSkillRef)}</p>
     <Field label="策略" value={campaign.policyId} /><Field label="Campaign ID" value={campaign.campaignId} copy />
     <Field label="Campaign SHA-256" value={campaign.campaignSha256} copy />
-    <Field label="固定 Provider / Model" value={`${campaign.profile.profile_id} · r${campaign.profile.profile_revision} · ${campaign.profile.model_id}`} />
+    <Field label="固定 Provider / Model" value={`${campaign.profile.profile_id}，r${campaign.profile.profile_revision}，${campaign.profile.model_id}`} />
     <Field label="配置 SHA-256" value={campaign.profile.config_sha256} copy />
     <Field label="Suite SHA-256" value={campaign.suiteSha256} copy />
     <div className="campaign-counts"><div><strong>{campaign.trials.length}</strong><span>预先声明的试次</span></div>
@@ -63,10 +63,10 @@ export function CampaignEvidencePanel({ campaign, bridgeComplete }: { campaign: 
           <td>{trial.outcome}</td><td><code title={trial.intent_sha256 ?? undefined}>{short(trial.intent_sha256)}</code><br />
             <code title={trial.result_sha256 ?? undefined}>{short(trial.result_sha256)}</code></td></tr>)}</tbody></table>
     </div>
-    <details><summary>既有历史 Trial · {campaign.historicalContext.length} 条（仅作为历史上下文）</summary>
+    <details><summary>既有历史 Trial，{campaign.historicalContext.length} 条（仅作为历史上下文）</summary>
       <p className="caption">这些事实保留，不冒充本代新的 TRUSTED reference 试次。</p>
       <ul className="campaign-history">{campaign.historicalContext.map(trial => <li key={trial.trial_id}>
-        <code>{trial.trial_id}</code><span>{trial.case_id} · {trial.outcome}</span></li>)}</ul>
+        <code>{trial.trial_id}</code><span>{trial.case_id}，{trial.outcome}</span></li>)}</ul>
     </details>
     <Field label="首次封存 Receipt" value={campaign.receiptSha256 ?? '未封存'} copy />
     <p className="caption">评估完整、Gate 合格、明确批准、TRUSTED、首选激活与独立 holdout 改善是不同事实。</p>

@@ -61,7 +61,7 @@ def _bounded_bytes(path, expected=None):
     return raw
 
 
-def seed_manifest(root, check_text):
+def seed_manifest(root, check_text, *, allowed_paths=None):
     """Read bounded bytes through the existing Core resolver; never follow links."""
     root = Path(root).absolute()
     _regular(root, directory=True)
@@ -91,6 +91,8 @@ def seed_manifest(root, check_text):
                 pending.append((child, depth + 1))
                 continue
             before = _regular(child)
+            if allowed_paths is not None and relative not in allowed_paths:
+                fail('READ_POLICY_REJECTED', 'The seed contains a file outside the explicit read scope.')
             if before.st_size > MAX_FILE_BYTES or len(files) >= MAX_SEED_FILES:
                 fail("SEED_LIMIT")
             with sandbox.resolve(relative).open("rb") as stream:
@@ -113,7 +115,7 @@ def seed_manifest(root, check_text):
     return {"files": files, "directories": sorted(directories)}
 
 
-def load_template(task_path, check_text):
+def load_template(task_path, check_text, *, allowed_paths=None):
     path = Path(task_path).absolute()
     _regular(path)
     with path.open("rb") as stream:
@@ -132,7 +134,7 @@ def load_template(task_path, check_text):
     seed = seed.resolve(strict=True)
     if not seed.is_relative_to(path.parent.resolve(strict=True)):
         fail("SEED_ESCAPE")
-    manifest = seed_manifest(seed, check_text)
+    manifest = seed_manifest(seed, check_text, allowed_paths=allowed_paths)
     sandbox = Sandbox(seed)
     for assertion in task.acceptance["file_assertions"]:
         _safe_name(assertion["path"])
@@ -202,21 +204,21 @@ def snapshot_task(task_path, destination, prompt, thread_id, check_text):
             stream.write(encoded)
         return {"seed": manifest, "taskSha256": hashlib.sha256(encoded).hexdigest()}
 
-def verify_snapshot(directory, expected, check_text):
+def verify_snapshot(directory, expected, check_text, *, allowed_paths=None):
     directory = Path(directory)
     path = directory / "task.json"
     _regular(path)
     raw = _bounded_bytes(Sandbox(directory).resolve("task.json"))
     if hashlib.sha256(raw).hexdigest() != expected["taskSha256"]:
         fail("TASK_CHANGED")
-    if seed_manifest(directory / "seed", check_text) != expected["seed"]:
+    if seed_manifest(directory / "seed", check_text, allowed_paths=allowed_paths) != expected["seed"]:
         fail("SEED_CHANGED")
     return task_spec_from_dict(strict_json(raw))
 
 
-def preflight_plan(directory, proposal, expected, check_text):
+def preflight_plan(directory, proposal, expected, check_text, *, allowed_paths=None):
     """Pure admission; never invoke Tool callbacks or mutate the private seed."""
-    task = verify_snapshot(directory, expected, check_text)
+    task = verify_snapshot(directory, expected, check_text, allowed_paths=allowed_paths)
     check_text(proposal.plan_json)
     sandbox = Sandbox(Path(directory) / "seed")
     virtual = {}

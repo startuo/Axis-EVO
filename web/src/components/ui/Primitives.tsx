@@ -78,6 +78,7 @@ export function CopyButton({
   const reset = useRef<ReturnType<typeof setTimeout> | null>(null);
   return (
     <button
+      type="button"
       className="icon-button copy-button"
       aria-label={copied ? "已复制" : label}
       title={label}

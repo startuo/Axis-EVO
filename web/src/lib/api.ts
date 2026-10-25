@@ -95,7 +95,7 @@ function normalizeProjection(path: string, value: unknown): unknown {
           summary: Object.entries(event.summary)
             .filter(([, item]) => item !== null)
             .map(([key, item]) => `${key}: ${String(item)}`)
-            .join(" · "),
+            .join("，"),
         };
       })
     : value.events;

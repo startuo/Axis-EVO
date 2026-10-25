@@ -27,8 +27,8 @@ class CapturedSeed:
                 'directories':list(self.directories)}
 
 
-def capture_seed(root,check_text,expected=None):
-    manifest=seed_manifest(root,check_text)
+def capture_seed(root,check_text,expected=None,*,allowed_paths=None):
+    manifest=seed_manifest(root,check_text,allowed_paths=allowed_paths)
     if expected is not None and manifest!=expected:fail('SOURCE_WORKSPACE_CHANGED')
     sandbox=Sandbox(root)
     files=[]
@@ -37,7 +37,7 @@ def capture_seed(root,check_text,expected=None):
         check_text(raw.decode('utf-8',errors='strict'))
         files.append((path,raw))
     captured=CapturedSeed(tuple(files),tuple(manifest['directories']))
-    if captured.manifest()!=manifest or seed_manifest(root,check_text)!=manifest:
+    if captured.manifest()!=manifest or seed_manifest(root,check_text,allowed_paths=allowed_paths)!=manifest:
         fail('SOURCE_WORKSPACE_CHANGED')
     return captured
 

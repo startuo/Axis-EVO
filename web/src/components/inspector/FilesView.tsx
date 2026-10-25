@@ -44,7 +44,7 @@ export function FilesView({ files, mode }: { files: FileView[]; mode: Mode }) {
         >
           {files.map((f, i) => (
             <option value={i} key={`${f.seq}-${i}`}>
-              {f.path} · #{f.seq}
+              {f.path}，#{f.seq}
             </option>
           ))}
         </select>
@@ -60,7 +60,7 @@ export function FilesView({ files, mode }: { files: FileView[]; mode: Mode }) {
       {mode === "demo" && file.content !== undefined ? (
         <>
           <div className="file-toolbar">
-            <span>演示快照 · 非 Agent 因果结论</span>
+            <span>演示快照，非 Agent 因果结论</span>
             {file.before !== undefined && (
               <button
                 className="text-button"

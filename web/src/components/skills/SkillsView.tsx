@@ -124,7 +124,7 @@ export function SkillsView({
                         .filter((s) => s.id === detail.id)
                         .map((s) => (
                           <option key={s.version} value={s.version}>
-                            v{s.version} · {s.state}
+                            v{s.version}，{s.state}
                           </option>
                         ))}
                     </select>

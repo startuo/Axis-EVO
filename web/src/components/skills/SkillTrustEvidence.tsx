@@ -35,7 +35,7 @@ export function SkillTrustEvidence({ reference, candidate, metrics, outcomes, ga
     <section aria-label="晋升 Gate">
       <h4>晋升 Gate</h4><Field label="状态" value={gate ? text(gate, 'status') || '未记录' : '未记录'} />
       <Field label="Gate 资格" value={gate?.eligible === true ? '满足' : gate?.eligible === false ? '不满足' : '未记录'} />
-      <Field label="原因" value={Array.isArray(gate?.reasons) ? gate.reasons.filter(reason => typeof reason === 'string').join(' · ') : '未记录'} />
+      <Field label="原因" value={Array.isArray(gate?.reasons) ? gate.reasons.filter(reason => typeof reason === 'string').join('，') : '未记录'} />
       <Field label="Gate manifest SHA-256" value={gate ? text(gate, 'manifest_sha256') || '未记录' : '未记录'} />
       <p className="caption">Gate 资格、精确批准、TRUSTED 与首选激活是分别记录的事实。</p>
     </section>

@@ -17,10 +17,11 @@ from axis_evo.hashing import canonical_json_bytes
 from axis_evo.planning_adapter import (OpenAICompatiblePlanningAdapter, PlanningResponse,
                                        PlanningTransportError)
 
-from .runtime_config import ProviderRoute, validate_endpoint, validate_gateway_endpoint
+from .runtime_config import ProviderRoute, validate_endpoint, validate_gateway_endpoint, validate_gateway_model
 from .local_gateway import LocalGatewayPlanningAdapter
 from .provider_network import RoutedPlanningAdapter
 from .schemas import ApiError, no_redirected_parents, public_text
+from .provider_credentials import validate_credential_recipient
 
 
 MAX_PROFILES = 32
@@ -135,20 +136,23 @@ def _configuration(body, config, *, stored=False):
     permitted = (_FIELDS, _FIELDS | {'networkRoute'}) if stored else (_FIELDS,)
     if type(body) is not dict or body.keys() not in permitted:
         raise ValueError("Unexpected provider profile fields")
+    validate_credential_recipient(body.get('credentialRef'),config,body.get('protocol'),body.get('endpoint'),stored=stored)
     name, model = _safe_text(body["name"], 80), _safe_text(body["modelId"], 128)
     if body["protocol"] not in ("openai-compatible", "deepseek-compatible", "local-gateway"):
         raise ValueError("Unsupported planning protocol")
     if body['protocol'] == 'local-gateway':
         endpoint = validate_gateway_endpoint(body['endpoint'])
         gateway = next((item for item in config.local_gateways if item.endpoint == endpoint), None)
-        if gateway is None or model not in gateway.model_ids:
+        validate_gateway_model(model)
+        if not stored and (gateway is None or model not in gateway.model_ids):
             raise ValueError('Unconfigured local gateway or model')
     else:
         endpoint = validate_endpoint(body["endpoint"])
-        if endpoint not in config.endpoints:
+        if not stored and endpoint not in config.endpoints:
             raise ValueError("Unconfigured provider endpoint")
     alias = body["credentialRef"]
-    if type(alias) is not str or alias not in config.credentials:
+    if (type(alias) is not str or not re.fullmatch(r'[A-Za-z][A-Za-z0-9._-]{0,63}', alias)
+            or not stored and alias not in config.credentials):
         raise ValueError("Unconfigured credential alias")
     timeout = body["timeout"]
     if type(timeout) is not int or not 1 <= timeout <= 300:
@@ -186,6 +190,13 @@ def _public_addresses(endpoint):
         raise
     except (OSError, ValueError, TypeError, IndexError):
         raise PlanningTransportError("connection") from None
+
+
+@dataclass(frozen=True)
+class AdapterIdentity:
+    """Verified local identity only; this object cannot make a network request."""
+    adapter_name: str
+    model_id: str
 
 
 @dataclass(frozen=True)
@@ -277,6 +288,9 @@ class ProviderStore:
     def _validated(self, body, *, stored=False):
         try:
             value = _configuration(body, self.config, stored=stored)
+            for field in value.values():
+                if type(field) is str:
+                    self.check_text(field)
             raw = canonical_json_bytes(value).decode("utf-8")
             self.check_text(raw)
             return raw, hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -301,7 +315,7 @@ class ProviderStore:
                 WHERE profile_id=? AND revision=? ORDER BY rowid DESC LIMIT 1""",
                 (row["profile_id"], row["revision"])).fetchone()
             return {"id": row["profile_id"], "revision": row["revision"], "configSha256": digest, **value,
-                "credentialConfigured": _configured(self.config.credentials[value["credentialRef"]]),
+                "credentialConfigured": _configured(self.config.credentials.get(value["credentialRef"], '')),
                 "testStatus": test["status"] if test else "NOT_TESTED", "testedAt": test["tested_at"] if test else None}
         except (ApiError, TypeError, ValueError, KeyError):
             raise ApiError("PROVIDER_INTEGRITY", "The stored provider revision cannot be verified.", 409) from None
@@ -418,7 +432,8 @@ class ProviderStore:
         finally:
             connection.close()
 
-    def adapter(self, snapshot, attempt_id):
+    def adapter_identity(self, snapshot, attempt_id):
+        """Verify recorded identity independently of time-limited network grants."""
         try:
             if type(snapshot) is not dict or type(attempt_id) is not str or not _ATTEMPT.fullmatch(attempt_id):
                 raise ValueError("Invalid adapter identity")
@@ -428,6 +443,16 @@ class ProviderStore:
                 raise ValueError("Changed profile snapshot")
             adapter_name = (f"axis-profile/{pinned['id']}/{pinned['revision']}/"
                             f"{pinned['configSha256']}/attempt/{attempt_id}")
+            return AdapterIdentity(adapter_name, pinned['modelId'])
+        except (ApiError, KeyError, TypeError, ValueError):
+            raise ApiError("PROVIDER_INTEGRITY", "The selected provider revision cannot be verified.", 409) from None
+
+    def adapter(self, snapshot, attempt_id):
+        identity = self.adapter_identity(snapshot, attempt_id)
+        try:
+            pinned = self.get(snapshot['id'], snapshot['revision'])
+            # Historical parsing does not grant current outbound authority.
+            _configuration({key:pinned[key] for key in _FIELDS}, self.config)
             env = self.config.credentials[pinned["credentialRef"]]
             adapter_type = LocalGatewayPlanningAdapter if pinned['protocol'] == 'local-gateway' else OpenAICompatiblePlanningAdapter
             options = {}
@@ -438,7 +463,7 @@ class ProviderStore:
                 adapter_type = RoutedPlanningAdapter
                 options['route_json'] = canonical_json_bytes(route.to_dict()).decode('utf-8')
             delegate = adapter_type(endpoint=pinned["endpoint"], model_id=pinned["modelId"],
-                api_key_env=env, adapter_name=adapter_name, timeout_seconds=pinned["timeout"], **options)
+                api_key_env=env, adapter_name=identity.adapter_name, timeout_seconds=pinned["timeout"], **options)
             return _RestrictedAdapter(delegate, env, tuple(self.config.credentials.values()))
         except (ApiError, KeyError, TypeError, ValueError):
             raise ApiError("PROVIDER_INTEGRITY", "The selected provider revision cannot be used.", 409) from None

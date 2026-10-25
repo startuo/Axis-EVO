@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+web = ["keyring==25.7.0; sys_platform == 'win32'"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

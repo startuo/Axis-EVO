@@ -73,12 +73,12 @@ export function Composer({
             {projectSelection ? (
               <PopoverSelect label="选择项目" {...projectSelection} placeholder="选择项目" icon={<FolderOpen size={14} />} />
             ) : workspaceName ? (
-              <span className="cds-composer-context" title={workspaceName}>工作区 · {workspaceName}</span>
+              <span className="cds-composer-context" title={workspaceName}>工作区，{workspaceName}</span>
             ) : null}
             {profileSelection ? (
               <PopoverSelect label="模型配置草稿" {...profileSelection} placeholder="配置草稿" />
             ) : (
-              <span className="cds-composer-context" title={profileName}>配置草稿 · {profileName ?? "未选择"}<ChevronDown size={12} /></span>
+              <span className="cds-composer-context" title={profileName}>配置草稿，{profileName ?? "未选择"}<ChevronDown size={12} /></span>
             )}
             {skillSelection && <PopoverSelect label="Skill 草稿" {...skillSelection} placeholder="Skill" icon={<BookOpen size={14} />} />}
           </div>
@@ -88,8 +88,8 @@ export function Composer({
         </div>
       </div>
       <div className="composer-caption cds-composer-caption">
-        <span><span className="cds-draft-badge">草稿</span>仅编辑草稿 · 不发送模型请求，不执行工具</span>
-        <span>Enter 保存 · Shift + Enter 换行</span>
+        <span><span className="cds-draft-badge">草稿</span>仅编辑草稿，不发送模型请求，不执行工具</span>
+        <span>Enter 保存，Shift + Enter 换行</span>
       </div>
       {status && <div className="cds-composer-status"><span>{status}</span>{statusAction && <button type="button" className="text-button" onClick={statusAction}>重新检查连接</button>}</div>}
     </section>

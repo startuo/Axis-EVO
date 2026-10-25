@@ -20,10 +20,11 @@ def _error(code='CONVERSATION_INTEGRITY',message='Conversation evidence cannot b
     raise ApiError(code,message,status)
 
 
-def _template(service,project_id,template_id):
+def _template(service,project_id,template_id,policy=None):
     _,project=service._project(project_id)
     path=project.template(template_id)
-    task,seed,manifest=load_template(path,service.providers.check_text)
+    scope=policy['policy']['allowed_paths'] if policy else None
+    task,seed,manifest=load_template(path,service.providers.check_text,allowed_paths=scope)
     return task,seed,manifest,store.digest(asdict(task))
 
 
@@ -34,7 +35,7 @@ def _normal_manifest(value):
     return {'files':files,'directories':dirs}
 
 
-def _verified_source(service,row):
+def _verified_source(service,row,*,allowed_paths=None):
     """Keep normal terminal proof distinct from post-terminal filesystem observation."""
     project,_=service._project(row['project_id'])
     with service._core(project) as c:
@@ -58,7 +59,7 @@ def _verified_source(service,row):
         if observation['exists']:
             expected_files[path]={'sha256':observation['sha256'],'size':observation['size_bytes']}
         else:expected_files.pop(path,None)
-    captured=capture_seed(expected,service.providers.check_text)
+    captured=capture_seed(expected,service.providers.check_text,allowed_paths=allowed_paths)
     expected_manifest={'files':expected_files,'directories':sorted(os.path.normcase(p) for p in manifest['directories'])}
     if _normal_manifest(captured.manifest())!=expected_manifest:_error('SOURCE_WORKSPACE_CHANGED')
     with service._core(project) as c:
@@ -110,6 +111,10 @@ def record_admission(service,c,prepared,thread_id,run_id,prompt):
         found=c.execute('SELECT project_id FROM main.runtime_conversations WHERE conversation_id=?',(prepared.conversation_id,)).fetchone()
         if found is None or found[0]!=project_id:_error('CONVERSATION_NOT_FOUND',status=404)
     _recheck_source(service,project_id,ctx['source'])
+    if 'conversation_items_sha256' in ctx:
+        from .conversation_replies import context_index_sha256
+        if context_index_sha256(c,prepared.conversation_id)!=ctx['conversation_items_sha256']:
+            _error('CONVERSATION_CHANGED','Conversation context changed before task admission.')
     store.one(c,'INSERT INTO main.runtime_turns VALUES(?,?,?,?,?,?,?,?)',
         (prepared.turn_id,prepared.conversation_id,prepared.turn_number,thread_id,prepared.message_id,run_id,prepared.template_id,utc_now()))
     store.one(c,'INSERT INTO main.runtime_messages VALUES(?,?,?,?,?,?)',
@@ -117,9 +122,12 @@ def record_admission(service,c,prepared,thread_id,run_id,prompt):
     store.one(c,'INSERT INTO main.runtime_contexts VALUES(?,?,?,?)',
         (prepared.turn_id,prepared.context_json,prepared.context_sha,utc_now()))
     store.observe(c,prepared.turn_id,'SYSTEM_ACTIVITY',{'state':'TURN_ADMITTED','thread_id':thread_id,'reserved_run_id':run_id})
+    from .conversation_replies import available, append_task_item
+    if available(c):
+        append_task_item(c, prepared.conversation_id, prepared.turn_id, prepared.message_id, utc_now())
 
 
-def verify_binding(service,row,job_identity):
+def verify_binding(service,row,job_identity,*,read_scope=None):
     """Pure optional preflight; never initializes schema or contacts the provider."""
     with service._web() as c:
         exists=c.execute("SELECT 1 FROM main.sqlite_master WHERE type='table' AND name='runtime_turns'").fetchone()
@@ -144,8 +152,16 @@ def verify_binding(service,row,job_identity):
     directory=service._directory(row['id'])
     task_path=directory/'task.json'
     if task_path.exists():
-        task=verify_snapshot(directory,strict_json(row['manifest_json']),service.providers.check_text)
+        scope=read_scope if read_scope is not None else ctx.get('read_policy',{}).get('allowed_paths')
+        task=verify_snapshot(directory,strict_json(row['manifest_json']),service.providers.check_text,allowed_paths=scope)
         if task.goal!=canonical_json_bytes(ctx).decode():_error('CONTEXT_TASK_MISMATCH')
+    from .runtime_read_policy import bound
+    with service._web() as web:
+        policy=bound(web,row['id'])
+    if policy:
+        expected={**policy['policy'],'authority_id':policy['authorityId'],'policy_sha256':policy['policySha256']}
+        if ctx.get('read_policy')!=expected:_error('CONTEXT_POLICY_MISMATCH')
+    elif 'read_policy' in ctx:_error('CONTEXT_POLICY_MISMATCH')
     if ctx['workspace']['manifest']!=strict_json(row['manifest_json'])['seed']:_error('CONTEXT_SEED_MISMATCH')
     _recheck_source(service,row['project_id'],ctx['source'])
     return {'conversationId':turn['conversation_id'],'turnId':turn['turn_id'],'contextSha256':sha}
@@ -203,7 +219,7 @@ class ConversationService:
 
     def _prepare(self,project_id,body,conversation_id=None):
         required={'prompt','messageId','profileId','profileRevision','skillRef'}
-        if type(body) is not dict or not required<=body.keys()<=required|{'taskTemplateId'}:_error('INVALID_TURN',status=400)
+        if type(body) is not dict or not required<=body.keys()<=required|{'taskTemplateId','readPolicy'}:_error('INVALID_TURN',status=400)
         store.identity(body['messageId'],'msg')
         prompt=body['prompt']
         if type(prompt) is not str or not prompt.strip() or len(prompt)>MAX_PROMPT_CHARS:_error('INVALID_PROMPT',status=400)
@@ -213,7 +229,16 @@ class ConversationService:
         self.runtime.providers.check_text(prompt)
         template_id=body.get('taskTemplateId','default')
         if type(template_id) is not str:_error('TASK_TEMPLATE_UNAVAILABLE',status=400)
-        template,root,manifest,template_sha=_template(self.runtime,project_id,template_id)
+        from .runtime_read_policy import selected
+        read_policy=selected(self.runtime,project_id,template_id)
+        expected_policy={'policySha256':read_policy['policySha256'],'authorityId':read_policy['authorityId']} if read_policy else None
+        supplied_policy=body.get('readPolicy')
+        if (supplied_policy!=expected_policy or supplied_policy is not None and
+                (type(supplied_policy) is not dict or supplied_policy.keys()!={'policySha256','authorityId'}
+                 or type(supplied_policy['authorityId']) is not int)):
+            _error('READ_POLICY_CHANGED','The displayed read scope changed; refresh and review it before submitting.')
+        template,root,manifest,template_sha=_template(self.runtime,project_id,template_id,read_policy)
+        scope=read_policy['policy']['allowed_paths'] if read_policy else None
         new=conversation_id is None
         conversation_id=conversation_id or 'conversation_'+uuid4().hex
         turns=[] if new else self._rows(project_id,conversation_id)[1]
@@ -221,7 +246,7 @@ class ConversationService:
         history=[]
         for turn in turns:
             row=self.runtime._row(project_id,turn['thread_id'])
-            self.runtime._verify_job(row)
+            self.runtime._verify_job(row,_read_scope=scope)
             with self.runtime._web() as c:
                 ctx,_,_=store.context(c,turn['turn_id'])
             entry={'turn_id':turn['turn_id'],'turn_number':turn['turn_number'],
@@ -250,19 +275,48 @@ class ConversationService:
             with self.runtime._core(project) as c:
                 run=c.execute('SELECT 1 FROM main.runs WHERE run_id=?',(last['reserved_run_id'],)).fetchone()
             if run:
-                captured,source=_verified_source(self.runtime,last)
+                captured,source=_verified_source(self.runtime,last,allowed_paths=scope)
             elif last['status']=='FAILED' and last['approved_digest'] is None:
                 with self.runtime._web() as c:
                     if c.execute('SELECT 1 FROM main.runtime_dispatches WHERE job_id=?',(last['id'],)).fetchone():_error('TURN_UNRESOLVED')
                 facts=strict_json(last['manifest_json'])
-                verify_snapshot(self.runtime._directory(last['id']),facts,self.runtime.providers.check_text)
-                captured=capture_seed(self.runtime._directory(last['id'])/'seed',self.runtime.providers.check_text,facts['seed'])
+                verify_snapshot(self.runtime._directory(last['id']),facts,self.runtime.providers.check_text,allowed_paths=scope)
+                captured=capture_seed(self.runtime._directory(last['id'])/'seed',self.runtime.providers.check_text,facts['seed'],allowed_paths=scope)
                 source={'kind':'PLANNING_FAILED_PRIVATE_SEED','thread_id':last['id'],'thread_manifest_sha256':store.digest(facts)}
             else:_error('TURN_UNRESOLVED')
-        else:captured=capture_seed(root,self.runtime.providers.check_text,manifest)
+        else:captured=capture_seed(root,self.runtime.providers.check_text,manifest,allowed_paths=scope)
+        omitted_turns=[item['turn_id'] for item in history] if read_policy else []
+        if read_policy:
+            history=[]
+            source={key:value for key,value in source.items() if key!='validation'}
         turn_id='turn_'+uuid4().hex
         context_json=build_context(conversation_id,turn_id,len(turns)+1,prompt,history,source,captured,template_id,template_sha)
         value=strict_json(context_json);value['project_id']=project_id
+        if read_policy:
+            value['read_policy']={**read_policy['policy'],'policy_sha256':read_policy['policySha256'],
+                                  'authority_id':read_policy['authorityId']}
+            value['omitted_history_turn_ids']=omitted_turns
+            value['conversation_messages']=[]
+            value['omitted_conversation_item_ids']=[]
+        from .conversation_replies import available,bounded_history,context_index_sha256
+        with self.runtime._web() as web,store.snapshot(web):
+            if available(web):
+                profile=self.runtime.providers.get(body['profileId'],body['profileRevision'])
+                if read_policy:
+                    messages=[]
+                    omitted=[row[0] for row in web.execute('SELECT source_id FROM main.runtime_conversation_items WHERE conversation_id=? ORDER BY seq',(conversation_id,))]
+                else:messages,omitted=bounded_history(web,self.runtime.providers,conversation_id,profile)
+                value['conversation_messages']=[message for message in messages if message['source']=='MODEL_AUTHORED_UNVERIFIED']
+                value['omitted_conversation_item_ids']=omitted
+                value['conversation_items_sha256']=context_index_sha256(web,conversation_id)
+        while len(canonical_json_bytes(value))>store.MAX_CONTEXT_BYTES:
+            if value.get('conversation_messages'):
+                removed=value['conversation_messages'].pop(0)
+                value['omitted_conversation_item_ids'].append(removed['item_id'])
+            elif value['workspace']['files']:
+                removed=value['workspace']['files'].pop()
+                value['workspace']['omitted_file_paths'].append(removed['path'])
+            else:_error('CONTEXT_LIMIT')
         context_json=canonical_json_bytes(value).decode()
         if len(context_json.encode())>store.MAX_CONTEXT_BYTES:_error('CONTEXT_LIMIT')
         self.runtime.providers.check_text(context_json)
@@ -285,9 +339,24 @@ class ConversationService:
         result=[]
         for row in rows:
             _,turns=self._rows(project_id,row['conversation_id'])
-            last=self.runtime._row(project_id,turns[-1]['thread_id'])
+            if turns:
+                last=self.runtime._row(project_id,turns[-1]['thread_id'])
+                summary={'updatedAt':last['updated_at'],'status':last['status']}
+                from .conversation_replies import available,conversation_reply_summary
+                with self.runtime._web() as c,store.snapshot(c):
+                    if available(c):
+                        item=c.execute('SELECT kind FROM main.runtime_conversation_items WHERE conversation_id=? ORDER BY seq DESC LIMIT 1',(row['conversation_id'],)).fetchone()
+                        if item is not None and item[0]=='CHAT':
+                            chat=conversation_reply_summary(c,row['conversation_id'])
+                            summary['updatedAt']=max(summary['updatedAt'],chat['updatedAt'])
+                            if last['status'] in ('FINISHED','FAILED'):
+                                summary['status']=chat['status']
+            else:
+                from .conversation_replies import conversation_reply_summary
+                with self.runtime._web() as c:
+                    summary=conversation_reply_summary(c,row['conversation_id'])
             result.append({'id':row['conversation_id'],'projectId':project_id,'title':row['title'],
-                'createdAt':row['created_at'],'updatedAt':last['updated_at'],'status':last['status'],
+                'createdAt':row['created_at'],**summary,
                 'turnCount':len(turns),'threadIds':[t['thread_id'] for t in turns]})
         return result
 
@@ -316,9 +385,13 @@ class ConversationService:
                 'profileSnapshot':strict_json(row['profile_json']),'skillRef':strict_json(row['skill_json'])})
         can_continue=not rows or (len(rows)<store.MAX_TURNS and turns[-1]['webStatus'] in ('FINISHED','FAILED')
             and (turns[-1]['coreOutcome'] in ('COMPLETED','FAILED') or turns[-1]['approvalIdentity'] is None and turns[-1]['webStatus']=='FAILED'))
+        feed={}
+        from .conversation_replies import available, read_feed
+        with self.runtime._web() as c,store.snapshot(c):
+            if available(c):feed=read_feed(c,self.runtime.providers,project_id,conversation_id)
         return {'id':conversation_id,'projectId':project_id,'title':conversation['title'],'createdAt':conversation['created_at'],
             'turns':turns,'sequential':True,'maximumTurns':store.MAX_TURNS,
-            'canContinue':can_continue,
+            'canContinue':can_continue and feed.get('canChat',True),**feed,
             'continuationPolicy':'Reverify normal Core evidence and captured bytes; UNKNOWN is blocked. Each new turn requires new approval.'}
 
     def get_turn(self,project_id,conversation_id,turn_id):

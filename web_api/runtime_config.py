@@ -151,16 +151,54 @@ def parse_provider_routes(value, endpoints):
 
 
 @dataclass(frozen=True)
+class ReadPolicy:
+    task_template_id: str
+    allowed_paths: tuple[str, ...]
+
+    def __post_init__(self):
+        from pathlib import PurePosixPath
+        from axis_evo.skill_planner import _static_path
+        from .runtime_policy import _safe_name
+        if (type(self.task_template_id) is not str or self.task_template_id == 'default'
+                or not _ALIAS.fullmatch(self.task_template_id)
+                or type(self.allowed_paths) not in (tuple, list) or not 1 <= len(self.allowed_paths) <= 32):
+            raise ValueError('A named template and bounded exact read scope are required')
+        paths = tuple(self.allowed_paths)
+        for path in paths:
+            if (type(path) is not str or len(path.encode('utf-8', errors='strict')) > 512
+                    or '\\' in path or str(PurePosixPath(path)) != path):
+                raise ValueError('Read scope requires exact portable relative paths')
+            _static_path(path)
+            _safe_name(path)
+        if len({path.casefold() for path in paths}) != len(paths):
+            raise ValueError('Duplicate read scope path')
+        object.__setattr__(self, 'allowed_paths', paths)
+
+    def to_dict(self):
+        return {'task_template_id': self.task_template_id, 'allowed_paths': list(self.allowed_paths)}
+
+    @classmethod
+    def from_dict(cls, value):
+        if type(value) is not dict or value.keys() != {'task_template_id', 'allowed_paths'}:
+            raise ValueError('Unexpected read policy configuration')
+        return cls(**value)
+
+
+@dataclass(frozen=True)
 class RuntimeProject:
     id: str
     task_spec_path: Path
     skill_refs: tuple[SkillRef, ...]
     task_templates: tuple[tuple[str, Path], ...] = ()
     allow_evolved_skills: bool = False
+    read_policy: ReadPolicy | None = None
 
     def __post_init__(self):
         if type(self.allow_evolved_skills) is not bool:
             raise ValueError('allow_evolved_skills requires an explicit boolean')
+        if self.read_policy is not None and (type(self.read_policy) is not ReadPolicy
+                or self.read_policy.task_template_id not in dict(self.task_templates)):
+            raise ValueError('Read policy must bind a configured named task template')
 
     def template(self, template_id='default'):
         if template_id == 'default':
@@ -213,7 +251,7 @@ class RuntimeConfig:
             projects, seen = [], set()
             for item in value["projects"]:
                 required_project = {"id", "task_spec_path", "skill_refs"}
-                if type(item) is not dict or not required_project <= item.keys() <= required_project | {"task_templates", "allow_evolved_skills"}:
+                if type(item) is not dict or not required_project <= item.keys() <= required_project | {"task_templates", "allow_evolved_skills", "read_policy"}:
                     raise ValueError("Unexpected runtime project fields")
                 project = workbench_config.project(item["id"])
                 if project.id in seen:
@@ -241,7 +279,8 @@ class RuntimeConfig:
                         raise ValueError('Invalid task template identity')
                 projects.append(RuntimeProject(project.id, _path(item["task_spec_path"], existing=True),
                     tuple(parsed_refs), tuple((name, _path(path, existing=True)) for name, path in templates.items()),
-                    item.get('allow_evolved_skills', False)))
+                    item.get('allow_evolved_skills', False),
+                    ReadPolicy.from_dict(item['read_policy']) if 'read_policy' in item else None))
             credentials = value["credentials"]
             if type(credentials) is not dict or not 1 <= len(credentials) <= 16:
                 raise ValueError("Explicit credential aliases are required")

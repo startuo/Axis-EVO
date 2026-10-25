@@ -2,6 +2,8 @@
 
 Phase 4 / Step 4 在原有 Runtime 上组合多个独立任务。模型提供候选计划，Core 校验，调用方逐轮明确批准，原有隔离 Worker / Runner 执行，独立 Acceptance 决定完成。
 
+当前会话还支持独立的无工具回复和明确范围的策略读取。普通对话不形成空 Plan，不创建 TaskSpec、seed、Core Run 或 Tool Intent。文件修改保留逐轮精确批准；读取只有在管理员显式策略及完整执行证据前置条件成立时才能由 POLICY 收据批准。
+
 ## 每轮身份
 
 一个 conversation 下最多 16 个顺序 turn。每轮固定 message、thread/job、TaskSpec、上下文摘要、SkillRef/Card、Provider revision/config、proposal、批准摘要、dispatch 和 Run。历史事实不可覆盖。Web `FINISHED` 与 Core `COMPLETED` 分别展示；工具成功不替代验收。
@@ -39,6 +41,21 @@ Acceptance 仍由后端配置的 TaskSpec 模板固定。可在 runtime configur
 | POST | `/projects/{project}/conversations/{conversation}/turns/{turn}/approve` | 精确批准后的选中轮 |
 
 新轮 body 仅含 `prompt`, `messageId` (`msg_` 加 32 位 lowercase hex), `profileId`, `profileRevision`, `skillRef`，可选 `taskTemplateId`。重复 message ID 拒绝；并发续轮仅有一个可提交。conversation、turn、message、context 和原 thread/job 在同一 owned SQLite transaction 提交。
+
+若选中的模板具有读取策略，body 还必须携带页面展示过的 `readPolicy: {policySha256, authorityId}`。这只能拒绝过期范围，不能由浏览器创建授权；后端从持久化策略重新取得实际路径。
+
+| 方法 | 新增 `/api/runtime` 路径 | 事实边界 |
+|---|---|---|
+| POST | `/projects/{project}/replies` | 新的无工具会话回复 |
+| POST | `/projects/{project}/conversations/{conversation}/replies` | 同会话下一条无工具回复 |
+| GET | `/projects/{project}/replies/{reply}` | 已提交模型文本或失败/中断 |
+| GET | `/projects/{project}/threads/{thread}/invocations/{call}` | 精确批准 invocation 的有界持久化参数/结果 |
+
+回复 body 只包含 `prompt/messageId/profileId/profileRevision`。Web 016 保存请求、唯一终态和有序 CHAT/TASK 项；模型响应保持 `MODEL_AUTHORED_UNVERIFIED`，`toolsAuthorized=false`。响应最多 32 KiB、语义请求 64 KiB、最近 4 项历史、单会话 64 项、全局 1024 请求，生产并发 1、排队 8；超时、关闭或进程丢失不重试。
+
+同 endpoint/protocol 的先前对话可成为不可信聊天上下文；更换接收方会省略旧正文。切换到普通文件任务时，已提交聊天按完整消息纳入有界 TaskSpec.goal；上下文捕获到入库之间出现新消息会拒绝旧快照。策略读取则不携带旧聊天或任务正文，且在任何新旧 seed 正文读取前检查本轮范围。
+
+Web 017 的策略、当前授权日志、任务绑定和 POLICY 收据保持不可变。新规划的正常 Worker 退出证据、完整只读 Plan、当前授权、精确摘要批准与原 dispatch CAS 是各自不同的事实。详情见 [WORKBENCH_SETUP.md](WORKBENCH_SETUP.md)。原有 Core 事件和执行循环保持不变。
 
 批准 body 仍仅含 `proposalId`, `approvedPlanSha256`。批准不可跨轮复用；模型不能编写批准值。后端重新核验 proposal、TaskSpec、Skill、Provider 和上下文身份，然后复用既有一次性 dispatch / Core proposal-to-run 链。
 

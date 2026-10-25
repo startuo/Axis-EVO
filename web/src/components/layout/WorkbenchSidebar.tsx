@@ -43,7 +43,7 @@ export function WorkbenchSidebar({ compact, toggle, newConversation, search, set
     <div className="sidebar-section-title"><span>最近对话</span></div>
     <div className="task-list">
       {filtered.map(thread => <button className={`task-item ${currentThread === thread.id ? "active" : ""}`} key={thread.id} title={thread.title} onClick={() => openThread(thread.id)} aria-current={currentThread === thread.id ? "page" : undefined}>
-        <CircleDot size={13} className={thread.warning ? "thread-warning" : ""} /><span>{thread.title}</span>{thread.warning && <span className="sr-only"> · {thread.status}</span>}
+        <CircleDot size={13} className={thread.warning ? "thread-warning" : ""} /><span>{thread.title}</span>{thread.warning && <span className="sr-only">，{thread.status}</span>}
       </button>)}
       {!filtered.length && <p className="caption sidebar-empty">{search ? "没有匹配的对话" : "对话会显示在这里"}</p>}
     </div>

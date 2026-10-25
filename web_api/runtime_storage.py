@@ -73,6 +73,10 @@ def require_complete_schema(c):
     require_base_schema(c)
     conversation_store.guard(c)
     evolution_store.guard(c)
+    from .conversation_replies import reply_guard
+    reply_guard(c)
+    from .runtime_read_policy import guard
+    guard(c)
     if c.execute('PRAGMA quick_check').fetchone()[0] != 'ok' or c.execute('PRAGMA foreign_key_check').fetchone():
         raise ValueError('Runtime storage integrity check failed')
 
@@ -100,8 +104,9 @@ def require_runtime_inputs(config, workbench):
             _require_planning_schema(c)
             if c.execute('PRAGMA quick_check').fetchone()[0] != 'ok' or c.execute('PRAGMA foreign_key_check').fetchone():
                 raise ValueError('Core integrity check failed')
-        for task in (runtime.task_spec_path, *(path for _, path in runtime.task_templates)):
-            load_template(task, check_text)
+        for name, task in (('default', runtime.task_spec_path), *runtime.task_templates):
+            scope = runtime.read_policy.allowed_paths if runtime.read_policy and runtime.read_policy.task_template_id == name else None
+            load_template(task, check_text, allowed_paths=scope)
 
 
 def require_existing_runtime(config, workbench):
@@ -130,6 +135,10 @@ def _initialize_metadata(providers):
             runtime_jobs.initialize(c)
             conversation_store.initialize(c)
             evolution_store.initialize(c)
+            from .conversation_replies import initialize_reply_schema
+            initialize_reply_schema(c)
+            from .runtime_read_policy import initialize
+            initialize(c)
             require_complete_schema(c)
         except BaseException:
             c.rollback()

@@ -1,41 +1,65 @@
 # Workbench UI 约定
 
-## 参考与实现范围
+## 范围与来源
 
-界面基于 Caho1/open-claude-ui 固定提交 `2834bc158a4849f21c97cbb2e0b10525f6e646f1` 的公开 CDS 主题、组件和 Storybook 重构，保留 AXIS 标志及简体中文。参考提供组件展示而非完整应用；新对话整体布局采用本项目确定的欢迎语与居中输入框。源码许可见仓库 `THIRD_PARTY_NOTICES.md`。
+保留 React、TypeScript、Vite、AXIS 标志和本地字体。原共用框架参考 Caho1/open-claude-ui `2834bc158a4849f21c97cbb2e0b10525f6e646f1`（MIT）；当前颜色采用 Radix Colors 3.0.0。DeepSeek Harness 和 Codex 只用于研究活动行、审批与信息层级，不复制品牌资源或替换 Python Core。许可见 `THIRD_PARTY_NOTICES.md`。
 
-React 19 / TypeScript / Vite 保持现状；framer-motion 固定为 11.18.2。Inter、Newsreader、JetBrains Mono 与各自 OFL 在本地提供，中文使用系统回退字体。运行时字体和品牌资源不访问 CDN。为兼容现有四路连接预算，字体在标志就绪后依次注册，标志仅请求当前主题版本。Runtime 已支持有界多轮、每轮独立计划审批与执行证据；不引入桌面窗口、附件、模拟流式回复或其他未实现服务。
+默认入口为 `#/runtime`。Runtime、Demo、Core 只读共用布局，业务控制器保持分离；既有 task、Skills、Evolution、settings 深链接保留。Demo 不发送模型请求、不执行审批，不替代缺失的真实事实。
 
-## 共用框架与新对话
+## 对话与三级信息
 
-Runtime、Demo 与 Core 只读共用 WorkbenchShell、WorkbenchSidebar、弹出选择器与审查容器，业务控制器按当前路由单独挂载。默认入口 `#/runtime`；既有 task、Skills、Evolution、settings 等深链接保留。
+1. 正文：用户输入、实际模型回复、紧凑工具活动、当前结果和必要错误。不开箱显示 hash、事件 ID、原始 JSON 或重复任务标题。
+2. 详情：拟修改片段、完整可读参数、已保存工具结果、文件和失败背景。工具内容作为不可信文本，不重新读取现场文件来填充历史结果。
+3. Inspector：精确 Plan/Card/TaskSpec、Provider 快照、批准来源、事件 seq、独立验收、检查点和恢复关系。Skill 页面保留版本、Trial census、Gate、晋升与激活记录。
 
-桌面侧栏 288px，收起 64px，顶栏 46px。中央输入区最大宽 768px，输入框圆角 20px、用户气泡 18px、面板 10px，使用参考四层低对比表面和陶土色 `#d97757`。760px 以下导航为抽屉，1200px 以下审查为模态 sheet。桌面审查面板默认 376px，可拖拽或键盘在 320–520px 间调整。
+普通对话使用独立无工具路径；不构造空 Plan，不要求 Skill 或创建 Run。CHAT/TASK 按已提交顺序组成同一历史。模型回复、计划、工具记录和验收保持不同来源。
 
-首页主体仅有“今天，想完成什么？”与输入框，整体居中略上移。最近记录留在侧栏；项目、模型和精确 Skill 选择收进输入工具栏。首页不展示项目摘要、最近列表、安全说明条或空审查面板。Runtime 未连接、未授权或配置缺失时保留这一结构，展示简短状态与设置入口，生成计划保持禁用。
+修改计划展示受影响文件、拟替换前后片段或完整覆盖内容。参数按需展开；一次明确“批准并执行”提交原精确摘要，不要求抄写 hash 或额外勾选。高影响 Skill 晋升/激活仍按独立精确审批规则进行。
 
-侧栏新对话按钮与 Ctrl/⌘ N 调用同一重置入口：清空当前草稿，关闭所有弹窗/菜单/审查面板、旧提示并重置滚动与输入焦点；项目、模型和已明确选择的 Skill 保留。使用独立视图会话标识隔离在途请求，旧响应不能改写新草稿或将路由跳回旧任务。已提交的后台任务仍保留在历史中。
+纯读取只有在明确管理员策略及页面所见范围匹配时可以自动批准。页面提交前显示全部授权路径；Inspector 明确 POLICY 来源，不称作人工批准。等待正常规划退出的授权核对状态是协调器观察，不是 Core 成功事实。
 
-Enter 提交、Shift+Enter 换行、Ctrl/⌘ Enter 保留；中文输入法组合期间的 Enter 不提交。输入框按内容增长至上限。固定计划线程不显示续聊输入。主题及侧栏收起偏好可以保存；草稿、会话代码及 CSRF 不写入浏览器持久存储。
+## 视觉系统
 
-## 数据来源与执行事实
+`tokens.css` 是语义颜色来源；旧 CDS 名称仅作兼容别名。
 
-- DEMO：明确的预设场景，仅保存本地草稿，不发模型请求、不执行、不审批。
-- CORE · 只读：已有数据库的只读投影，保留 UNSUPPORTED/metadata-only，不以 Demo 填补缺失事实。
-- RUNTIME · 本地执行：会话授权后的真实请求、规划、明确审批与执行。Thread ID 与 Run ID 分开；规划及待审批期间尚无 Core Run。测试 Provider double 只存在于本地私有 harness。
+| 用途 | Radix |
+|---|---|
+| Canvas、表面、正文和边界 | Sand 明暗及 alpha scales |
+| 品牌与主要交互 | Bronze |
+| 成功、警告、错误、信息 | Green、Amber、Red、Blue |
 
-待审批计划默认完整展开：全部步骤、JSON arguments、精确 Plan digest、审阅勾选和批准按钮直接可见。次要身份摘要可按需展开，但不能替换或隐藏待批准的计划参数。审批仍提交准确的 proposal ID 与 plan SHA-256。
+背景使用 1–5、边界 6–8、交互 9–10、文字 11–12；组合仍须实际对比度检查。成功/警告/错误浅底文字使用已验证的深色阶，不能把“来自 Radix”当成 AA 证明。照片和原品牌图片不改色。
 
-Core 事件、Worker 监督与文件证据可折叠；UNKNOWN、失败、轨迹不一致和独立 Validation 必须直接可见。Web FINISHED 不代替 Core RUN_COMPLETED，Tool SUCCESS 不等于 Validation PASSED。事件依 Core seq 排序。Source 与 Recovery Child 分别呈现，不提供自动重试、取消或恢复操作。
+主要字号为 13px 次要标签、15px 正文/输入/控件、20px 重要标题。代码可使用 12px，但不出现更小 UI 字号；Markdown 与浏览器缩放以可读性为先。中文使用系统回退，运行时字体不请求外部 CDN。
 
-Inspector 默认关闭，只在任务上下文提供，通过查看证据或顶栏按钮打开；审查/事件/文件/证据分开。文件页仅展示持久化观察，不推断现场内容或工具因果。Skill 信任、gate eligibility、promotion approval、receipt 与 preferred activation 保持原有区别。
+侧栏 288px / 收起 64px；中央输入区最大宽 768px；审查面板默认 376px，可键盘或拖动调整。窄屏使用导航抽屉和 Inspector sheet。空态不保留空证据面板。
 
-## 配置、权限与交互
+圆角以 6/10/14px 语义变量为主。普通消息平面呈现，以留白、排版和表面区分，避免每个事件一张卡。普通分隔采用轻量边界；焦点保留可见的 2px 环，不机械套用 0.5px。阴影仅用于浮层。
 
-Provider 配置仍由后端保存，编辑创建独立 revision；旧线程使用原始模型快照。页面只选择允许的 credential reference、公网 HTTPS Endpoint 或管理员授权的 Local Gateway。未保存表单不参与连接测试；测试和模型发现结果绑定精确 revision/hash，发现不等于可用、计划通过或执行完成。高级 wire 参数通过渐进披露查看。权限和允许工具由后端决定。
+动效仅表达实际状态或面板变化，约 150–250ms ease-out；Inspector 使用 180ms。不使用逐消息入场或装饰跳动，遵守 `prefers-reduced-motion`。
 
-授权失效后立即锁定提交；旧 session 恢复响应不能重新授权。读取恢复与明确连接独立于任何 mutation，失败后不自动重发规划或批准。Provider 页面切换或编辑草稿后，迟到的保存结果不能覆盖当前草稿。
+作者 UI 文案不用 `·` 分隔，不添加重复 eyebrow/英文 overline。用户文本、模型输出和不可变历史值保持原样，不为排版改写事实。
 
-所有控制可键盘访问；保留 skip link、可见焦点、弹窗焦点边界、Escape、Inspector 标签方向键与 splitter 键盘操作。弹出选择器支持方向键、Home/End、Enter、Escape、外部点击关闭。轮询不抢焦点、不自动重发 mutation。动效使用参考物理参数，并遵循 prefers-reduced-motion。
+## 模型、会话与授权
 
-验收涵盖类型/静态检查、前端回归、真实 HTTP 隔离 Runtime 链路及六尺寸明暗浏览器检查；实际结果记录在 TEST_RESULTS.md。测试源码、fixture、截图与审查日志仅保留本地。
+普通 Windows 模型连接路径为 DeepSeek 预设、API Key、安全入库、连接测试、模型选择、对话。输入只在当前 RAM 中短暂存在，发送时清空；后端显式 Windows 凭据管理器保管，不回退明文。高级端点、环境引用和不可变版本历史按需展开。其它管理员配置兼容服务/本机网关保留原有边界。
+
+连接测试不证明有效 Plan、工具成功或任务完成；编辑创建新 revision，历史线程保留原快照。未支持参数明确标为不生效，不显示虚假的 reasoning 状态。
+
+正常入口由 CLI `--open-browser` 通过短期单次 fragment 能力建立 HttpOnly 会话，然后清理 URL。刷新、多标签和重启后的新启动页不要求手工代码；终端代码仅保留高级 fallback。网页不能签发启动能力。Host、Origin、CSRF 和精确 endpoint 授权不变。
+
+## 状态与安全内容
+
+模型文本未经验证；Tool SUCCESS 不等于 Run COMPLETED，Web FINISHED 不代替独立 Acceptance。完成必须由已加载的匹配持久事实支持。UNKNOWN 不提供自动重试；恢复子成功不改写原 Source。
+
+正文错误先说明发生了什么、是否可能已有影响以及可采取的安全动作。技术代码放在详情；不显示栈、原 Provider 错误正文或秘密。
+
+Markdown 使用 react-markdown 10.1.0，禁用 HTML。远程图片仅显示替代文本；链接仅允许无 URL 凭据的 HTTPS，使用 noopener/noreferrer。工具内容以文本呈现，不通过 innerHTML 注入。
+
+## 键盘与验证
+
+新对话和 Ctrl/⌘ N 清空草稿、旧提示和浮层，恢复输入焦点；已提交任务仍保留。项目、模型和显式 Skill 选择不随草稿清理。迟到请求不能改写新草稿或跳回旧路由。
+
+Enter 提交、Shift+Enter 换行，中文 IME 组合期间不提交。保留 skip link、可见焦点、Escape、模态焦点边界、Inspector 标签方向键和 splitter 键盘操作。轮询不抢焦点，不重发 mutation。
+
+真实浏览器覆盖对话、读写、精确审批、UNKNOWN、Provider、自助启动、演化、明暗响应式、长文、真实缩放、重复导航和按需展开。结果见 `TEST_RESULTS.md`；完整测试、失败日志、截图和性能样本只保留本地。单次自动化与离线 Provider double 不证明真实联机质量、用户研究或不存在长期资源泄漏。

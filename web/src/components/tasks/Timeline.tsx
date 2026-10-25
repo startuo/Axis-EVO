@@ -112,7 +112,7 @@ export function Timeline({
       )}
       {!!filtered.length && (
         <div className="timeline-note">
-          <span>{filtered.length} 条已加载记录 · 按 seq 排序</span>
+          <span>{filtered.length} 条已加载记录，按 seq 排序</span>
           <CopyButton
             value={filtered.map((e) => `${e.seq} ${e.type}`).join("\n")}
             label="复制事件索引"

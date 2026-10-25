@@ -2,7 +2,7 @@ import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import type { WorkbenchLayout } from "../../hooks/useWorkbenchLayout";
-import { cdsMotion } from "../../lib/motion";
+
 import { keepDialogTab } from "../ui/Primitives";
 
 export function WorkbenchShell({ layout, sidebar, toolbar, children, inspector, inspectorLabel = "审查面板", mainId = "main-content", className = "", resetKey = "", overlays }: {
@@ -44,7 +44,7 @@ export function WorkbenchShell({ layout, sidebar, toolbar, children, inspector, 
     </header>
     <main ref={main} id={mainId} tabIndex={-1} className="cds-main">{children}</main>
     <AnimatePresence initial={false}>
-      {showPanel && <motion.aside key="inspector" className="cds-inspector-pane" aria-label={inspectorLabel} initial={{ opacity: 0, x: reduced ? 0 : 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={reduced ? { duration: 0 } : cdsMotion.gentle}>
+      {showPanel && <motion.aside key="inspector" className="cds-inspector-pane" aria-label={inspectorLabel} initial={{ opacity: 0, x: reduced ? 0 : 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={reduced ? { duration: 0 } : { duration: 0.18, ease: "easeOut" }}>
         <div className="cds-splitter" role="separator" aria-label="调整审查面板宽度" aria-orientation="vertical" tabIndex={0} aria-valuemin={320} aria-valuemax={520} aria-valuenow={layout.inspectorWidth}
           onKeyDown={event => {
             const next = event.key === "ArrowLeft" ? layout.inspectorWidth + 16 : event.key === "ArrowRight" ? layout.inspectorWidth - 16 : event.key === "Home" ? 320 : event.key === "End" ? 520 : null;
