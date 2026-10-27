@@ -67,7 +67,10 @@ class WorkbenchServer(ThreadingMixIn, HTTPServer):
         self.allowed_hosts = frozenset(urlsplit(origin).netloc for origin in origins)
 
     def process_request(self, request, client_address):
-        if not self._slots.acquire(blocking=False):
+        # Browsers open more parallel asset/API connections than handler slots.
+        # Brief bounded backpressure avoids resetting normal multitab bursts,
+        # while keeping the same four handlers and finite socket backlog.
+        if not self._slots.acquire(timeout=0.25):
             request.close()
             return
         try:
@@ -265,7 +268,7 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--web-root", type=Path, default=Path("web/dist"), help="Built frontend assets only")
     parser.add_argument('--api-only', action='store_true', help='Explicit API-only mode for the Vite development proxy')
-    parser.add_argument('--open-browser', action='store_true', help='Open the built Web UI using a 60-second single-use local session handoff')
+    parser.add_argument('--open-browser', action='store_true', help='Open the ordinary local Workbench URL')
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("port must be between 1 and 65535")
@@ -316,17 +319,15 @@ def main(argv=None):
             parser.error("Prepared storage, compatible SQLite, built frontend and an available loopback port are required; see docs/RELEASE_OPERATIONS.md")
         raise
     print(f"Axis-Evo local bridge: {server.origin}; configured projects: {len(config.projects)}")
-    if args.runtime_config and not args.open_browser:
-        print("Runtime explicitly enabled. Enter this one-use local session code in Runtime permissions:",
-              server.sessions.bootstrap_code)
-    elif args.open_browser:
+    if args.runtime_config:
+        print(f"Workbench ready: {server.origin}")
+    if args.open_browser:
         import webbrowser
         try:
-            opened = webbrowser.open(server.sessions.issue_launch(server.origin), new=2)
+            opened = webbrowser.open(server.origin, new=2)
         except Exception:
             opened = False
-        # Never print a capability-bearing URL, including on launch failure.
-        print('Local launch requested.' if opened else 'Browser launch unavailable. Restart this command with --open-browser using a supported local browser.')
+        print('Local browser requested.' if opened else f'Browser launch unavailable. Open {server.origin} in a local browser.')
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:

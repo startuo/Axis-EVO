@@ -23,7 +23,7 @@ python -m examples.workbench_dev
 python -m examples.workbench_dev --config .local/workbench-runtime/workbench.json --runtime-config .local/workbench-runtime/runtime.json
 ```
 
-`--port 8766` 可换后端端口，前端仍固定 5173；脚本只向 Node 传递经检查的 loopback 代理地址及最小环境，不传递 Provider 密钥。Vite 保留请求 Host/Origin，API 使用同源 `/api`；不开放额外 CORS。不要混用 `localhost`、5173 与生产 8765 的授权页面，会话绑定精确 origin。
+`--port 8766` 可换后端端口，前端仍固定 5173；脚本只向 Node 传递经检查的 loopback 代理地址及最小环境，不传递 Provider 密钥。Vite 保留请求 Host/Origin，API 使用同源 `/api`；不开放额外 CORS。开发 5173 与生产 8765 各自使用对应的同源页面；不要混用 `localhost` 与 `127.0.0.1`，连接绑定精确 origin。
 
 端口占用或依赖缺失时明确报错，不终止其他进程。Ctrl+C 收尾本脚本创建的进程树；如果中断活跃任务，应重新启动后审查 UNKNOWN，不能重发原审批。Backend 不自动热重载；更改 Python 后应先等待任务结束，再手动停启。安装依赖是显式步骤，启动器不自动下载代码。 Windows 开发服务只使用 kill-on-close Job 管理生命周期，不套用执行 Worker 的 512 MiB／8 进程限制；可信的 Vite 构建服务与受限任务 Worker 是不同边界。
 
@@ -62,10 +62,14 @@ python -m web_api.runtime_storage init --config .local/workbench-runtime/workben
 普通 Windows 使用 Web 自助连接 DeepSeek，不需要编辑凭据环境变量或配置文件。`.[web]` 安装固定版本的 Windows 凭据管理依赖；密钥只保存在当前用户、当前 Runtime 的 OS 凭据目标中。其它兼容服务或明确授权的本机 Gateway 继续使用管理员配置的后端凭据引用，不读取其它应用的凭据存储。
 
 ```powershell
-python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime-config .local/workbench-runtime/runtime.json --port 8765 --web-root web/dist --open-browser
+python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime-config .local/workbench-runtime/runtime.json --port 8765 --web-root web/dist
 ```
 
-启动器通过 60 秒单次能力自动建立会话，地址随即清理；无须复制会话代码。会话 Cookie 为 HttpOnly/SameSite=Strict，CSRF 仅保存在页面内存；刷新和新标签可恢复会话。服务重启后重新使用 `--open-browser`，新页连接后旧标签刷新即可恢复。没有从网页签发启动能力的接口。启动器不可用时给出重新打开提示，终端代码只作为高级 fallback；应用不持久化授权值或重发任务。
+直接打开 `http://127.0.0.1:8765` 即可使用。`--open-browser` 只是可选的自动打开浏览器功能，打开相同的普通地址，不携带 token，也不是使用前提。刷新、新标签、浏览器重启、会话到期或服务重启后，页面自动建立或恢复连接，没有会话代码输入或解锁页面。
+
+前端以带 `X-Axis-Bootstrap: 1` 的空 JSON POST 请求 `/api/runtime/session/bootstrap`；后端先核验精确 loopback Host/Origin，再在锁内复用该 origin 的有效内存会话。同一服务、同一 origin 的浏览器共享该单用户会话，并发首次加载不竞争不同的 Cookie/CSRF。会话最多 64 个、有效期一小时，服务重启全部失效；Cookie 为 HttpOnly/SameSite=Strict，CSRF 只在页面内存，不建立会话的 GET，也不写主密钥文件。旧代码及 launch 交换端点仅为本地脚本兼容保留，不由当前 UI 或 CLI 使用，不在日常流程中签发或展示能力 URL。
+
+每次提交操作前先确认会话；只有被明确拒绝为无会话的 GET 可以初始化后重读一次，POST 不会因失败、过期或丢失响应自动重发。若服务在预检与提交之间重启，操作显示未确认；重新读取持久事实后再决定下一步。离线时显示“无法连接本地服务”。同一可信 OS 用户的本机进程不在此浏览器隔离模型内；自动会话不是工具批准。
 
 打开“模型设置”，使用 DeepSeek 预设，录入 API Key，测试连接，选择已核对的模型，再开始对话。密钥输入会清空，不写入浏览器存储、URL 或配置版本；当前 API 不静默替换不同的既有密钥。高级配置与版本历史按需展开。编辑创建独立 revision；测试只说明该版本收到响应，不等于计划有效或任务完成。未支持的 Reasoning/Retry 不生效，没有自动重试。Linux 本轮未实现安全的自助密钥存储，已有后端配置仍可使用。
 

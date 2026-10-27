@@ -35,7 +35,7 @@ python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime
 
 启动会产生必要的协调器锁、临时 Worker descriptor 和监督事实。重启可追加 SUPERVISION_LOST 等事实并将未决任务显示 UNKNOWN；这不属于隐式迁移。SQLite 只读检查可能创建/维护内部 WAL/SHM sidecar。应用事实和 schema 的逻辑只读不等于数据库目录物理零变化。
 
-服务只监听 `127.0.0.1`。浏览器打开相同 origin，在权限页输入终端一次性代码；session 1 小时、代码 10 分钟，重启须重新授权。Host/Origin、HttpOnly SameSite cookie、自定义 CSRF header 都继续校验。不要反向代理到公网。停止前先等待任务结束；若被中断，重启后先审查 UNKNOWN，不重发旧批准。
+服务只监听 `127.0.0.1`。浏览器直接打开相同 origin 的普通地址；前端通过严格同源 POST 自动初始化一小时的内存会话。刷新、多标签、会话到期和重启均无手工授权步骤。`--open-browser` 可选且不携带 token。Host/Origin、HttpOnly SameSite cookie、自定义 CSRF header 都继续校验。不要反向代理到公网。停止前先等待任务结束；若被中断，重启后先审查 UNKNOWN，不重发旧批准。
 
 Vite HMR 使用 `python -m examples.workbench_dev`，启动器显式传 `--api-only`，因此不依赖 dist；仍不准备 Runtime store。`npm --prefix web run preview` 保留为 Vite 静态预览工具，不能代替产品后端。
 
@@ -78,7 +78,7 @@ python -m web_api.runtime_storage upgrade-copy --config C:/absolute/workbench.js
 
 upgrade-copy 锁住已停用的源协调器，在新目录复制 metadata，校验已有 schema 后仅补齐支持的空初始化阶段。拒绝弱/未知 schema、非空但缺 job 的旧历史，不伪造 job、workspace 或 Worker。源逻辑事实不迁移；未知损坏需保留并独立审查。它不迁移 Core、不启动/重放任务，也不表示完整恢复成功。
 
-恢复应先在隔离副本验证 SQLite quick_check/FK、schema、任务文件 hash 和配置。当前运行事实含绝对 workspace_path，支持回到原绝对路径的离线恢复；**不支持透明目录搬迁或改写历史路径**。恢复完整文件集合后再运行正常 startup guard，重新建立会话，检查已完成及 UNKNOWN 历史，没有恢复授权的任务不得执行。数据库、任务文件必须来自同一个停用窗口。
+恢复应先在隔离副本验证 SQLite quick_check/FK、schema、任务文件 hash 和配置。当前运行事实含绝对 workspace_path，支持回到原绝对路径的离线恢复；**不支持透明目录搬迁或改写历史路径**。恢复完整文件集合后再运行正常 startup guard，由页面自动建立连接，检查已完成及 UNKNOWN 历史，没有恢复授权的任务不得执行。数据库、任务文件必须来自同一个停用窗口。
 
 代码回退须保留新旧数据快照，选择与 schema 相符的 checkout/完整 dist；没有自动 downgrade 或数据库逆迁移。不要用强制 Git reset 或旧版本强行打开未知 schema。
 

@@ -69,7 +69,7 @@ def main():
         parser.error("A new, unredirected output directory is required; existing data was not overwritten")
     print("Prepared local example:", base)
     print("Manual example admission only; no Trust Evaluator evidence or model request was produced.")
-    print("Configure the selected credential environment variable in the server terminal; never in the browser.")
+    print("Open model settings to connect DeepSeek on Windows. Other providers use administrator-configured backend credential references.")
 
 
 if __name__ == "__main__":

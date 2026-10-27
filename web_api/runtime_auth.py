@@ -1,4 +1,4 @@
-"""Short-lived local launch authorization, separate from model credentials."""
+"""Ephemeral first-party local sessions, separate from model credentials."""
 
 import hmac
 import hashlib
@@ -37,11 +37,12 @@ def _origin(value):
 
 
 class RuntimeSessions:
-    """One launch code creates one origin-bound session; no persistent tokens.
+    """Bounded origin-bound sessions for a single trusted OS user.
 
     The HTTP layer must additionally enforce its exact Host/Origin allowlist,
-    Fetch Metadata and JSON/custom-header boundary. This is local-user launch
-    authorization, not authentication against a compromised operating system.
+    Fetch Metadata and JSON/custom-header boundary. Browsers on the same origin
+    share an ephemeral session. Same-user OS processes are outside this boundary.
+    Code/capability methods remain for local API compatibility, not normal startup.
     """
 
     def __init__(self, bootstrap_code=None):
@@ -86,6 +87,20 @@ class RuntimeSessions:
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         self._sessions[token] = (csrf, origin, now + SESSION_TTL_SECONDS)
         return token, csrf
+
+    def initialize(self, origin):
+        """Idempotent first-party POST bootstrap, including concurrent tabs.
+
+        Sharing one live session per origin avoids cookie/CSRF response races
+        when several tabs have no cookie yet. No token survives server restart.
+        """
+        origin = _origin(origin)
+        with self._lock:
+            now = time.monotonic()
+            for token, (csrf, bound_origin, deadline) in self._sessions.items():
+                if bound_origin == origin and now < deadline:
+                    return token, csrf
+            return self._new_session(origin, now)
 
     def issue_launch(self, origin):
         """Trusted local launcher only. There is deliberately no HTTP issuer."""

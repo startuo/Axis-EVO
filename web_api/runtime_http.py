@@ -212,13 +212,19 @@ class RuntimeHandler(WorkbenchHandler):
             if not path.startswith("/api/runtime/"):
                 return self._unsupported_method()
             origin = self._origin(mutation=True)
-            if path in ('/api/runtime/session', '/api/runtime/session/launch'):
+            if path in ('/api/runtime/session', '/api/runtime/session/launch', '/api/runtime/session/bootstrap'):
+                transparent = path.endswith('/bootstrap')
+                if transparent and self.headers.get_all('X-Axis-Bootstrap', []) != ['1']:
+                    raise ApiError('ORIGIN_REJECTED', 'First-party session initialization requires its local header.', 403)
                 body = self._body()
                 field = 'capability' if path.endswith('/launch') else 'code'
-                if body.keys() != {field}:
+                if body.keys() != (set() if transparent else {field}):
                     raise ApiError("INVALID_SESSION", "An exact local authorization body is required.")
-                session, csrf = (self.server.sessions.redeem_launch(body[field], origin) if field == 'capability'
-                                 else self.server.sessions.create(body[field], origin))
+                if transparent:
+                    session, csrf = self.server.sessions.initialize(origin)
+                else:
+                    session, csrf = (self.server.sessions.redeem_launch(body[field], origin) if field == 'capability'
+                                     else self.server.sessions.create(body[field], origin))
                 # Secure requires HTTPS; this explicitly loopback HTTP listener
                 # uses HttpOnly/SameSite and never claims transport encryption.
                 self.send_response(200)

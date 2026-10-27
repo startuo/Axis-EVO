@@ -1,4 +1,5 @@
 import { validateCoreData } from "./api";
+import { createSessionInitializer } from './runtimeSession';
 import type { RunView } from "./types";
 
 export type SkillRef = { skill_id: string; skill_version: number };
@@ -140,11 +141,11 @@ export class RuntimeError extends Error {
   constructor(public code: string, message: string) { super(message); }
 }
 const errorMessages: Record<string, string> = {
-  AUTH_REQUIRED: "本地会话未连接，请从本地启动器重新打开页面。",
-  SESSION_REQUIRED: "本地会话已失效，请重新开启。",
-  CSRF_INVALID: "当前会话授权已失效，请重新开启本地会话。",
-  CSRF_REQUIRED: "请重新开启本地会话以获得本次页面的授权。",
-  CSRF_REJECTED: "当前页面授权已失效，请重新连接本地会话；没有重发操作。",
+  AUTH_REQUIRED: "正在恢复本地连接；没有重发操作。",
+  SESSION_REQUIRED: "本地连接已更新，请查看真实记录后继续；没有重发操作。",
+  CSRF_INVALID: "当前页面连接已更新；没有重发操作。",
+  CSRF_REQUIRED: "当前页面连接需要更新；没有重发操作。",
+  CSRF_REJECTED: "当前页面连接已更新，请查看真实记录后继续；没有重发操作。",
   SESSION_ORIGIN_REJECTED: "会话与当前页面地址不一致，请使用启动终端给出的地址重新连接。",
   MODEL_DISCOVERY_FAILED: "模型发现失败。请检查本地网关、端口与后端凭据；没有更换模型或重试。",
   MODEL_DISCOVERY_UNSUPPORTED: "当前配置不支持模型发现，请选择已授权的本地网关。",
@@ -166,7 +167,7 @@ export function validateRuntimeData(path: string, data: unknown, mutating = fals
   if (path === "/capabilities") {
     if (!object(data) || typeof data.enabled !== "boolean" || typeof data.authenticated !== "boolean" || !list(data.projects) || !data.projects.every((p) => object(p) && text(p.id) && text(p.name) && list(p.skills) && p.skills.every(skillRef)) || !list(data.allowedTools) || !data.allowedTools.every(text) || !list(data.blockedTools) || !data.blockedTools.every(text) || !list(data.limitations) || !data.limitations.every(text)) reject();
     if (object(data) && (data.supportsConversations !== undefined && typeof data.supportsConversations !== 'boolean' || data.supportsReplies !== undefined && typeof data.supportsReplies !== 'boolean' || data.maximumPromptCodepoints !== undefined && (!integer(data.maximumPromptCodepoints) || data.maximumPromptCodepoints < 1 || data.maximumPromptCodepoints > 8192) || list(data.projects) && !data.projects.every(p => object(p) && (p.taskTemplates === undefined || list(p.taskTemplates) && p.taskTemplates.length <= 9 && p.taskTemplates.every(t => object(t) && text(t.id) && text(t.name) && (t.readPolicy === undefined || readScope(t.readPolicy))))))) reject();
-  } else if (path === "/session" || path === '/session/launch') {
+  } else if (path === "/session" || path === '/session/bootstrap') {
     if (!object(data) || typeof data.csrfToken !== "string" || data.csrfToken.length < 16 || data.csrfToken.length > 256) reject();
   } else if (path === "/providers" && !mutating) {
     if (!object(data) || !list(data.profiles) || !data.profiles.every(profile) || !nullableText(data.activeProfileId) || !list(data.endpoints) || !data.endpoints.every(text) || !list(data.credentialRefs) || !data.credentialRefs.every((ref) => object(ref) && text(ref.id) && typeof ref.configured === "boolean") || !list(data.unsupportedOptions) || !data.unsupportedOptions.every(text)) reject();
@@ -253,16 +254,21 @@ export function validateTurnBinding(summary: RuntimeTurnSummary, turn: RuntimeTu
   }
 }
 
-export async function runtimeRequest<T>(path: string, options: { body?: unknown; csrfToken?: string; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
+export async function runtimeRequest<T>(path: string, options: { body?: unknown; csrfToken?: string; signal?: AbortSignal; timeoutMs?: number } = {}, recoverSession = true): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
-  if (options.csrfToken) headers["X-Axis-CSRF"] = options.csrfToken;
+  if (path === '/session/bootstrap') headers['X-Axis-Bootstrap'] = '1';
+  else if (options.body !== undefined) {
+    // Check the session BEFORE submitting a mutation, never replay it afterward.
+    const session = await initializeLocalSession();
+    headers['X-Axis-CSRF'] = session.csrfToken;
+  }
   const timeout = AbortSignal.timeout(options.timeoutMs ?? 20000);
   let response: Response;
   try {
     response = await fetch(`/api/runtime${path}`, { method: options.body === undefined ? "GET" : "POST", credentials: "same-origin", redirect: 'error', headers, body: options.body === undefined ? undefined : JSON.stringify(options.body), signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout });
   } catch {
-    throw new RuntimeError("CONNECTION_FAILED", "本地 Runtime 连接中断。状态尚不确定，请读取已记录事实；不会自动重试执行。");
+    throw new RuntimeError("CONNECTION_FAILED", "无法连接本地服务。请确认服务已启动；已提交操作的结果请查看真实记录，不会自动重发。");
   }
   if (!response.headers.get("content-type")?.includes("application/json")) throw new RuntimeError("INVALID_RESPONSE", "本地 Runtime 返回了非 JSON 响应。");
   const reader = response.body?.getReader();
@@ -284,6 +290,10 @@ export async function runtimeRequest<T>(path: string, options: { body?: unknown;
   catch { throw new RuntimeError("INVALID_RESPONSE", "Runtime 响应格式无效。"); }
   if (!response.ok) {
     const code = object(payload) && object(payload.error) && typeof payload.error.code === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(payload.error.code) ? payload.error.code : "REQUEST_REJECTED";
+    if (response.status === 401 && code === 'SESSION_REQUIRED' && options.body === undefined && recoverSession && path !== '/session' && path !== '/capabilities') {
+      await initializeLocalSession();
+      return runtimeRequest<T>(path, options, false);
+    }
     throw new RuntimeError(code, errorMessages[code] ?? "Runtime 拒绝了当前操作。请检查权限与已记录状态；未自动重试。");
   }
   if (!object(payload) || payload.schema_version !== 1 || payload.mode !== "runtime" || !("data" in payload)) throw new RuntimeError("INVALID_SOURCE", "响应不属于真实 Runtime 数据源。");
@@ -292,6 +302,7 @@ export async function runtimeRequest<T>(path: string, options: { body?: unknown;
 }
 
 const encoded = encodeURIComponent;
+const initializeLocalSession = createSessionInitializer(() => runtimeRequest<{ csrfToken: string }>('/session/bootstrap', { body: {}, timeoutMs: 5000 }));
 function verifyProfileResult<T extends { id: string; revision: number; configSha256: string }>(profile: RuntimeProfile, result: T): T {
   if (result.id !== profile.id || result.revision !== profile.revision || result.configSha256 !== profile.configSha256) throw new RuntimeError('INVALID_DATA', '连接证据与所选配置版本不一致。');
   return result;
@@ -305,9 +316,7 @@ export const runtimeApi = {
   planTurn: (project: string, id: string | null, input: TurnInput, token: string) => runtimeRequest<RuntimeConversation>(`/projects/${encoded(project)}/conversations${id ? `/${encoded(id)}/turns` : ''}`, { body: input, csrfToken: token }),
   approveTurn: (project: string, id: string, turn: RuntimeTurn, token: string) => runtimeRequest<RuntimeTurn>(`/projects/${encoded(project)}/conversations/${encoded(id)}/turns/${encoded(turn.id)}/approve`, { body: { proposalId: turn.thread.proposal!.proposalId, approvedPlanSha256: turn.thread.proposal!.planSha256 }, csrfToken: token }),
   capabilities: (signal?: AbortSignal) => runtimeRequest<RuntimeCapabilities>("/capabilities", { signal }),
-  session: (code: string) => runtimeRequest<{ csrfToken: string }>("/session", { body: { code } }),
-  launchSession: (capability:string)=>runtimeRequest<{csrfToken:string}>('/session/launch',{body:{capability},timeoutMs:5000}),
-  restoreSession: (signal?: AbortSignal) => runtimeRequest<{ csrfToken: string }>("/session", { signal }),
+  initializeSession: initializeLocalSession,
   profiles: (signal?: AbortSignal) => runtimeRequest<RuntimeProfiles>("/providers", { signal }),
   enrollCredential:(presetId:string,apiKey:string,token:string)=>runtimeRequest<{presetId:'deepseek';configured:true;storage:'WINDOWS_CREDENTIAL_MANAGER'}>('/credentials/enroll',{body:{presetId,apiKey},csrfToken:token}),
   profileHistory: (id: string, signal?: AbortSignal) => runtimeRequest<ProviderHistory>(`/providers/${encoded(id)}/history`, { signal }),

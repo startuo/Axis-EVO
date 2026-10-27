@@ -1,3 +1,75 @@
+<!-- LOCAL_SESSION_CURRENT_START -->
+# Transparent local sessions — 2026-10-26
+
+**普通本地地址直接进入工作台；版本保持 0.1.0 Preview，判定 PREVIEW_CONTINUES。** 初始 Git `70272d80c01354b5b050200c8ddc275822b5a721`。被测生产集合 SHA-256 `863b23da01d2a4e260aa36c747b2a62a2706e625569427da2c8cc53f479eb495`，197 项，包含实现与必要说明、不含本结果文档。实现及后续身份记录分开提交；不可变身份在发布前逐文件核对。
+
+默认启动地址为 `http://127.0.0.1:8765`；`--open-browser` 可选，传给浏览器的也是这个普通地址。正常 CLI 不再显示会话代码、不签发 launch URL；前端删除 fragment 交换、解锁表单、会话卡和会话连接入口。输入区同时显示模型 ID，页眉不重复整段输入，普通错误不显示会话技术代码。
+
+## 会话与安全决定
+
+同源前端以带 `X-Axis-Bootstrap: 1` 的空 JSON POST 初始化；精确 Host/Origin 和原有请求边界先执行。同一可信 OS 用户、同一 origin 复用锁内的有限内存会话；并发首次标签页不会互相覆盖 Cookie/CSRF。Cookie 为 HttpOnly/SameSite=Strict，一小时到期，服务重启后重建；不创建持久主 token 或明文密钥文件，不以 GET 建立会话。旧 code/launch API 仅为既有本地脚本兼容保留，当前 UI/CLI 不使用。
+
+每次提交操作前先确认连接；被明确拒绝为 SESSION_REQUIRED 的 GET 可初始化后重读一次，POST 不自动重放。会话检查与精确 Plan 批准、dispatch、独立验收分别执行，UNKNOWN 不重新解释。保留 loopback 绑定、精确 Origin/Host、CSRF、无宽松 CORS、工作区/工具白名单及 Provider 密钥隔离。同一 OS 用户的恶意进程不在浏览器隔离模型内。
+
+真实多标签测试发现原 HTTP 服务占满四槽时立即断开后续连接。以先失败的实际 HTTP 用例复现后，增加最多 250ms 的有界接纳等待；仍为四个 handler 和有限 backlog。相同双标签八轮导航复测无请求失败，未放宽执行或网络权限。
+
+## 发布文件明细
+
+- 后端与启动：`web_api/runtime_auth.py`、`web_api/runtime_http.py`、`web_api/app.py`、`examples/workbench_runtime.py`。
+- 前端：`web/src/components/runtime/RuntimePermissions.tsx`、`web/src/components/runtime/RuntimeWorkbench.tsx`、`web/src/hooks/useRuntimeWorkbench.ts`、`web/src/lib/runtime.ts`、新增 `web/src/lib/runtimeSession.ts`、删除 `web/src/lib/runtimeLaunch.ts`。
+- 文档：`docs/WORKBENCH_SETUP.md`、`docs/CONVERSATION_WORKBENCH.md`、`docs/RELEASE_OPERATIONS.md`、`docs/WORKBENCH_UI_SPEC.md`、`docs/TEST_RESULTS.md`。
+
+## 本轮实际验证
+
+环境：Windows 11 x64、i9-12900H/20 逻辑处理器；普通 CPython 3.13.5 / SQLite 3.49.1、Node 24.14.0 / npm 11.9.0、Edge 156.0.4314.42。原始失败、退出码、截图、私有测试与 fixture 留在本地；未加入公共 Git。
+
+| 检查 | 结果 |
+|---|---|
+| 完整 backend：`python -m pytest -q -ra tests web_api/tests --tb=short` | 3126 passed, 14 skipped, 784 warnings in 1503.69s (0:25:03)；退出码 0，3140 collected |
+| 会话、旧兼容、实际 HTTP 专项 | 29 passed；并发首次加载、有效/过期/重启、精确开发 origin、缺失/重复 Origin、伪造 Host、跨站、无效 CSRF、方法及正文拒绝、无 Core 副作用 |
+| 正式 CLI / 启动 / 会话专项 | 26 passed；正常执行、Crash B UNKNOWN、重启和原路径离线恢复断言保留 |
+| Frontend unit / typecheck / lint / build | 263 passed，26 files；类型、lint 和构建通过，lint 0 warnings |
+| 会话生命周期真实浏览器 | 9 passed；普通 URL、StrictMode 实际入口、并发标签、刷新、过期、后端重启、浏览器进程重启、实际跨源拒绝、丢 ACK 不重放、Reply Worker 中断与重启 |
+| Runtime 浏览器 | 4 passed；1440/1024/390，实际 HTTP/SQLite/Worker/Runner/文件/Acceptance、范围读取、单次批准、UNKNOWN、正文、键盘、明暗、导航 |
+| Skill 演化浏览器 | 9 passed；真实产品的 Candidate/SHADOW/Gate/晋升/激活/后续 Runner 复用及明暗视觉；Provider 为明确的离线 TCP 替身 |
+| 默认浏览器回归 | 27 passed；六尺寸、键盘、转义和采样可访问性 |
+| 新环境安装 | 新 venv 中 `pip install -e ".[web]"` 通过；独立空目录 `npm ci` 安装 321 包、audit 0 vulnerabilities；不是全依赖安全认证 |
+| Vite 开发模式 | 真实 5173 → 8792 代理入口、自动会话及刷新通过；Host/Origin 不改写，无手工代码 |
+| 真正 DeepSeek | 原生 Windows 凭据录入及重启加载、CONNECTED；5 条实际回复（含多轮/长中文/英文/Markdown/刷新/切换）及 2 次实际模型文件任务；每次精确批准后 config.txt 为 timeout=20，Core COMPLETED、VALIDATION_PASSED 和 RUN_COMPLETED 均存在 |
+| 新 Linux / 长时间 soak / 其它浏览器 | NOT RUN；不沿用此前结果冒充本轮认证 |
+
+最终14 skipped为13项 Windows symlink 权限和1项 POSIX FIFO；784 warnings来自冻结 `validators.py` 的 `PureWindowsPath.is_reserved()` 弃用提示，未过滤。Node 的 NO_COLOR/FORCE_COLOR 提示保留。
+
+首轮完整运行保留为 `2 failed, 3121 passed, 14 skipped, 784 warnings`：两项旧生产 CLI 测试等待被移除的终端代码而超时。原件已留存，只把连接步骤改为普通 URL 就绪和同源 bootstrap，执行、Crash B、重启、备份/恢复断言不变；专项通过后重跑了上述完整回归。初始新增行为的 RED、并发连接 reset、过时前端断言、选择器和 fixture 配置错误、遗漏 stages、错误 cwd 和未用 import 均保留，不能将这些尝试重写为一次全绿。
+
+真实 Provider 的直连最初被 endpoint_policy 拒绝：本机 DNS 为 198.18.x.x。仅在全新隔离配置使用既有显式限时 CONNECT 机制，固定公网目标、保留官方 TLS/SNI/Host；未修改 Provider transport、关闭 TLS 校验或使用隐式代理 fallback。代理最终 peer 未独立观测；路由到期后仍拒绝新调用，历史事实可读。真实凭据只在 OS vault/后端内存，未写入 Git 或审查材料。
+
+## Preview Bug Register
+
+共用来源：初始 `70272d8`，Windows 上述环境。修复代码与本节被测实现相同，提交后按不可变身份核对。所有失败历史保留。
+
+| ID / 分类 / 优先级 | 复现、预期与实际 | 持久状态 / 根因 / 处理 / 复测 |
+|---|---|---|
+| LS-01 UX_IMPROVEMENT P0 | 直接打开普通 URL 应进入可用工作台；旧流程依赖 CLI 能力或终端代码、重启后重新授权 | 仅会话内存改变；旧入口设计所致；透明 bootstrap 与 UI 清理完成；HTTP/浏览器正反例通过 |
+| LS-02 CONFIRMED_BUG P1 | 两标签并行资源/读取在四槽短暂占满时应等待；旧服务立即 reset | 无持久变化；非阻塞 acquire 后直接 close 已由独立 RED 证明；250ms 有界等待修复；HTTP GREEN、同条件八轮双标签零失败 |
+| LS-03 CONFIRMED_BUG P2 | 新例子应引导当前 Windows 自助模型设置；旧终端提示却要求环境变量且称不能在浏览器录入 | 无持久变化；说明滞后；已修正示例 CLI 提示；新环境与正式 CLI 用例通过 |
+| LS-04 ENVIRONMENT_LIMITATION P1 | 官方 Provider 应可连接；本机 Fake-IP 直连被 endpoint_policy 拒绝 | 失败连接测试事实保留；当前 DNS 已确认，不能外推所有旧失败同因；显式隔离路由后 CONNECTED、实际回复和文件任务通过，路由仍有到期限制 |
+| LS-05 UX_IMPROVEMENT P2 | 页眉重复整段输入，模型控件只显示配置名，错误显示会话技术码 | 无执行状态改变；已简化页眉、显示模型 ID、使用可读错误；最终前端与 Runtime 浏览器通过 |
+
+原始日志/截图位置由本地审查记录索引，不发布秘密、Cookie、私有 Oracle 或个人文件。确认的修复不会删除历史执行、失败 Trial 或 UNKNOWN。
+
+## 实测性能与边界
+
+会话浏览器本次冷启动到 HTTP 就绪为单样本900ms，后续三次进程启动367/374/385ms；首次工作台可见443ms。真实已完成任务打开275/267/282ms，刷新372/278/295ms。一次真实短回复从提交到正文可见2356ms，包含 bootstrap、Worker、外网和轮询。共享主机、有缓存与采样条件不同，不作统计提速结论。最终入口473.91kB/gzip149.81kB；Markdown 仍按需加载117.54kB。一次页面观察337 DOM 节点、JS heap约12MB，不证明长期无泄漏。费用/tokens 未完整留存，不编造成本统计。
+
+冻结核对：62个已跟踪 Core 文件与5个 Web SQL 文件相对初始提交逐字节不变；没有新迁移、Core/研究协议重写、任意 shell、自动晋升、UNKNOWN 重派、EXE、GA/tag 或版本上调。聊天最多保留最近4项有界历史；任务最多16轮，48KiB上下文，最多8文件/单文件8KiB/合计16KiB。持久历史不等于无限模型记忆，当前无向量记忆/RAG承诺。
+
+毕业演示步骤见 [对话与任务](CONVERSATION_WORKBENCH.md#五至十分钟毕业演示)：自然对话 → 一次批准文件任务 → 实际 Skill 演化与复用 → Inspector → 隔离 UNKNOWN。工程夹具不证明 Skill 因果改善或泛化。
+
+**Holdout NOT_FROZEN_NOT_RUN，论文主实验 NOT_STARTED；本地预览与毕业演示闭环已验证，继续 PREVIEW_CONTINUES。** 以下各节为历史结果。
+
+<!-- LOCAL_SESSION_CURRENT_END -->
+
 <!-- AGENT_UX_CURRENT_START -->
 # Conversation-first Workbench — 2026-10-25
 

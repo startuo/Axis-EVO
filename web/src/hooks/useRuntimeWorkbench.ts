@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { runtimeApi, RuntimeError, validateTurnBinding, type RuntimeCapabilities, type RuntimeProfiles, type RuntimeThread, type RuntimeThreadSummary, type RuntimeConversation, type RuntimeTurn } from "../lib/runtime";
-import {completeLaunchHandoff} from '../lib/runtimeLaunch';
 
 const active = (status: string) => ["QUEUED", "PLANNING", "DISPATCH_RESERVED", "EXECUTING"].includes(status);
 
@@ -39,6 +38,7 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
   const authorizationEpoch = useRef(0);
   const mutations = useRef(new Set<string>());
   const mounted = useRef(true);
+  const sessionReady = useRef(false);
   const project = capabilities?.projects.find(item => item.id === projectId);
   const rows = catalog.project === projectId && token ? catalog.data : [];
   const scope = `${projectId}:${parsed.conversationId ?? parsed.id ?? ""}:${parsed.turnId ?? ''}`;
@@ -60,8 +60,12 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
       setToken(null);
       setBusy('');
       setCapabilities(current => current ? { ...current, authenticated: false } : current);
+      if (sessionReady.current) {
+        sessionReady.current = false;
+        setConnectionRevision(value => value + 1);
+      }
     }
-    setError(failure instanceof RuntimeError ? `${failure.code}，${failure.message}` : "REQUEST_FAILED，操作未能确认完成。请重新读取真实记录，不会自动重试。");
+    setError(failure instanceof RuntimeError ? failure.message : "操作未能确认完成。请重新读取真实记录，不会自动重试。");
   }, []);
   const reload = useCallback(() => setRevision(value => value + 1), []);
   const refresh = useCallback(() => { authorizationEpoch.current++; setConnectionRevision(value => value + 1); setRevision(value => value + 1); }, []);
@@ -73,22 +77,24 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     const requestAuthorization = authorizationEpoch.current;
     void (async () => {
       try {
-        const handoffConfirmed=await completeLaunchHandoff();
-        if(controller.signal.aborted||authorizationEpoch.current!==requestAuthorization)return;
         const current = await runtimeApi.capabilities(controller.signal);
         if (controller.signal.aborted || authorizationEpoch.current !== requestAuthorization) return;
-        setCapabilities(current);
         setSelectedProject(selected => selected || current.projects[0]?.id || "");
-        if (!current.enabled || !current.authenticated) {
+        if (!current.enabled) {
+          sessionReady.current = false;
           setToken(null);
-          if(!handoffConfirmed)setError('未能确认本地启动授权。请从启动器重新打开页面；没有重发任务。');
-        }
-        if (current.enabled && current.authenticated) {
-          try { const restored = await runtimeApi.restoreSession(controller.signal); if (!controller.signal.aborted && authorizationEpoch.current === requestAuthorization) setToken(restored.csrfToken); }
-          catch { if (!controller.signal.aborted && authorizationEpoch.current === requestAuthorization) { setToken(null); setCapabilities(value => value ? { ...value, authenticated: false } : value); } }
+          setCapabilities(current);
+        } else {
+          const session = await runtimeApi.initializeSession();
+          if (controller.signal.aborted || authorizationEpoch.current !== requestAuthorization) return;
+          sessionReady.current = true;
+          setToken(session.csrfToken);
+          setCapabilities({ ...current, authenticated: true });
         }
       } catch (failure) {
         if (!controller.signal.aborted) {
+          sessionReady.current = false;
+          setToken(null);
           setCapabilities({ enabled: false, authenticated: false, projects: [], allowedTools: [], blockedTools: ["run_tests"], limitations: ["当前服务未启用 Runtime，或无法连接。"] });
           reportError(failure);
         }
@@ -183,19 +189,6 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     navigate("/runtime");
   }
   function selectProject(id: string) { setSelectedProject(id); go("/runtime"); }
-  async function unlock(code: string) {
-    if (mutations.current.has("session")) return;
-    mutations.current.add("session"); const requestEpoch = epoch.current;
-    const requestAuthorization = ++authorizationEpoch.current;
-    setBusy("session"); setError("");
-    try {
-      const data = await runtimeApi.session(code);
-      if (!mounted.current || authorizationEpoch.current !== requestAuthorization) return;
-      setToken(data.csrfToken); setCapabilities(current => current ? { ...current, authenticated: true } : current); setConnectionRevision(value=>value+1); reload();
-      if (epoch.current === requestEpoch) go("/runtime");
-    } catch (failure) { if (mounted.current && epoch.current === requestEpoch) reportError(failure); }
-    finally { mutations.current.delete("session"); if (mounted.current && epoch.current === requestEpoch) setBusy(""); }
-  }
   async function plan() {
     if (!token || !profile?.credentialConfigured || !project || !prompt.trim() || !promptValid || !isChat && !skill || parsed.conversationId && (isChat ? !sessionConversation?.canChat : !sessionConversation?.canContinue)) return;
     const requestEpoch = epoch.current;
@@ -253,5 +246,5 @@ export function useRuntimeWorkbench(route: string, navigate: (path: string) => v
     finally { mutations.current.delete(key); if (mounted.current && epoch.current === requestEpoch) setBusy(""); }
   }
   const canPlan = !!token && !!project && !!profile?.credentialConfigured && (isChat || !!skill) && !!prompt.trim() && promptValid && !busy && (!parsed.conversationId || (isChat ? !!sessionConversation?.canChat : !!sessionConversation?.canContinue));
-  return { parsed, capabilities, initializing, token, error, setError, busy, projectId, project, profiles, selectedProfile, setSelectedProfile, selectedSkill, setSelectedSkill, selectedTemplate, setSelectedTemplate, rows, thread, sessionConversation, selectedTurn, openTurn, loadingThread, prompt, promptLength, promptLimit, promptValid, setPrompt: (value: string) => setDrafts(current => ({ ...current, [draftKey]: value })), conversation, reportError, reload, refresh, go, openThread, newConversation, selectProject, unlock, plan, approve, canPlan, profile, skill, isChat, interactionMode, setInteractionMode };
+  return { parsed, capabilities, initializing, token, error, setError, busy, projectId, project, profiles, selectedProfile, setSelectedProfile, selectedSkill, setSelectedSkill, selectedTemplate, setSelectedTemplate, rows, thread, sessionConversation, selectedTurn, openTurn, loadingThread, prompt, promptLength, promptLimit, promptValid, setPrompt: (value: string) => setDrafts(current => ({ ...current, [draftKey]: value })), conversation, reportError, reload, refresh, go, openThread, newConversation, selectProject, plan, approve, canPlan, profile, skill, isChat, interactionMode, setInteractionMode };
 }

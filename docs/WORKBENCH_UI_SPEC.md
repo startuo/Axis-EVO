@@ -46,7 +46,7 @@
 
 连接测试不证明有效 Plan、工具成功或任务完成；编辑创建新 revision，历史线程保留原快照。未支持参数明确标为不生效，不显示虚假的 reasoning 状态。
 
-正常入口由 CLI `--open-browser` 通过短期单次 fragment 能力建立 HttpOnly 会话，然后清理 URL。刷新、多标签和重启后的新启动页不要求手工代码；终端代码仅保留高级 fallback。网页不能签发启动能力。Host、Origin、CSRF 和精确 endpoint 授权不变。
+正常入口为普通 loopback URL，`--open-browser` 可选且打开同一地址。前端通过精确同源 POST 自动建立 HttpOnly 会话；刷新、多标签、过期和重启自动连接。正常界面不提供会话代码表单、解锁页或会话状态卡；权限页保留真正的文件工具边界。Host、Origin、CSRF 和精确 endpoint 授权继续在后端校验。输入区同时显示配置名与模型 ID；对话页眉不重复整段用户输入，正常错误提示不展示会话技术代码。
 
 ## 状态与安全内容
 
