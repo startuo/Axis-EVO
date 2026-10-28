@@ -69,10 +69,11 @@ def require_base_schema(c):
 
 
 def require_complete_schema(c):
-    from . import conversation_store, evolution_store
+    from . import conversation_store, evolution_store, feedback_store
     require_base_schema(c)
     conversation_store.guard(c)
     evolution_store.guard(c)
+    feedback_store.guard(c)
     from .conversation_replies import reply_guard
     reply_guard(c)
     from .runtime_read_policy import guard
@@ -122,7 +123,7 @@ def require_existing_runtime(config, workbench):
 
 def _initialize_metadata(providers):
     from .runtime_service import _schema_objects, _expected_schema, _SCHEMA
-    from . import runtime_jobs, conversation_store, evolution_store
+    from . import runtime_jobs, conversation_store, evolution_store, feedback_store
     with closing(providers.connect()) as c:
         existing = _schema_objects(c)
         if existing and existing != _expected_schema():
@@ -135,6 +136,7 @@ def _initialize_metadata(providers):
             runtime_jobs.initialize(c)
             conversation_store.initialize(c)
             evolution_store.initialize(c)
+            feedback_store.initialize(c)
             from .conversation_replies import initialize_reply_schema
             initialize_reply_schema(c)
             from .runtime_read_policy import initialize

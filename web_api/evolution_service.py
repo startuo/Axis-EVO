@@ -165,6 +165,9 @@ class EvolutionService:
 
     def _case(self, project_id, identity):
         intent = self._load(project_id, identity, 'CASE_INTENT')
+        if 'feedbackSource' in intent['body']:
+            from .task_feedback import FeedbackService
+            FeedbackService(self.runtime, self).verify_case(project_id, intent)
         result = one(self._children(project_id, identity, 'CASE_RESULT'))
         with self.core(project_id) as c:
             case = _case(c, result['body']['caseId'])
@@ -246,7 +249,7 @@ class EvolutionService:
             self.providers.check_text(canonical_json_bytes(result).decode('utf-8'))
             return result
 
-    def create_case(self, project_id, body, *, _trace=None):
+    def create_case(self, project_id, body, *, _trace=None, _feedback=None):
         with boundary():
             exact(body, ('sourceSkillRef', 'sourceCardSha256', 'evidenceSha256', 'selectedRunIds',
                          'objective', 'origin', 'observedProblem', 'profileId', 'profileRevision'))
@@ -270,7 +273,8 @@ class EvolutionService:
             selected = [r for r in preview['runs'] if r['run_id'] in body['selectedRunIds']]
             intent = self._insert(project_id, 'CASE_INTENT', {**body,
                 'provider': profile, 'selectedEvidence': selected, 'attribution': 'INDETERMINATE',
-                'revisionPolicy': REVISION_POLICY, **({'traceSource': _trace} if _trace else {})}, identity='case_' + uuid4().hex)
+                'revisionPolicy': REVISION_POLICY, **({'traceSource': _trace} if _trace else {}),
+                **({'feedbackSource': _feedback} if _feedback else {})}, identity='case_' + uuid4().hex)
             # The first Web COMMIT is the non-replayable bridge identity.
             with self.core(project_id) as c:
                 assessment = create_trust_assessment(c, ref)

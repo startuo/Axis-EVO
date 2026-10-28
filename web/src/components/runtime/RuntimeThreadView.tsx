@@ -1,5 +1,5 @@
 import { FileCheck2 } from 'lucide-react';
-import {useState} from 'react';
+import {useState,type ReactNode} from 'react';
 import type { RuntimeThread } from '../../lib/runtime';
 import { taskPresentation, toolLabels } from '../../lib/runtimePresentation';
 import { AxisLogo } from '../ui/AxisLogo';
@@ -11,7 +11,7 @@ import '../../styles/conversation.css';
 
 export const threadLabels:Record<RuntimeThread['status'],string>={QUEUED:'等待模型',PLANNING:'正在处理',AWAITING_APPROVAL:'等待批准',DISPATCH_RESERVED:'正在启动执行',EXECUTING:'执行中',FINISHED:'处理已结束',FAILED:'未能完成',UNKNOWN:'结果未能确认'};
 
-export function RuntimeThreadView({thread,busy,canAct,approve,openReview}:{thread:RuntimeThread;busy:boolean;canAct:boolean;approve:()=>void;openReview:()=>void;inConversation?:boolean}) {
+export function RuntimeThreadView({thread,busy,canAct,approve,openReview,feedback}:{thread:RuntimeThread;busy:boolean;canAct:boolean;approve:()=>void;openReview:()=>void;inConversation?:boolean;feedback?:ReactNode}) {
   const status=taskPresentation(thread);
   const events=thread.run?.events??[];
   const calls=events.filter(e=>e.type==='TOOL_INTENT');
@@ -30,6 +30,7 @@ export function RuntimeThreadView({thread,busy,canAct,approve,openReview}:{threa
       })}</ol>}
       {thread.readPolicy?.approvalSource==='POLICY'&&<p className="caption">已按项目读取策略批准，仅访问授权文件。</p>}
       {thread.proposal&&thread.status!=='AWAITING_APPROVAL'&&<details className="conversation-disclosure"><summary>原定操作</summary><RuntimeProposalReview thread={thread} busy={busy} canAct={false} onApprove={approve}/></details>}
+      {feedback}
       <details key={thread.id+'-details'} className="conversation-disclosure"><summary>任务详情</summary><div className="conversation-disclosure-body">
         {thread.errorCode&&<Field label="诊断代码" value={thread.errorCode}/>}
         <Field label="记录的模型" value={thread.profileSnapshot.modelId}/>

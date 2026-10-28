@@ -164,3 +164,11 @@
 .tool-readable-detail dl { margin: 0; }
 .tool-readable-detail dd { margin: 0; }
 .tool-readable-detail dt { color: var(--ui-text-secondary); font-size: 13px; }
+.task-feedback { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--border); }
+.task-feedback .form-actions { flex-wrap: wrap; gap: 12px; }
+.task-feedback label { display: grid; gap: 6px; margin: 10px 0; }
+.task-feedback textarea, .task-feedback select { width: 100%; }
+.task-feedback .evolution-checkbox { display: flex; align-items: flex-start; }
+.feedback-record { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.feedback-comment { white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback-revision { padding-top: 12px; }

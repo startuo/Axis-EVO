@@ -23,6 +23,8 @@ class RuntimeServer(WorkbenchServer):
             self.conversations = ConversationService(runtime)
             from .evolution_service import EvolutionService
             self.evolution = EvolutionService(runtime)
+            from .task_feedback import FeedbackService
+            self.feedback = FeedbackService(runtime, self.evolution)
             from .conversation_replies import ReplyService
             self.replies = ReplyService(runtime)
             self.RequestHandlerClass = RuntimeHandler
@@ -147,6 +149,10 @@ class RuntimeHandler(WorkbenchHandler):
             return {"csrfToken": self.server.sessions.resume(self._cookie(), self._origin())}
         self._authenticated()
         parts = path.strip("/").split("/")
+        if len(parts) == 7 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'threads' and parts[6] == 'feedback':
+            return self.server.feedback.list(parts[3], parts[5])
+        if len(parts) == 6 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'feedback':
+            return self.server.feedback.get(parts[3], parts[5])
         if parts == ["api", "runtime", "providers"]:
             value=runtime.providers.list()
             if self.server.credential_manager is not None:
@@ -242,7 +248,16 @@ class RuntimeHandler(WorkbenchHandler):
             body = self._body()
             runtime, parts = self.server.runtime, path.strip("/").split("/")
             status = 200
-            if parts == ['api','runtime','credentials','enroll']:
+            if len(parts) == 7 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'threads' and parts[6] == 'feedback':
+                result = self.server.feedback.submit(parts[3], parts[5], body)
+                status = 201
+            elif len(parts) == 7 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'feedback' and parts[6] == 'revision-proposals':
+                result = self.server.feedback.prepare_revision(parts[3], parts[5], body)
+                status = 201
+            elif len(parts) == 7 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'feedback-revisions' and parts[6] == 'authorize':
+                result = self.server.feedback.authorize_revision(parts[3], parts[5], body)
+                status = 201
+            elif parts == ['api','runtime','credentials','enroll']:
                 if self.server.credential_manager is None:
                     raise ApiError('CREDENTIAL_STORE_UNAVAILABLE','Secure credential enrollment is unavailable.',503)
                 result=self.server.credential_manager.enroll(body)

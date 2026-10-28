@@ -11,6 +11,7 @@ import { RuntimePermissions } from "./RuntimePermissions";
 import { RuntimeThreadView, threadLabels } from "./RuntimeThreadView";
 import { RuntimeContext } from './RuntimeContext';
 import { RuntimeConversationFeed } from './RuntimeConversationFeed';
+import {RuntimeFeedback} from './RuntimeFeedback';
 const RuntimeProviders = lazy(() => import("./RuntimeProviders")
   .then(module => ({ default: module.RuntimeProviders })));
 const SkillEvolutionWorkbench = lazy(() => import("../skills/SkillEvolutionWorkbench")
@@ -92,7 +93,7 @@ export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: st
     {data.error && <div className="cds-home-error" role="alert"><span>{data.error}</span><button type="button" className="icon-button" aria-label="关闭提示" onClick={() => data.setError("")}><X size={13} /></button></div>}
   </form>;
   const permissions = data.capabilities?.enabled ? <RuntimePermissions capabilities={data.capabilities} /> : <EmptyState title="真实运行尚未启用" action={<button className="button secondary" onClick={() => go("/workbench")}>打开演示 / Core 只读</button>}>请按工作台启动说明开启本地运行，再刷新连接。</EmptyState>;
-  const turnContent = thread ? <RuntimeThreadView key={thread.id} thread={thread} busy={data.busy === "approval"} canAct={!!data.token} approve={() => void data.approve()} openReview={() => { setTab("审查"); layout.showInspector(); }} inConversation={!!parsed.conversationId} /> : <EmptyState title="线程不可用">未找到对应项目中的真实线程。</EmptyState>;
+  const turnContent = thread ? <RuntimeThreadView key={thread.id} thread={thread} busy={data.busy === "approval"} canAct={!!data.token} approve={() => void data.approve()} openReview={() => { setTab("审查"); layout.showInspector(); }} inConversation={!!parsed.conversationId} feedback={<RuntimeFeedback key={thread.id} thread={thread} token={data.token} profiles={data.profiles?.profiles??[]} onCase={id=>go(`/runtime/skills?project=${encodeURIComponent(thread.projectId)}&case=${encodeURIComponent(id)}`)}/>} /> : <EmptyState title="线程不可用">未找到对应项目中的真实线程。</EmptyState>;
   return <WorkbenchShell layout={layout} sidebar={sidebar} toolbar={toolbar} className="cds-runtime" mainId="runtime-main" resetKey={`${route}:${data.conversation}`} inspector={parsed.id || parsed.conversationId ? <RuntimeInspector key={`${data.projectId}:${parsed.id ?? data.selectedTurn?.id}`} thread={thread} tab={tab} selectTab={setTab} close={() => { if (layout.narrow) layout.setSheet(false); else layout.setInspector(false); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[aria-label="切换运行审查面板"]')?.focus()); }} /> : undefined} inspectorLabel="运行审查面板">
     <div className={`runtime-scroll cds-page-scroll ${onHome ? "cds-home-scroll" : ""}`} tabIndex={onHome ? undefined : 0} aria-label="运行页面内容">
       {onHome ? <div className="cds-home"><div className="cds-welcome"><h1>今天，想完成什么？</h1></div>{composer}</div> : <>

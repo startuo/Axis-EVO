@@ -38,7 +38,7 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
   const [filter, setFilter] = useState('ALL');
   const [rollbackVersion, setRollbackVersion] = useState('');
   const [preview, setPreview] = useState<{ ref: string; data: EvidencePreview } | null>(null);
-  const [caseId, setCaseId] = useState('');
+  const [caseId, setCaseId] = useState(() => new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('case') ?? '');
   const [report, setReport] = useState<EvolutionReport | null>(null);
   const [committedOperation, setCommittedOperation] = useState<{ caseId: string; fact: EvolutionFact } | null>(null);
   const [generation, setGeneration] = useState<RevisionGeneration | null>(null);
@@ -61,7 +61,8 @@ export function SkillEvolutionWorkbench({ projectId, token, profiles, onError, o
     }).catch(error => { if (!controller.signal.aborted) onError(error); });
     return () => controller.abort();
   }, [projectId, revision, onError]);
-  const skill = library?.skills.find(s => refLabel(s.skillRef) === selected) ?? library?.skills[0];
+  const caseSource = library?.cases.find(c => c.id === caseId)?.sourceSkillRef;
+  const skill = library?.skills.find(s => refLabel(s.skillRef) === (selected || (caseSource ? refLabel(caseSource) : ''))) ?? library?.skills[0];
   const sourceKey = skill ? refLabel(skill.skillRef) : '';
   const sourceId = skill?.skillRef.skill_id;
   const sourceVersion = skill?.skillRef.skill_version;

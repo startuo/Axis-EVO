@@ -48,6 +48,8 @@ Web 服务显式初始化独立的迁移 `web_api/migrations/013_web_skill_evolu
 
 ## 使用流程
 
+文件任务结束后可选填“符合预期 / 需要改进 / 无法判断”。已保存反馈与独立验收分别显示；更正追加新记录。可从“基于反馈改进 Skill”准备有界目标，审阅并单独授权后进入下列既有流程。反馈不会授予模型或候选权限，只有真实 Run 支持的来源可进入 EVIDENCE_DRIVEN；见 [任务反馈与受控修订](SKILL_FEEDBACK.md)。
+
 1. 选择精确版本，查看 Card 摘要、instructions、历史 Run 与归因限制。
 2. 选择历史证据，填写改进目标。`EVIDENCE_DRIVEN` 必须选实际历史 Run；`USER_REQUESTED` 可提出尚无缺陷证据的新要求。
 3. 建立 Evolution Case，再单独调用修订模型。请求固定源版本、Card、完整历史 Assessment、所选上下文和 Provider revision。

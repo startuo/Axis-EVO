@@ -176,3 +176,6 @@ npm run test:e2e
 Phase 4 / Step 4 已完成实际 DeepSeek 连接和逐轮批准的两轮文件任务，具体模型/网络边界见 `docs/INTERACTIVE_SESSIONS.md` 和测试结果；该结论不表示任意 Endpoint 已认证。可使用 `examples/live_runtime_verification.py` 分别运行 connection、plan、execute、inspect；connection/plan 必须显式提供 `--live-provider`，execute 必须另行提供审阅后的精确摘要。该 CLI 的 plan/execute/inspect 会取得同一协调器锁；先停止该数据目录的 Web Runtime，完成验证后再启动。完整命令和 Provider 参数边界见进程协议文档。
 
 交互式 Runtime 使用 Web migration 012。每个项目可额外配置 `task_templates`，例如 `{"timeout30":"C:/absolute/assets/timeout30.json"}`；验收来自后台模板，不由模型或 prompt 决定。多轮上下文、逐轮审批和 UNKNOWN 续轮限制见 [INTERACTIVE_SESSIONS.md](INTERACTIVE_SESSIONS.md)。
+## 阶段 1 任务反馈
+
+新版 Web 元数据增加 migration 018。新项目继续显式执行 `runtime_storage init`；已有数据缺少反馈 schema 时，正常启动会拒绝并要求管理员显式准备副本，不能用重启代替升级。见 [反馈说明](SKILL_FEEDBACK.md) 与 [数据维护](RELEASE_OPERATIONS.md)。反馈不改变任务批准、独立验收、Skill 状态或授权范围。

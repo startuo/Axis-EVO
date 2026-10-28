@@ -1,5 +1,6 @@
 import { validateCoreData } from "./api";
 import { createSessionInitializer } from './runtimeSession';
+import {validateFeedbackData} from './feedbackData';
 import type { RunView } from "./types";
 
 export type SkillRef = { skill_id: string; skill_version: number };
@@ -216,6 +217,8 @@ export function validateRuntimeData(path: string, data: unknown, mutating = fals
       const approvals = data.turns.map(t => (t as RuntimeTurnSummary).approvalIdentity).filter(Boolean);
       if (new Set(approvals).size !== approvals.length) reject();
     }
+  } else if (/\/feedback(?:\/|$)|\/feedback-revisions\//.test(path)) {
+    validateFeedbackData(path,data,mutating);
   } else if (/\/threads\/[^/]+\/invocations\/[^/]+$/.test(path)) {
     const route=path.split('/');
     if(!object(data)||encodeURIComponent(String(data.threadId))!==route[4]||encodeURIComponent(String(data.toolCallId))!==route[6]||!identity(data.runId,'run')||!text(data.stepId)||!['read_file','write_file','patch_file'].includes(String(data.toolName))||!object(data.arguments)||!jsonTree(data.arguments)||!text(data.intentEventId)||!integer(data.intentSeq)||data.intentSeq<1||data.source!=='COMMITTED_CORE_EVENTS') {reject();return;}
