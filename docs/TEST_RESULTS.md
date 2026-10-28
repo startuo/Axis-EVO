@@ -1,3 +1,56 @@
+<!-- FEEDBACK_PILOT_CURRENT_START -->
+# 任务反馈证据与办公 Skill 预实验准备 — 2026-10-28
+
+**阶段 1 工程验收通过，保持 0.1.0 Preview / PREVIEW_CONTINUES。** 初始 HEAD 与远端 main 为 `3845e4bee018e86622725a43cc9516a7eba98bfd`。被测公共源码清单共 206 项（包含新增 9 项，排除本结果文档以避免自引用），SHA-256 `8f55c1985ffecc78e8b4b0f53cf38c026cd49175618c87fbac973700d7deeb78`。最终提交在发布时按清单逐项核对；远端完整提交身份另由 Git 与本地发布核对记录固定。
+
+## 交付与边界
+
+原 Runtime 有精确 Skill/job/Plan/Run、独立 Acceptance、历史 Assessment 和受控 EVIDENCE_DRIVEN 修订，缺用户评价与其修订关联。本轮以 Web migration 018 的追加事实层补齐：任务下方可选反馈、刷新重看、追加更正；服务端从持久化任务与 Core 检查器派生来源；反馈/客观事实分别显示；有界目标经精确提案授权进入原 Evolution Case。无模型调用的准备与授权、模型建议、候选批准、Gate/晋升、激活保持独立。
+
+反馈 ID 不注入 Core supporting_evidence_ids。初始归因 UNDETERMINED；规划失败无 Run/独立验收，不伪造执行。UNKNOWN/不完整来源、过时历史、缺 Assessment、篡改、跨项目与越权请求均拒绝；无自动工具执行、重放、晋升或激活。架构、模型、API 与限制见 [反馈说明](SKILL_FEEDBACK.md)。
+
+办公预实验提供可校验的 6 DEVELOPMENT / 5 GATE / 3 独立 PILOT_REUSE 准备清单，复用原 dataset validator 与 Research Runner；跨 family 与跨数据集 seed/Oracle 指纹检查、修订暴露清单、配对分母、A/B/C 共享 trial、固定 0–3 人工评分和实际 wire 参数口径已定义。原始个人 Skill、真实会议材料、独立 Oracle、评价人员、Provider 与协议执行批准均未取得，不声称已准入或执行。见 [预实验协议](OFFICE_SKILL_PILOT.md)。
+
+## 本轮实际验证
+
+环境：Windows 11 x64，普通 CPython 3.13.5 / SQLite 3.49.1，Node 24.14.0 / npm 11.9.0，Edge 156.0.4314.42。后端仅远端模型 transport 使用明确工程替身；真实 Core、SQLite、文件 Runner、独立 Acceptance 与持久化关联实际运行。浏览器使用生产构建与本地 TCP 模型替身，不是外部 Provider 办公预实验。
+
+| 检查 | 本轮结果 |
+|---|---|
+| 完整后端 `python -m pytest -q -ra web_api/tests tests --tb=short` | **3156 passed, 14 skipped, 784 warnings**，3170 collected，1454.11 秒，exit 0 |
+| 新增后端/协议测试 | 30 项已纳入上述完整回归；独立定向 29 项通过，随后 8 项 pilot 检查包含新增跨数据集污染用例 |
+| 前端单元 | **265 passed / 27 files**；较初始会话基线增加 2 项 |
+| Typecheck / ESLint / production build | 全部通过，未修改依赖或锁文件 |
+| 新反馈生产构建浏览器 | **3 passed**：任务实际批准执行、反馈保存/重看/更正、原修订入口、无自动模型调用/候选、移动明暗主题、可访问性和脚本文本转义 |
+| 历史浏览器回归 | 会话 **9**，Runtime **4**，Skill 演化 **9**，默认界面 **27**，合计 **49 passed** |
+| 总浏览器最终集合 | **52 passed**；历史与新增集合分别计数，不合并重复复测次数 |
+| 冻结文件 | 67 个 Core 与历史 SQL 原始 SHA-256 全部相同；仅新增 Web 018 |
+| 原运行服务 | 8765 健康检查 HTTP 200；未升级、重启或迁移所有者现用库 |
+
+新增正反例涵盖：精确 Run/Skill/Card 来源；正负用户评价均不能改写 Acceptance；失败规划无 Run；更正追加；同身份并发一次提交/不同身份追加；真实 deferred-FK commit failure 整体回滚；UPDATE/DELETE/REPLACE 与 TEMP shadowing 拒绝；持久化篡改、敏感内容、伪造浏览器身份/验收/研究角色、缺/过时 Assessment、未授权读写、恶意反馈、修订授权中断及不重放、原 Candidate 血缘与不自动晋升、跨组 family/输入污染。
+
+14 项 skip 为既有 Windows 符号链接权限与 POSIX FIFO 能力限制，不计为通过；784 warnings 来自冻结的 `PureWindowsPath.is_reserved()` 弃用调用，未屏蔽。历史会话基线 3126/14/784、263 前端与49浏览器保留在下节，不冒称本轮新的真实 Provider 结果。
+
+预先保留的 RED、测试属性/入口/角色错误、早期浏览器失败、源码审查调整前中止的全量尝试均留本地。历史会话中断浏览器用例曾因同一 fragment 导航未强制重新加载而保留旧页面并超时；独立数据库已正确记录 INTERRUPTED，测试明确刷新后9项通过，未修改产品回复/恢复语义。本表仅列最终对应源码的实际集合，不声称全部开发尝试一次全绿。
+
+## 状态与发布范围
+
+| 状态 | 结论 |
+|---|---|
+| FEEDBACK_RECORDING | PASS_ENGINEERING_REAL_CORE |
+| FEEDBACK_SOURCE_VERIFICATION | PASS |
+| FEEDBACK_TO_REVISION | PASS_EXPLICIT_AUTHORIZATION |
+| PILOT_PROTOCOL_READY | PREPARATION_READY |
+| REAL_SKILL_AVAILABLE | PENDING_REAL_SKILL |
+| LIVE_PILOT_EXECUTED | NOT_RUN |
+| FINAL_HOLDOUT | NOT_FROZEN_NOT_RUN |
+| FORMAL_THESIS_EXPERIMENT | NOT_STARTED |
+
+本轮公共变更21项：Web 后端 `feedback_store.py`、`task_feedback.py`、018 SQL、`runtime_http.py`、`runtime_storage.py`、`evolution_service.py`；前端 `RuntimeFeedback.tsx`、`feedback.ts`、`feedbackData.ts`、`RuntimeThreadView.tsx`、`RuntimeWorkbench.tsx`、`SkillEvolutionWorkbench.tsx`、`runtime.ts`、`conversation.css`；`examples/office_skill_pilot.py`；文档 `SKILL_FEEDBACK.md`、`OFFICE_SKILL_PILOT.md`、`SKILL_EVOLUTION_WORKBENCH.md`、`RESEARCH_EXPERIMENTS.md`、`WORKBENCH_SETUP.md`、本结果文档。只按此清单提交；私有测试、fixture、原始研究材料、凭据、报告和日志均不发布。
+
+现用库启用新版需显式副本升级和重启；本轮未自动执行。尚无新 Linux 认证、真实办公 Skill 准入或 live pilot，局部摘要检查不认证恶意 OS 用户，跨 Web/Core 提交仍需人工处理缺回执。下一步仅建议由所有者提供明确 Skill 路径及脱敏材料、独立 Oracle/评价人员，冻结并单独批准探索性预实验；不自动进入该阶段。
+<!-- FEEDBACK_PILOT_CURRENT_END -->
+
 <!-- LOCAL_SESSION_CURRENT_START -->
 # Transparent local sessions — 2026-10-26
 

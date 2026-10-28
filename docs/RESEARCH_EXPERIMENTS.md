@@ -41,3 +41,6 @@ A 固定原 TRUSTED v1；B 在封闭模拟使用同一精确候选，不能绕�
 产品 Web 只读取管理员放在固定 `data_dir/research/<project_id>/experiment_<uuid>` 根下的最多八个快照；浏览器不能指定任意路径。读取不迁移、不联机、不改生命周期。
 
 正式研究前必须另行冻结 task families、候选选择、模型实际参数、Gate、排除/缺失规则、分析协议、数据与 Oracle SHA、批准源码版本。当前工程夹具、离线正负控制及连接测试均不能替代正式论文结果。
+## 办公 Skill 预实验准备
+
+阶段 1 只新增 [准备协议与独立评分标准](OFFICE_SKILL_PILOT.md) 和 `examples.office_skill_pilot` 准备元数据模板。真实 Skill、脱敏数据、独立 Oracle 与正式批准尚待提供；没有执行 LIVE_PILOT、Final Holdout 或论文主实验。原有数据校验器、Runner 和 A/B/C 共享 Trial 解释保持不变。
