@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/github/awesome-copilot",
+  "commit": "0fe6545b950671641b2b14b44eb56678fea6c6b4",
+  "path": "skills/meeting-minutes/SKILL.md",
+  "gitBlob": "63424b8be544169f9206b8ce9e9e6d4e67219f69",
+  "sha256": "69420bbe78b2f6c81f9689672360dd97e71e9fc83045a70e3d6924f24973a789",
+  "bytes": 7894,
+  "sourceUrl": "https://github.com/github/awesome-copilot/blob/0fe6545b950671641b2b14b44eb56678fea6c6b4/skills/meeting-minutes/SKILL.md",
+  "license": "MIT",
+  "licensePath": "LICENSE",
+  "licenseGitBlob": "89bc5e962c9944cdb050887062afdaaf89be504a",
+  "licenseSha256": "e32449d23085399adc1222f7a17408b730550258e51627c153cb108ca9955823",
+  "copyright": "Copyright GitHub, Inc.",
+  "importedAt": "2026-10-28T06:18:53.106727+00:00",
+  "verification": "RAW_BYTES_EQUAL_CONTENTS_API_AND_GIT_BLOB",
+  "packageFiles": [
+    "skills/meeting-minutes/SKILL.md"
+  ],
+  "sourceModified": false
+}

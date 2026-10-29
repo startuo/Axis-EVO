@@ -1,3 +1,79 @@
+<!-- MEETING_STAGE2_CURRENT_START -->
+# 开源 Meeting Minutes Skill 适配与离线审阅准备 — 2026-10-29 交付
+
+准备与完整回归完成于 2026-10-28；中断后于 2026-10-29 核对已保存的退出码、日志和源码摘要后交付，没有把历史模型连接状态当成本日 live 验收。
+
+**本轮完成离线工程与 LLM 参考审阅准备，live pilot 尚未执行；保持 0.1.0 Preview / PREVIEW_CONTINUES。** 初始提交 `a1532ed8fb5063602969c948cfa6c931ff66a342`。被测公共源码 213 项（本结果文档除外），SHA-256 `df56e5d2f489f5b07b2d142bdb856cc92b195512be80bcec00ba897ccf83a8ff`；发布时逐项核对 Git archive 与被测字节。没有把文件生成、Core Gate 或 LLM 参考共识写成内容改善证据。
+
+## 来源与适配
+
+上游为 GitHub awesome-copilot / `skills/meeting-minutes/SKILL.md`，固定 commit `0fe6545b950671641b2b14b44eb56678fea6c6b4`、Git blob `63424b8be544169f9206b8ce9e9e6d4e67219f69`，7894 bytes，SHA-256 `69420bbe78b2f6c81f9689672360dd97e71e9fc83045a70e3d6924f24973a789`。官方 raw 字节、Contents API 解码与 Git blob 身份一致；完整原文、MIT 许可和 provenance 均保留。没有执行上游脚本，未使用 Hermes 内容。
+
+Axis-Evo 执行身份单独为 `meeting-minutes.github-pilot@1`，Card SHA-256 `9177f38597decdc581dfda5324622b53646d5efba25b2a7085d8769bedccaf9f`。仅去 frontmatter，完整保留正文；固定映射 name/description，仅允许 write_file。PARTIAL_TEXT_ONLY 兼容矩阵逐项说明：预收集 Intake、固定文本包装、Markdown 文件；不实现通用 Skill 包、动态资源、录音/附件解析、发布、邮件或 ticket 集成。完整说明见 [v2 协议](MEETING_MINUTES_PILOT_V2.md)。
+
+现有一次性 planner 看不到前一步 read_file 的返回，因此相同组织规则与原文由固定包装器进入 TaskSpec goal；包装器不属于可修订 instructions。包装 SHA-256 `a09ce3c3c8b1cd500936981675fa12da17289d6931fefa85a4d074bd5976b2bb`，组织规则 SHA-256 `daa34217277f12bf25fac5e05d90b40028e0eac582ae7777a619cc6652425e20`。v1 的 JSON 纪要约定在首次评分前修订为 UTF-8 minutes.md；外层 Plan 仍为既有 JSON，不改 Core。
+
+## 私有材料与独立审阅
+
+本轮使用明确标注的虚构组织、14 例 SYNTHETIC_OFFICE_SCENARIO 合成文字材料，无需用户额外提供会议内容，也没有从网络采集真实公司会议。Development / Gate / Pilot Reuse 为 6 / 5 / 3，分别通过原 dataset validator：
+
+| 数据分区 | dataset SHA-256 |
+|---|---|
+| Development | `8bc2d9e410db76f66dfa720435a66e0d72d8f842ad09b872914aea58d480dfd0` |
+| Gate | `7e0893df366f23328c380d09356b5faaad5f8e53a5f307a735ece7895e4f6f7c` |
+| Pilot Reuse | `94cb0e15a0927f9c0c9f40edf4e492ebd1a55ae6bfe13e85c1b3d78579033be9` |
+
+独立上下文 Codex LLM 只读协议、政策、代码与原文，未读作者参考答案，另行标注全部14例；作者随后逐段核对，追加分歧、裁决建议及父摘要，保留全部原稿。用户选择仅用当前独立上下文审阅，未调用跨模型 CLI。两者仍可能共享模型盲点，审阅者见过分组和意图标签；裁决者是准备作者本人，不是第二位独立裁决者。没有人类评分或客观 ground truth 声明。
+
+完整 rubric 为 v2，SHA-256 `d7db966f81fe4bdb73b347b51b62d5243fff5182dda84f33e7bd0596c96d7479`；14例私有内容参考清单 SHA-256 `5337c84fbf58828acdc43962190da7482bab1118ca46a9bf8677d86d3b9cfcd6`；独立 LLM 审阅原稿 SHA-256 `ce67cb6275bdf117e367adcd5eab2a21c9b0fd42bcaa2ff531db454cbc8f16c0`。窄执行 Oracle 的各例摘要由三个原 dataset manifest 分别固定，不与内容参考清单混为同一 Oracle。
+
+明确接受、条件接受、原笔记记载同意、待分配、点名需要但未接受、弱意向与流程要求分别记录。已承诺召回分母为 Development 9、Gate 8、Reuse 4；待确认/流程事项另计。日期保留“前”“中午前”“尽快”、希望日和最早估计的效力。政策适用对象、来源引用、重大虚构、UNKNOWN/NA、缺失和完整配对分母均在无输出时固定。原文、私有 Oracle、全部 Gate/Reuse 参考和盲序映射不进入公共 Git/ZIP，更不能进入后续 revision objective；只允许真实 Development 反馈的有界投影。
+
+独立审阅发现跨分区逻辑模板共享及强文字提示。字符近似检查没有超阈值不证明语义独立；本轮只能支持相同政策下的短合成场景探索性比较，不支持独立跨 family 泛化、真实企业效果、复杂长会议或通用提示注入抵抗能力。
+
+## 三层证据与未执行项
+
+执行 Oracle 只检验两个输入文件的 exact bytes，公共 Acceptance 仅要求 minutes.md 存在。新增独立只读 shape 诊断检查输出清单、输入保留和非空 UTF-8，并在编码前校验大小；它不替代 Plan 审阅、十二节内容评价、Core Acceptance 或 Gate。已通过测试证明：错误纪要内容仍可能通过窄输入保留 Oracle，因此它不能证明语义质量。
+
+隔离 Core 库只注册一张 S0 CANDIDATE，没有 trust assessment、legacy trust promotion、实际预实验 Run、Trial、反馈或 S1。Development 未来的真实文件 Run 与 Shadow/Research 的内存文件模拟 Trial 分开记录；真实 Provider 调用也不能让模拟 Trial 变成实际文件 Run。
+
+金额按用户授权不设上限；拟议33次 Provider调用上限为 6 Development + 1 revision + 10 Shadow Gate + 10 Research Gate + 6 Reuse。重试、诊断、追加候选没有授权，不自动调用。两批 Gate 复用相同五例，必须报告关联性；首次 Gate 暴露后冻结候选和评价材料。所有实际调用/失败/UNKNOWN 都计入 census，共享 Trial 不重复计观测。
+
+已有 Provider 凭据可读取，但现有 profile 的限时网络路由过期，状态 PENDING_NETWORK_REAUTHORIZATION；没有明文复制凭据、改路由、换直连或测试外部连接。有效网络授权、profile revision 与数据摘要须先重新固定，再提出精确分阶段执行协议。准备摘要不可直接冒充 Core execution protocol；真实 S1、Gate Assessment 与独立首选选择未齐备时不伪造协议字段。
+
+既有 profile 的实际 model_id 为 `deepseek-flash`，调用目标 `https://api.deepseek.com/chat/completions`，当前持久配置 `n=1 / stream=false / timeout=30s`；未擅自补充不存在的 temperature/seed 或编造 token/费用测量。profile revision/config/transport 的完整非敏感投影保留私有准备区；该投影含过期路由，不能当成有效 live adapter。
+
+| 状态 | 本轮结论 |
+|---|---|
+| UPSTREAM_SOURCE_VERIFIED | PASS_PINNED_BYTES_AND_MIT |
+| EXECUTABLE_COMPATIBILITY | PARTIAL_TEXT_ONLY |
+| S0_ADMISSION | CANDIDATE_PENDING_EXPLICIT_TRUST_ADMISSION |
+| PRIVATE_REFERENCE_REVIEW | LLM_ONLY_COMPLETE_WITH_LIMITATIONS |
+| HUMAN_USEFULNESS | PENDING |
+| CONTENT_QUALITY / IMPROVEMENT | NOT_RUN / NOT_ASSESSED |
+| EXTERNAL_PROVIDER_CALLS / PILOT_RUNS / TRIALS / FEEDBACK | 0 / 0 / 0 / 0 |
+| S1 / CORE_GATE / PROMOTION / ACTIVATION | NOT_CREATED / NOT_RUN / NOT_RUN / NOT_RUN |
+| EXACT_EXECUTION_AUTHORIZATION | NOT_GRANTED |
+| FINAL_HOLDOUT / FORMAL_THESIS_EXPERIMENT | NOT_FROZEN_NOT_RUN / NOT_STARTED |
+
+## 本轮实际验证
+
+Windows 普通 CPython 3.13.5；本轮没有前端、Web 产品逻辑、Core 或历史 migration 变更。
+
+| 检查 | 实际结果 |
+|---|---|
+| 新增定向正反例 | **14 passed**：来源/许可/元数据篡改、原文/Card 分离、固定包装、窄 Oracle 反例、兼容矩阵、shape 与输入预算 |
+| 历史定向集合 | **73 passed**，发生在最终两项 shape/预算补充之前；后续以完整集合覆盖最终源码 |
+| 完整后端 `python -m pytest -q -ra web_api/tests tests --tb=short` | **3170 passed, 14 skipped, 784 warnings**；3184 collected，2163.87 秒，exit 0 |
+| 冻结 Core + 历史 SQL | **68 项 SHA-256 全部相同**，无 migration 变更 |
+| 前端构建 | **20 项文件 SHA-256 与 Stage1 完全相同**；前端源码无变更，本轮未重跑265单元或52浏览器，Stage1 数字为历史基线 |
+| 完整 ZIP | 发布后校验 CRC、全部成员摘要、必备文件与排除项；从解压目录独立运行 Core/Runtime/适配器 smoke，结果由本地打包记录固定 |
+| 新 Linux / 真实 Provider / 内容改善 | NOT_RUN |
+
+既有 Windows 权限/POSIX 能力导致14项 skip，不算通过；冻结路径检查产生784 warnings，不过滤。RED 失败、预算修复前后记录及默认 Python 入口缺 pytest 的启动尝试留本地，不混计最终执行结果。源与报告以明确白名单提交，私有测试、研究资料和原始日志保留本地；本轮只交付准备，不自动进入正式模型实验。
+<!-- MEETING_STAGE2_CURRENT_END -->
+
+
 <!-- FEEDBACK_PILOT_CURRENT_START -->
 # 任务反馈证据与办公 Skill 预实验准备 — 2026-10-28
 

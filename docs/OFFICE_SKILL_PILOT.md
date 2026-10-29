@@ -1,5 +1,7 @@
 # 办公 Skill 反馈演化预实验协议 v1
 
+> 阶段 2 在首次实验前以 [Meeting Minutes 协议 v2](MEETING_MINUTES_PILOT_V2.md) 修订输出格式和指定来源。v1 保留历史准备身份；其中 JSON 约定不适用于指定上游 Markdown Skill。阶段 2 状态、实际准入和协议批准分别记录，不能由下文 v1 的 PENDING 模板推断已执行。
+
 准备日期：2026-10-28。主题：会议纪要与行动项提取。此文档固定探索性预实验的设计与评价口径，不包含实际研究文档、私有 Oracle 或试验结果。
 
 `PILOT_PROTOCOL_READY = PREPARATION_READY`；`REAL_SKILL_AVAILABLE = PENDING_REAL_SKILL`；`LIVE_PILOT_EXECUTED = NOT_RUN`；`FINAL_HOLDOUT = NOT_FROZEN_NOT_RUN`；`FORMAL_THESIS_EXPERIMENT = NOT_STARTED`。

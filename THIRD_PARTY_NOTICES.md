@@ -1,4 +1,14 @@
-# UI third-party notices
+# Third-party notices
+
+The unchanged `third_party/awesome_copilot/meeting_minutes/SKILL.md` is from
+GitHub's [awesome-copilot](https://github.com/github/awesome-copilot) at commit
+`0fe6545b950671641b2b14b44eb56678fea6c6b4`, original path
+`skills/meeting-minutes/SKILL.md`, under the MIT License, Copyright GitHub, Inc.
+The full original copyright and permission notice is redistributed in that
+directory's `LICENSE`; `SOURCE.json` pins the Git blob and SHA-256 identities.
+Axis-Evo's text-only SkillCard adaptation is a separately identified executable
+representation and does not implement the full upstream workflow or a general
+SKILL.md runtime. No upstream scripts or external integration commands are run.
 
 The theme stylesheet and motion constants are adapted from
 [Caho1/open-claude-ui](https://github.com/Caho1/open-claude-ui) at commit

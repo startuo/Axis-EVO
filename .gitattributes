@@ -1,0 +1,3 @@
+# Preserve pinned upstream evidence bytes on every checkout.
+third_party/awesome_copilot/meeting_minutes/SKILL.md -text
+third_party/awesome_copilot/meeting_minutes/LICENSE -text
