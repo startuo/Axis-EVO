@@ -1,3 +1,152 @@
+<!-- MEETING_STAGE2BC_CURRENT_START -->
+# Stage 2B/2C 真实模型反馈演化 Pilot — 2026-10-30
+
+**已完成获批的真实实验与研究封存，保持 `0.1.0 Preview / PREVIEW_CONTINUES`。** 产生 **1 个真实 Development 文件 Run**、1 个由所有者确认反馈驱动的不可变 S1，以及 26 个不同的模拟 Trial。Core Gate 对 S1 给出 `ELIGIBLE_FOR_APPROVAL`，但内容评价呈混合结果，不能证明整体改善；S1 保持隔离 `SHADOW`，研究条件 C 明确选择 S0。人工 Oracle 与内容评价均为 `PENDING`，未做生产晋升或激活。
+
+## 研究身份与冻结边界
+
+初始提交及全部实验被测实现均为 `6a0054a3e7d5c3758aead9ed35d57c52059e2e25`。本次公共修改仅为本结果文档；213 项公共实现/说明文件的摘要清单仍为 `df56e5d2f489f5b07b2d142bdb856cc92b195512be80bcec00ba897ccf83a8ff`（排除本文件，避免自引用）。没有修改 Runner、Core、历史 SQL、Research Runner、反馈接口、前端或依赖。最终文档提交由 Git 固定，完整包记录该提交及被测实现身份。
+
+上游为 GitHub awesome-copilot `skills/meeting-minutes/SKILL.md`，固定 commit `0fe6545b950671641b2b14b44eb56678fea6c6b4`、blob `63424b8be544169f9206b8ce9e9e6d4e67219f69`、7894 bytes，原文 SHA-256 `69420bbe78b2f6c81f9689672360dd97e71e9fc83045a70e3d6924f24973a789`；vendored 原文、MIT 许可及来源记录均保留。原始 Skill、适配 Card 和反馈后版本分别记录。适配是 `PARTIAL_TEXT_ONLY`：移除 216-byte YAML frontmatter、保留 7678-byte 指令正文，工具仅 `write_file`，不支持通用 SKILL.md 的全部运行能力。
+
+| 身份 | SHA-256 / 实际含义 |
+|---|---|
+| S0 `meeting-minutes.github-pilot@1` | `9177f38597decdc581dfda5324622b53646d5efba25b2a7085d8769bedccaf9f`，MANUAL；经获批原生命周期成为隔离 TRUSTED 基线 |
+| S1 `meeting-minutes.github-pilot@2` | `3bdb6e70d5ec5dc97c5a005a706af1bebf2d5afe19f9e276f451d0594ffd0e34`，DERIVED 自精确 S0；仍仅 write_file，实际为 SHADOW |
+| S0→S1 指令 diff | `25a5c2d1fe7b07b6d3442f9d30840d60a5ae2dea1a53ad68e10ec24553e2b644`；唯一模型响应原样采用，无 Gate 后手工修补 |
+| Development 6 例 dataset manifest | `98c858493423259bd03e8e8ee57d3bf05e9b484a16cdcc96159b7a4f50d52833` |
+| Gate 5 例 dataset v3 manifest | `9da7816980881659fee8071fa72170c22a5986ad7dd82ab9dc54ed09494d9652` |
+| Reuse 3 例 dataset v4 manifest | `bb4d89eec2f0f1c459383bbfdf79aaf56cd6ae7dd395476d791dccd2441fdc52` |
+| 14 份冻结质量参考清单 | `5337c84fbf58828acdc43962190da7482bab1118ca46a9bf8677d86d3b9cfcd6`；LLM 拟定，非人工真值 |
+| 组织策略 | `daa34217277f12bf25fac5e05d90b40028e0eac582ae7777a619cc6652425e20` |
+| 固定包装 `AXIS_MEETING_FILE_WRAPPER_V1` | `a09ce3c3c8b1cd500936981675fa12da17289d6931fefa85a4d074bd5976b2bb` |
+| v2 评价协议/量规 | `d7db966f81fe4bdb73b347b51b62d5243fff5182dda84f33e7bd0596c96d7479`，见 [冻结协议](MEETING_MINUTES_PILOT_V2.md) |
+
+三个 dataset manifest 绑定各例 TaskSpec、seed 清单、执行 Oracle、模型配置和案例顺序；质量参考另行绑定，不把文件断言当成内容答案。14 例均为合成办公短场景，分区保留 6/5/3；跨分区存在共同模板和答案逻辑关联。实际输出为十二节语义的 Markdown `minutes.md`，外层仍为原 JSON Plan。
+
+## 授权、模型配置与调用清点
+
+所有实际调用使用同一个私有 profile 的 `deepseek-flash / n=1 / stream=false`；未发送 temperature/seed 等额外参数，模型别名不是密码学固定的模型 revision。endpoint 为官方 `https://api.deepseek.com/chat/completions`。未提供可归属 token/远端费用记录，因此不估算费用。管理员路由续期仅影响隔离研究，保留原配置，不改生产配置。
+
+| 分层 | 日期、阶段与超时 | 配置 SHA-256 |
+|---|---|---|
+| P1 / profile @1 | 10-29，Development 6 次，30 秒 | `745e8bab737c1c7dde6e9cea49d71dc7b068dee412279b35fb715209ed503135` |
+| P2 / @2 | 10-29，修订 1 + Shadow 10 + Research Gate 10，120 秒 | `ae9d50125f524f430d20e3d149bb408ac25f30864d84b6cdaae5ea34daa8a93b` |
+| P3 / @3 | 10-30，Reuse 6 次，120 秒；只变更授权到期时间 | `270713b2448ebf71d839af78026de4a4260fcc19e3e8851d2ab737824ef10721` |
+
+P2 是观察到 P1 五次超时后、未来操作前单独批准的修订；不重试旧任务。P3 为管理员单独批准续期至北京时间 2026-10-30 17:30，旧路由于 10-29 15:39:51 到期。两次续期各先做一次不带凭据的官方域名 TLS 验证，均不含模型请求；地址、代理及授权回执保留私有。数据版本只追加配置/授权身份，不改任务、seed、执行 Oracle、质量参考或阈值。不同配置/日期的结果分别报告，不合并成相同条件的效果估计。
+
+| 阶段 | 已批准协议 SHA-256 | 声明 / 已保留调用槽 / 实际提交 | 确认响应与本地结果 | 本地终态 UNKNOWN / 未提交 / 剩余 |
+|---|---|---:|---|---:|
+| Development | `9adc024727837fc758432adbde698bc960b144456d334c92c228b6a521f6c1ba` | 6 / 6 / 6 | 1 有效 Plan、1 实际 Run；5 PROVIDER_TIMEOUT、NO_RUN | 0 / 0 / 0 |
+| 反馈修订 | `859f80a957f9be73763192e3b588d46d845b46ea07f4475ca7be1aece9640e8e` | 1 / 1 / 1 | 1 VALID 修订响应、1 精确 S1 | 0 / 0 / 0 |
+| Shadow | `983acba41ba9a0819a76f872c91ad3b7982c6aad4320ce96b01d943efffcbf14` | 10 / 10 / 10 | 10 SIMULATED_PASS，5 完整配对 | 0 / 0 / 0 |
+| Research Gate | `82212267f46a6cc4aa893f2328176813824cd20894ec256968e656ec778c0229` | 10 / 10 / 10 | 10 SIMULATED_PASS，5 完整配对，封存导出 | 0 / 0 / 0 |
+| Pilot Reuse | `a708dc4907d3126476f28e9d126783eff3543e467f679cebf99d129cbeb4f63c` | 6 / 6 / 6 | 6 SIMULATED_PASS，3 完整配对，封存导出 | 0 / 0 / 0 |
+| 合计 | 各阶段均实际获得精确批准 | **33 / 33 / 33** | **28 确认响应，5 本地超时** | **0 / 0 / 0** |
+
+五个超时保留为本地失败，远端是否继续计算/收费仍未知，不能用本地 UNKNOWN=0 消除这五项远端不确定性。没有重试、替代模型或额外模型诊断调用。旧 P1 修订 Case/未提交 Intent 及旧 P2 Reuse 准备协议保留但从未提交，不计为调用或失败。真实文件 Run 仅 1 个；26 个新模拟 Trial 与复制到研究库的历史 Trial 分开清点。Research A/C 共享 S0 Trial：Gate 5 个、Reuse 3 个，不是额外独立样本；Shadow 与 Research Gate 使用同五个源场景，虽有不同模型尝试，也不是十个独立场景。
+
+## Development、反馈与不可变 S1
+
+| Development 案例（均 S0 / P1） | Plan / 实际 Run / 独立 Acceptance | 内容观察 |
+|---|---|---|
+| dev_action_recall | 精确 Plan 已批准，`run_5260ea2542884fe4bfbbf85a58f07699` COMPLETED，Acceptance PASSED | 已对实际文件作独立上下文 LLM 暂定审阅 |
+| dev_owner_uncertainty | PROVIDER_TIMEOUT / NO_RUN / NA | 无产物，不补造评分 |
+| dev_date_uncertainty | PROVIDER_TIMEOUT / NO_RUN / NA | 无产物，不补造评分 |
+| dev_status_fidelity | PROVIDER_TIMEOUT / NO_RUN / NA | 无产物，不补造评分 |
+| dev_format | PROVIDER_TIMEOUT / NO_RUN / NA | 无产物，不补造评分 |
+| dev_information_retention | PROVIDER_TIMEOUT / NO_RUN / NA | 无产物，不补造评分 |
+
+唯一文件 Run 通过原 Runtime/Runner 执行一次 write_file：Plan SHA `389a9e46f528531c291f900036fc79dd3a2d44b9751c57cb99f28576ed2f19a8`；实际 `minutes.md` 6288 bytes，SHA `e81db95c93c8148abfdae2b35374250fe44958751f758455e7a9c9ca33de6759`。Core 持久化 ToolIntent、ToolResult、StepConfirmed、ValidationPassed、RunCompleted 等事件，实际工具结果与获批字节相同，输入未变；当前 Skill trace 与已提交执行记录相同。不是从模型回复、HTTP 200 或事后文件差异推定执行。
+
+反馈 `feedback_d0e7d899967540628b7e1ea6f130722f`，SHA `eb0a59e78a8de577e8f5e3d9a445335e37fd81271544fc40a604484763c6ace9`，`NEEDS_IMPROVEMENT / OUTPUT`。作者来源是 `CODEX_DRAFT_ADOPTED_BY_OWNER`：Codex 拟稿，由所有者实际确认，随后经原服务保存、重看，次日所有阶段结束后又以新服务实例冷读验证。反馈要求区分提交人、审核人与任务负责人，未知提交人/日期待确认，在保留十二节及来源引用的同时减少重复。它是用户采纳的改进偏好，不是人工独立内容评分；原 Acceptance 仍 PASSED，原因归属仍 `UNDETERMINED`，五次超时未归因给 Skill。
+
+原反馈桥接建立 P2 Case `case_0670e0e0db1b494586134cff54393110` → generation `generation_c0608bc27b51487ab9ea618ab611a6ef` → Core revision `revision_8bce4c01557d4fe68690a33dec5c945f` → receipt `evo_bd5d4a75f29f4397814545650f4628eb`。精确生成请求 SHA `c01700d73df40c9c0722aa2cbc665a5771843fcd3e67b16f0965c3d9d5da9b2e`，唯一模型响应 SHA `6bf424584b020b6f17e671dad4308a70cf45e30ff5550b596de0e08c5913baa9`，Core 修订 SHA `e1b0a90027fde301551d4e6af7f395ed60f2c85cd45e27da601048d7a6790d63`。Web 事实链接证明 MODEL_SELECTED 原样选用；Core 的 draft_origin 仍按其原契约记录 CALLER，不伪称 Core 自行调用模型。
+
+S1 新增角色区分、未知项与草稿复核规则，指令为 9464 bytes。创建前的独立上下文 LLM 审阅已向所有者披露三项问题：没有明确补齐提交日期字段、禁止推断规则可能过宽、上游复核/发送条件仍有歧义；所有者仍批准精确候选及隔离 SHADOW 准入。没有扩工具权限、修改组织策略或人工修补响应。修订模型只获 Development 证据、已确认反馈和有界目标，没有 Gate/Reuse 输入、参考答案或私有跨分区完整审阅。
+
+## Gate、研究封存与治理决定
+
+原 Core policy 为 **`evolution-gate-v1`**；五例 suite `office-meeting-minutes-stage2bc-gate-v2` 的 v2 是数据标识，不能混称 Gate policy v2。suite SHA `7b13a1a82295bdabc4ec35243fff7d4907474600c472e0b48567ea9439c22b15`，最少 5 例、每例 1 次，未改案例、阈值或 Oracle。S0 初始准入标记 `LEGACY_RESEARCH_SETUP / TRUST_ASSESSMENT_NOT_PERFORMED`，没有伪造初始历史信任评价；后续真实 Run 及其评价单独记录。
+
+Shadow 十次实际模型规划均产生模拟成功：5 完整配对，执行 Oracle 下 0 改善 / 0 回归 / 5 持平，没有不完整配对。Comparison `comparison_b275c9d44fa5469f8696998a128d2de8`；Assessment `trust_eb493f2e9c7b4828aa456aa879f4bab0`，SHA `3445423839ce0871aaa8d35d922d2904e486792c4b6ae7629724a0ed594905c1`。Core Gate SHA `2e773eee5c934ba7ebbe1b4b0a2a950c0330a5de3d50ffc24247ce27726db91b`，实际 `ELIGIBLE_FOR_APPROVAL / NO_REGRESSION_OBSERVED`。这是既有执行政策的结果，未新增语义 Gate。
+
+本次 live S1 没有触发拒绝、回归、UNKNOWN 或缺失分支，不能声称这些分支已被真实模型负例验证。另有 **18 个实际离线定向回归通过**，覆盖精确修订批准/血缘、候选非通过（失败/UNKNOWN/不支持）阻断、双方失败不能冒充成功、参考不可比较、较晚成功不能掩盖较早回归、额外 Trial 导致过时、混合配置清点以及回填不能治愈固定 UNKNOWN 比较。实际五次 Development 超时和五个 NO_RUN 均保留。
+
+内容仍未解决，因此没有请求或执行 S1 TRUSTED 晋升/生产激活。经独立精确批准的隔离首选事件 `e77be1864d5aae031d9636018dceebe0b3142739c60f6b0484cf87a6c3509893` 明确选择 S0，故 A=S0、B=固定隔离 S1、C=S0。该选择先于完整 Research 协议生成，不伪造 receipt/Assessment/选择前提。
+
+原 Research API 完整执行 build → create 一次性副本 → execute → seal → inspect → export：
+
+| 阶段 | experiment | 封存 SHA-256 | 新调用 / 完整配对 / 不完整配对 |
+|---|---|---|---:|
+| Research Gate / P2 | `experiment_f3eaaa260aa74901a8d929c315751f69` | `7513cfc2ae8cfa288e8520f6e373ce168b31e8603325e6d18bd23c88a2a5fdf0` | 10 / 5 / 0 |
+| Reuse / P3 | `experiment_40a45595205841dda8bf935f3518b8bb` | `64a119065a6af01275cb4bf3dffaf079e45fe86ad6fef3f086858acbe143cae8` | 6 / 3 / 0 |
+
+两者均封存并导出 results.json、results.csv、SUMMARY.md，保留失败/UNKNOWN 清点字段；源研究 registry census 未被副本执行改写。所有新 Trial 是真实模型规划加模拟文件状态，不是生产文件 Run，也不是 S1 的实际生产复用。
+
+## 独立上下文内容审阅：仅 LLM 暂定评价
+
+Development 与 Shadow 按预先记录方式非盲；Research Gate、Reuse 依据已登记 seed `20261028` 匿名排序，审阅者没有版本映射或候选内容，审阅文件固定摘要后才由主操作员解盲。操作员未盲、文字风格可能暴露版本，文件访问约束不是 OS/密码学隔离。审阅是独立上下文 Codex LLM，精确模型 revision 未公开；参考与审阅可能共享模型家族/准备盲点。**`HUMAN_ORACLE_REVIEW=PENDING`、`HUMAN_QUALITY_REVIEW=PENDING`，不得称人工独立验证。**
+
+表内 `n/d; U=x; E=y` 表示已判正确数/全部适用分母、保留 UNKNOWN、错误/缺失数；未列 U/E 均为 0。各指标只覆盖该阶段实际产物；Development 另保留五个缺失产物。固定 committed/requiredFollowup 分母未改，不把 0/0 计为 100%。
+
+| LLM 暂定指标 | Development S0（1 产物） | Shadow S0 / S1（各5） | Research Gate S0 / S1（各5） | Reuse S0 / S1（各3） |
+|---|---|---|---|---|
+| 十二节结构（按产物） | 1/1；全部声明槽为 1/6 + 5 缺失 | 5/5 / 5/5 | 5/5 / 5/5 | 3/3 / 3/3 |
+| 已承诺行动召回 | 2/2；其余5例无产物 | 8/8 / 8/8 | 8/8 / 8/8 | 4/4 / 4/4 |
+| 必要待分配/流程跟进覆盖 | 2/2 | 2/2 / 2/2 | 2/2 / 2/2 | 3/3 / 3/3；retrospective 单例 0/0 NA |
+| 全部参考匹配行动负责人正确 | 3/4; U=1 | 9/10; U=1 / 10/10 | 10/10 / 10/10 | 7/7 / 7/7 |
+| 全部参考匹配行动日期正确 | 4/4 | 7/10; U=3 / 9/10; U=1 | 10/10 / 10/10 | 6/7; E=1 / 4/7; U=2; E=1 |
+| 决策/提议区分 | 1/1；提议单项 NA | 10/10 / 10/10 | 10/10 / 10/10 | 6/6 / 6/6 |
+| 输出命题严格引用正确 | 4/5; U=1 | 20/24; U=3; E=1 / 23/24; U=1 | 24/29; U=3; E=2 / 25/27; U=2 | 19/24; U=3; E=2 / 17/21; U=3; E=1 |
+| 参考命题引用覆盖 | 5/5 | 24/24 / 24/24 | 核心 21/21 / 21/21；扩展 28/34; U=2; E=4 / 30/34; U=1; E=3 | 19/19 / 19/19 |
+| 组织草稿策略适用项 | 7/10; U=3 | 42/52; U=5; E=5 / 47/52; U=2; E=3 | 40/52; U=10; E=2 / 46/52; U=6 | 22/31; U=5; E=4 / 25/31; U=4; E=2 |
+
+Development 六例冻结 committed 参考共 9 项，只有产物中的 2 项可观察；不以成功产物 2/2 宣称全六例召回 100%。Development 草稿策略仅计 rules 1–11 的适用项 7/10，评价报告 rule12 单独为 1/1；原审阅的合计 8/11 保留，不能混入草稿质量。引用与策略的细分命题清单由各独立审阅者操作化，Research Gate 额外列出核心/扩展引用覆盖，**不是统一、事先经人工验证的原子分母**；原始清单、NA、争议与全部数字保留，不跨审阅上下文合并引用或策略比例，也不在看结果后改写参考。LLM 0–3 可读性/完整性/有用性代理分逐产物保留私有，不充当用户或人工评分。
+
+结果并非单向改善：Shadow 日期限定和角色清楚程度有局部较好观察，但仍有角色、年份和冗余问题；独立 Research Gate 的行动/负责人/日期均持平。Reuse 中 S1 在 operational_brief 的日期正确项较好，在 customer_followup 有两项 UNKNOWN，在 retrospective 丢失日期“前”限定；合计 S1 日期已判正确率较低，不能断言稳定改善。两版各有一处日期限定错误，UNKNOWN 不强制改判错误或正确。
+
+无支持事实与重大编造也单独保留：Shadow 两版各 3 项 unsupported assertion，确认重大编造均 0；Research Gate 两版确认 unsupported 均 0，待定分别 8/2 项，**潜在重大问题各 1 项 UNKNOWN**；Reuse S0 确认轻微 unsupported 1 项、UNKNOWN 4 项，S1 确认 0、UNKNOWN 2 项，两版确认重大编造 0。Development 没有确认重大编造，角色责任歧义保留 UNKNOWN。这些是审阅者的暂定分类，不能用“确认重大=0”掩盖未决问题。
+
+审阅原件 SHA-256：Development `73acb870ed3e7d5948ff47f9948b25abbc01139c5733d8da1dcdd6f592677870`；候选创建前审阅另留私有；Shadow `0efef28e242d4042710c67fa24e39f1567d41fad1e1a42fdb13b2b02c3f035e0`；Research Gate `2c5a5773ab05caa76c88ff55ac61071e16da11b8547362cf16614658cad680e8`；Reuse `a4908421c9f26344385f081a117960187dd39f61778d7d7626b7e6a0ff92ed10`。主操作员分别核对输入/分片摘要、固定行动分母和算术（Shadow 282、Research 231、Reuse 121 项检查），此校验不等于另一份语义或人工认可。
+
+## 结论、验证及状态
+
+没有证据把基线的改进偏好或超时确认为 Skill 指令缺陷，归因保持 UNDETERMINED。S1 确实来自已验证 Run、所有者采纳的反馈及唯一模型修订，版本差异和全部批准可追溯。控制演化链能够保存候选、执行结果、独立评价和选择证据；实际 Core Gate 按其执行 Oracle 允许进入批准阶段，同时内容未解决使生产晋升没有发生。Pilot 支持“受控过程可以实际运行并保留负面/未决证据”，不证明“成熟 Skill 已稳定改善”、生产可靠性、业务收益或统计显著性。
+
+| 验证 | 真实证据与范围 |
+|---|---|
+| 本次代码改动 | 仅追加本公开结果；68 项冻结 Core/历史 SQL、213 项公共实现文件及20项既有前端构建文件未变 |
+| 完整后端历史对应源码 | 2026-10-28 实际 `3170 passed, 14 skipped, 784 warnings`，3184 collected，2163.87秒，exit0；本次核验已保存日志/退出码/对应源码，**未声称10-30重新跑完整集合** |
+| 10-29 定向 Gate/血缘回归 | `18 passed, 55 deselected`，39.69秒，exit0；离线测试不能冒称 live 负例 |
+| 当前事实完整性 | 四个研究/Runtime DB 均 integrity_check=ok、外键违例0；唯一 Run trace、反馈冷读、Card、选择、封存及全部33次调用清点核对一致 |
+| 交付检查 | 完整源码+原有预构建 Web，附每文件 SHA-256 manifest；发布操作另核对 ZIP CRC/成员摘要/安全解压与解压后独立 Core/Runtime HTTP smoke，记录保留本地，不把 smoke 当模型/内容验收 |
+| 未验证边界 | 人工 Oracle/质量、真实企业/长会议、固定远端模型 revision、远端费用、跨模板泛化、S1 生产复用、新 Linux/生产浏览器验收均未证明 |
+
+14 项历史 skip 是 Windows 权限/POSIX 能力限制，784 warnings 保留在冻结路径，不当作通过或屏蔽。完整私有目录包含逐例输入/执行 Oracle 摘要、精确批准、模型尝试 ledger、实际 Run/events、反馈保存/重读、S0/S1 Card 与 diff、原始审阅/争议、封存研究导出和最终审计；公共仓库与交付包只含脱敏汇总和既有授权源码，不含这些原件、凭据或数据库。未清理失败/UNKNOWN 证据或所有者未跟踪文件。
+
+| 状态项 | 最终可观察状态 |
+|---|---|
+| S0_ADMISSION / REAL_SKILL_ADMISSION | TRUSTED_ISOLATED；初始 LEGACY_RESEARCH_SETUP / TRUST_ASSESSMENT_NOT_PERFORMED |
+| PROVIDER_AUTHORIZATION | P1/P2/P3 均按对应批准期使用；P3 授权截止2026-10-30 17:30北京时间，非永久授权；33/33已用完 |
+| ORACLE_REVIEW | LLM_ONLY_COMPLETE_WITH_LIMITATIONS；HUMAN_ORACLE_REVIEW=PENDING |
+| DEVELOPMENT_RUNS / DEVELOPMENT | 6 submitted；1真实Run/PASSED；5 PROVIDER_TIMEOUT/NO_RUN |
+| FEEDBACK_CAPTURE / FEEDBACK | OWNER_ADOPTED_CODEX_DRAFT_SAVED_AND_REOPENED；UNDETERMINED |
+| S1_CANDIDATE | CREATED_DERIVED_IMMUTABLE；SHADOW，未TRUSTED |
+| SHADOW_EVALUATION | 10 SIMULATED_PASS；5 COMPLETE_PAIRS |
+| CORE_GATE | ELIGIBLE_FOR_APPROVAL；NO_REGRESSION_OBSERVED（执行政策范围） |
+| RESEARCH_GATE | EXECUTED_SEALED_EXPORTED；5 COMPLETE_PAIRS |
+| CONTENT_QUALITY | LLM_ONLY_PROVISIONAL_MIXED_OR_UNRESOLVED；HUMAN_QUALITY_REVIEW=PENDING |
+| PILOT_REUSE | EXECUTED_SEALED_EXPORTED；3 COMPLETE_PAIRS；A/C=S0共享，B=S1隔离观察 |
+| PROMOTION / ACTIVATION | S1_NOT_PROMOTED_NOT_ACTIVATED；仅隔离选择C=S0，生产未改 |
+| FINAL_HOLDOUT | NOT_FROZEN_NOT_RUN |
+| FORMAL_THESIS_EXPERIMENT | NOT_STARTED |
+
+<!-- MEETING_STAGE2BC_CURRENT_END -->
+
+以下为先前交付的历史记录，保留其当时的 NOT_RUN/CANDIDATE 状态；当前 Stage 2B/2C 状态以上节为准。
+
 <!-- MEETING_STAGE2_CURRENT_START -->
 # 开源 Meeting Minutes Skill 适配与离线审阅准备 — 2026-10-29 交付
 
