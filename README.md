@@ -44,4 +44,6 @@ axis-evo/
 └── AGENTS.md                              # 仓库协作规则
 ```
 
+会议纪要的执行 Oracle、业务质量与版本采用分别报告。Stage 2D 提供 [独立质量审定](docs/MINUTES_QUALITY.md) 和 [下一轮因果比较协议提案](docs/STAGE2D_RESEARCH_PROTOCOL.md)；现有结果尚未证明 S1 整体改善，人工审定仍待完成，正式 Holdout 与论文主实验未启动。
+
 完整测试、fixture 和交付报告保留在本地审查包中，不随公共仓库发布。

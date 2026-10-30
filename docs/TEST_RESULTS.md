@@ -1,3 +1,52 @@
+<!-- STAGE2D_CURRENT_START -->
+# Stage 2D 评价有效性与下一轮研究准备 — 2026-10-31
+
+**已完成离线工程与反例核验，保持 `0.1.0 Preview / PREVIEW_CONTINUES`。** 当前证据支持精确来源、受批执行和原政策资格，不支持 S1 整体质量提升、反馈因果收益或实际业务采用收益。新增独立质量审定与无生产状态依赖的研究排程准备；没有新真实模型调用、晋升、激活、Final Holdout 或论文主实验。
+
+基线为 `1342d24d90dceb7282606a9777a484d96efab9cb`。新增源码实际 SHA-256：`minutes_quality.py` = `49e85844aa6f5115368462ac0230b8f2943824e10b0cca544b05bb81bd2b4831`；`research_comparison.py` = `f019a65f2ace3a71ecf43fda7b192b61f9d73dbe61dc4a26b68a9a9ab236f92f`。功能提交 `8498ee3`、`9715540`；最终说明/交付提交以 Git 与 ZIP 内清单为准。旧 Python/SQL、模型配置、包装器、组织规则、Gate 和前端源码未修改。
+
+## 独立复现与评价边界
+
+| 实际验证 | 结果及准确含义 |
+|---|---|
+| 旧14例写入空 minutes.md | 14/14 模拟 SUCCESS、执行 Oracle=true、公开 Acceptance=true；不等于绕过人工晋升。原额外 shape 检查已有非空诊断，Core 指标不能单独代表质量 |
+| 错误答案+修改 pytest | 普通 Core 路径及精确批准的 Skill Plan 路径均 COMPLETED，answer.txt 仍 WRONG；指令禁止改测试未成为强制写边界 |
+| pytest 目录边界 | 在测试自有临时根内、workspace 外产生标记文件，任务仍 COMPLETED；子进程资源限制不是 OS 文件隔离 |
+| 同一任务的 Web 准入 | 实际拒绝为 SUBPROCESS_DISABLED；未证明当前 Web 攻击路径 |
+| 新质量审定 | 确定性拒绝空/坏编码/源变更/额外文件；标准、输入、输出、审阅、精确引用和评价器源码绑定，重大问题与争议独立保留 |
+| 语义反例与反评价器测试 | 12个合成挑战条目，包括正确、空、9种错误及关键词填充；语义标签为合成资料，**不是自然输出自动检出率**。故意错误的全 PASS 引用仍能得到暂定状态，证明库不能替代可信语义审阅 |
+| 旧产物新诊断 | 对一个已暴露 Reuse 案例追加独立版本的字段诊断：S1 Due 丢“前”，摘要仍保留；仅记非关键标准失败。主上下文 LLM、非盲、事后，未完成新全篇审阅，不能宣布整体退化或替代旧评价 |
+| 新研究准备 | 44个合成身份的工程夹具产生固定488 slots；改名重复源、同事件/语义簇、已暴露来源、角色泄漏、规则漂移均拒绝。实际新研究数据及语义独立性仍 PENDING |
+
+Core 的 pytest 独立验收缺口**仍存在于 legacy Core**。本阶段没有把校验和包装成敌对代码隔离：新研究只允许文件模拟，禁止 pytest/subprocess。若研究代码任务，须另建版本化评估契约，使用候选不可写的可信测试/配置和真正的执行权限隔离；单纯复制测试或检查前后 hash 不足。本轮无需改旧 Core 或部署容器平台。
+
+## 运行结果与复现
+
+环境：Windows，普通 CPython **3.13.5**，pytest **9.1.1**。初始系统 Store Python 无 pytest，未用其结果冒充有效验证；切换既有普通 CPython 环境。以下均实际执行：
+
+- 关联回归：**519 passed, 183 warnings, 297.23s, exit0**。覆盖原 validator、会议适配/办公协议、Shadow 路径、数据/留出隔离、Trust/Gate/激活、Research 完整性/中断、规划溯源和 Web 只读研究。
+- 代码复核后最终新组件/反例：**35 passed, 13 warnings, 2.37s, exit0**。包含新增 UNKNOWN 严重性修正；与519集合存在重叠，不能相加成独立样本。
+- 弃用警告来自保留的 `validators.py` 中 `PureWindowsPath.is_reserved()`，未过滤或宣称零警告。没有运行整套历史测试、Linux、真实 Provider、生产浏览器或物理终端验收。
+
+```powershell
+python -m pip install -e .
+python -m examples.minutes_quality_demo
+python -m pytest tests/unit/test_minutes_quality.py tests/unit/test_research_comparison.py tests/integration/test_stage2d_counterexamples.py -q
+```
+
+完整关联回归命令、JUnit/原始日志、本轮源码身份和反例均保留本地审查材料。公共 Git 不跟踪测试/fixture/交付报告。完整 Preview ZIP 另附不含旧私有数据的本轮合成审查用例，可在包内以 `python -m pytest review/stage2d -q` 运行；旧14例反证依赖私有输入，包内明确跳过，不补造结果。安装 smoke 与 ZIP 复核结果由对应交付记录报告。
+
+## 历史与状态
+
+封存目录390个文件先后 SHA-256 完全一致。四个数据库只在包含 WAL 的独立副本中检查，全部 integrity_check=ok、外键违例0。实际账本为33 attempts：1 Development有效Plan、5 timeout、1修订响应、26模拟PASS；阶段为6/1/10/10/6。S0 Card SHA 与 TRUSTED、S1 Card SHA 与 SHADOW 均由副本冷读确认。
+
+两个旧研究库在新增代码下仅以副本重新 inspect，seal 仍为 `7513cfc2ae8cfa288e8520f6e373ce168b31e8603325e6d18bd23c88a2a5fdf0` 和 `64a119065a6af01275cb4bf3dffaf079e45fe86ad6fef3f086858acbe143cae8`。旧源树身份保留；新代码会形成新研究身份，不能继续执行旧冻结协议。原 Stage2B/2C 结果段落原字节保留在下方，未重算旧分母或 Gate。
+
+已完成：离线反例、审定实现、调度/数据排除准备、必要回归、影响分析。人工参考核验/盲态质量审阅：PENDING。外部模型/资金/新数据/执行配置授权：PENDING。真实模型新实验：NOT_STARTED。Final Holdout：NOT_FROZEN_NOT_RUN。正式论文主实验：NOT_STARTED。
+
+使用说明见 [独立质量审定](MINUTES_QUALITY.md)，精确对照、独立单位、488次上限、资金/人时提案、统计限制与停止条件见 [下一轮研究协议](STAGE2D_RESEARCH_PROTOCOL.md)。当前最有价值的下一步是独立人类校准参考与错误接受/拒绝，不是继续优化旧 S1。
+<!-- STAGE2D_CURRENT_END -->
+
 <!-- MEETING_STAGE2BC_CURRENT_START -->
 # Stage 2B/2C 真实模型反馈演化 Pilot — 2026-10-30
 

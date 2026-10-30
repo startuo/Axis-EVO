@@ -2,6 +2,9 @@
 
 ## Unreleased — release stabilization on 0.1.0 Preview
 
+- Stage 2D 增加版本化会议纪要质量审定：固定来源和逐项证据，分开事实、主观评分和 UNKNOWN，不改写旧 Oracle/Gate。
+- 增加独立于生产准入的纯研究排程准备，预声明无 Skill、固定 S0、反馈消融与直接改答案对照；仅提案，无新模型实验或正式 Holdout。
+
 - 明确区分新 store 准备、已有 store 启动和离线副本维护；生产启动验证完整构建资产与安全 SQLite 能力。
 - 修正 HTTPS 响应定界与资源释放，新增显式管理员 CONNECT 路由及不可变实际传输配置绑定。
 - 拒绝晚到演化 ACK 覆盖已切换的选择；设置与演化面板按需加载，保持既有工作台首屏。
