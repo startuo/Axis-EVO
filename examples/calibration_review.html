@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Axis-Evo 独立审阅</title>
+<style>
+[hidden]{display:none!important}body{font:16px/1.6 system-ui,sans-serif;max-width:1100px;margin:28px auto;padding:0 20px;color:#18212b;background:#fafafa}h1{font-size:26px}pre{white-space:pre-wrap;background:white;border:1px solid #ccd2d7;padding:16px;max-height:480px;overflow:auto}label{display:block;margin:10px 0}input,textarea,select,button{font:inherit;box-sizing:border-box}textarea{width:100%;min-height:65px}button{padding:7px 16px;margin:6px 8px 6px 0}section,.criterion{padding:14px;border:1px solid #ccd2d7;background:white;margin:15px 0}.muted{color:#53606d;font-size:14px}.status{position:sticky;top:0;background:#e9eff3;padding:10px;z-index:1}.error{color:#9d172b}details{margin:12px 0}fieldset{border:0;padding:0}
+</style>
+<h1>Axis-Evo 独立审阅</h1>
+<p id="instructions"></p><p class="muted">此页离线工作，不发送网络请求。请只填代号；不要填姓名、单位或私人信息。计时仅是本机自记录，不认证身份。所有字段都须实际判断，未决请选 UNKNOWN。</p>
+<label>审阅者代号 <input id="reviewer" autocomplete="off" required></label>
+<label><input type="checkbox" id="human">我本人为实际参与的独立人类审阅者，未用 LLM 代填。</label>
+<label><input type="checkbox" id="independent">我没有参与这些候选的生成或修订。</label>
+<label>是否已看过相关历史产物、版本映射或结果？ <select id="exposure"><option value="">请选择</option><option>NO</option><option>YES</option><option>UNKNOWN</option></select></label>
+<label><input type="checkbox" id="blind">本次未获知版本身份或候选条件；若已知请勿勾选。</label>
+<label>审阅项目 <select id="item"></select></label>
+<div class="status"><span id="clock">尚未计时</span><br><button id="start">开始本项</button><button id="pause" disabled>暂停 / 继续</button></div>
+<div id="content"></div>
+<section><h2>最终判断</h2><label>本项结论 <select id="verdict"></select></label>
+<label id="auditLabel">全篇新增断言、矛盾及无依据内容审计 <select id="audit"><option value="">请选择</option><option>CLEAR</option><option>ISSUES</option><option>UNKNOWN</option></select></label>
+<label>总体理由 / 标准是否有误 <textarea id="reason"></textarea></label>
+<div id="issues"></div><button id="addIssue">新增问题</button></section>
+<button id="save">结束本项并导出 JSON</button><p id="message" class="error" role="status"></p>
+<p class="muted" id="identity"></p>
+<script>
+'use strict';
+const packet=__PACKET__, packetSha=__PACKET_SHA__, displayOrder=__DISPLAY_ORDER__;
+const byId=id=>document.getElementById(id), node=(tag,text)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;return x};
+let running=false,manualPause=false,wasActive=false,startAt=0,lastAt=0,activeMs=0,pauseCount=0;
+const sourcePhase=packet.phase==='SOURCE';
+byId('instructions').textContent=sourcePhase?'第一阶段：只看原文和组织规则。核验原子标准草稿是否正确、完整、重大性是否恰当。CHANGE 或 UNKNOWN 需要写明原因；不要提前打开第二阶段材料。':'第二阶段：在原子标准经过独立核验后，对整份输出逐项判断。来源与引用不能代替事实支持；另查清单之外的新增断言。遇到标准疑点请 UNKNOWN，并另报标准问题。';
+byId('identity').textContent='Packet SHA-256: '+packetSha+'；标准草稿未经人类核验，状态 PENDING。';
+function options(select,values){select.replaceChildren(node('option','请选择'));select.firstChild.value='';for(const value of values){const o=node('option',value);o.value=value;select.append(o)}}
+options(byId('verdict'),sourcePhase?['CONFIRM','CHANGE','UNKNOWN']:['PASS','FAIL','UNKNOWN']);
+byId('auditLabel').hidden=sourcePhase;
+for(const id of displayOrder){const item=packet.items.find(x=>x.item_id===id),o=node('option',item.item_id);o.value=item.item_id;byId('item').append(o)}
+function current(){return packet.items.find(x=>x.item_id===byId('item').value)}
+function render(){const item=current();byId('content').replaceChildren();byId('issues').replaceChildren();byId('verdict').value='';byId('audit').value='';byId('reason').value='';
+ for(const [heading,value] of [['会议原文',item.source_text],['组织规则',item.policy_text],...(!sourcePhase?[['待审输出',item.output_text]]:[])]){const d=node('details');d.open=true;d.append(node('summary',heading),node('pre',value));byId('content').append(d)}
+ for(const criterion of item.criteria){const box=node('section');box.className='criterion';box.dataset.id=criterion.id;box.dataset.critical=String(criterion.critical);box.append(node('strong',criterion.id+' · '+criterion.dimension+(criterion.critical?' · 关键':' · 非关键')),node('p',criterion.obligation),node('pre','来源：'+criterion.source_quote));
+ const choice=node('select');choice.className='finding-verdict';options(choice,sourcePhase?['CONFIRM','CHANGE','UNKNOWN']:['PASS','FAIL','MISSING','UNKNOWN']);box.append(choice);
+ const quote=node('textarea');quote.className='finding-quote';quote.placeholder='从待审输出逐字复制支持判断的原文；MISSING 留空';quote.hidden=sourcePhase;box.append(quote);
+ const reason=node('textarea');reason.className='finding-reason';reason.placeholder='理由、支持关系或需要修正的标准（必填）';box.append(reason);byId('content').append(box)}
+ byId('clock').textContent='尚未计时';}
+function tick(){if(!running)return;const now=performance.now(),isActive=!manualPause&&!document.hidden&&document.hasFocus();if(wasActive)activeMs+=now-lastAt;if(wasActive&&!isActive)pauseCount++;lastAt=now;wasActive=isActive;byId('clock').textContent='墙钟 '+Math.round((now-startAt)/1000)+' 秒；活跃 '+Math.round(activeMs/1000)+' 秒'+(isActive?'':'（暂停 / 窗口不活跃）')}
+setInterval(tick,100);document.addEventListener('visibilitychange',tick);window.addEventListener('blur',tick);window.addEventListener('focus',tick);
+byId('start').onclick=()=>{if(running)return;running=true;manualPause=false;activeMs=0;pauseCount=0;startAt=lastAt=performance.now();wasActive=document.hasFocus()&&!document.hidden;byId('item').disabled=true;byId('pause').disabled=false;byId('start').disabled=true};
+byId('pause').onclick=()=>{tick();manualPause=!manualPause;if(manualPause)pauseCount++;wasActive=!manualPause&&!document.hidden&&document.hasFocus();tick()};
+byId('item').onchange=render;
+byId('addIssue').onclick=()=>{const box=node('div');box.className='issue';const severity=node('select');options(severity,['MAJOR','MINOR','UNKNOWN']);severity.className='severity';const quote=node('textarea');quote.className='issue-quote';quote.placeholder=sourcePhase?'从原文/规则逐字复制引起标准问题的文字':'从待审输出逐字复制有问题的文字';const reason=node('textarea');reason.className='issue-reason';reason.placeholder='问题解释及影响';box.append(severity,quote,reason);byId('issues').append(box)};
+byId('save').onclick=()=>{try{if(!running)throw Error('请先开始计时并实际审阅。');tick();if(!byId('reviewer').value.trim()||!byId('human').checked||!byId('exposure').value)throw Error('请填写代号、真实人类参与确认和既有暴露情况。');
+ const item=current(),findings=[...document.querySelectorAll('.criterion')].map(box=>{const verdict=box.querySelector('.finding-verdict').value,quote=box.querySelector('.finding-quote').value,reason=box.querySelector('.finding-reason').value.trim();if(!verdict||!reason)throw Error('每条标准都要给出判断与理由。');if(!sourcePhase&&['PASS','FAIL'].includes(verdict)&&(!quote||!item.output_text.includes(quote)))throw Error('PASS/FAIL 的引用须逐字出现在输出中。');if(verdict==='MISSING'&&quote)throw Error('MISSING 不填写不存在的引用。');return{criterion_id:box.dataset.id,verdict,quote,reason}});
+ const issues=[...document.querySelectorAll('.issue')].map(box=>({severity:box.querySelector('.severity').value,quote:box.querySelector('.issue-quote').value,reason:box.querySelector('.issue-reason').value.trim()}));const evidence=sourcePhase?item.source_text+'\n'+item.policy_text:item.output_text;
+ if(issues.some(x=>!x.severity||!x.quote||!x.reason||!evidence.includes(x.quote)))throw Error('问题须包含级别、逐字引用及理由。');
+ if(!byId('verdict').value||!byId('reason').value.trim()||(!sourcePhase&&!byId('audit').value))throw Error('请完成最终判断、全篇审计与理由。');if(!sourcePhase&&((byId('audit').value==='ISSUES')!==Boolean(issues.length)))throw Error('ISSUES 须列具体问题；CLEAR/UNKNOWN 不附已确定的问题列表。');
+ const record={schema_version:1,packet_sha256:packetSha,phase:packet.phase,item_id:item.item_id,reviewer_id:byId('reviewer').value.trim(),kind:'HUMAN_DECLARED',self_confirmed_human:true,independent_of_author:byId('independent').checked,version_blind:byId('blind').checked,prior_exposure:byId('exposure').value,verdict:byId('verdict').value,audit_status:sourcePhase?'NA':byId('audit').value,reason:byId('reason').value.trim(),findings,issues,timing:{basis:'CLIENT_MONOTONIC_SELF_RECORDED',wall_ms:Math.round(performance.now()-startAt),active_ms:Math.round(activeMs),pause_count:pauseCount}};
+ if(record.timing.active_ms<1)throw Error('活跃计时不足，请完成实际审阅。');running=false;wasActive=false;byId('item').disabled=false;byId('pause').disabled=true;byId('start').disabled=false;const blob=new Blob([JSON.stringify(record,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=node('a');a.href=url;a.download=packet.phase+'-'+item.item_id+'-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);byId('message').textContent='已导出本项。记录仍需保管者核验身份；请勿覆盖原始导出。';
+ }catch(error){byId('message').textContent=error.message}};
+render();
+</script></html>
