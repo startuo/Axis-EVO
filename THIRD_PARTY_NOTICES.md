@@ -1,5 +1,14 @@
 # Third-party notices
 
+The Edge extraction compatibility layer includes `content.js` (adapted) and
+`redact.js` (unchanged) from [alchaincyf/huashu-chrome](https://github.com/alchaincyf/huashu-chrome)
+1.3.0 at commit `84d5ee40532ca586650d3d5f78f3952d3061cd06`, Copyright (c) 2026
+花叔 (alchaincyf), under the MIT License. The complete upstream notice is retained
+in [browser/edge-extension/vendor/LICENSE](browser/edge-extension/vendor/LICENSE).
+The command restrictions, removed field values and disabled retries are described
+in [the adaptation notes](browser/edge-extension/vendor/README.md).
+The original MCP server and unrestricted browser transport are not included.
+
 The unchanged `third_party/awesome_copilot/meeting_minutes/SKILL.md` is from
 GitHub's [awesome-copilot](https://github.com/github/awesome-copilot) at commit
 `0fe6545b950671641b2b14b44eb56678fea6c6b4`, original path

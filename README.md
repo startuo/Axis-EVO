@@ -10,6 +10,8 @@ Axis-Evo 是一个 local-first 的通用 Agent Workbench，支持可核验执行
 
 工作台支持多轮任务、逐轮 Plan 审批、独立 Worker，以及 Skill 修订、配对评估和独立版本激活。不确定执行结果保留为 UNKNOWN。当前版本 **0.1.0 Preview**；产品功能与正式研究实验分别验证。安装与数据维护见 [运行约定](docs/RELEASE_OPERATIONS.md)，演化见 [多代评估](docs/MULTIGENERATION_CAMPAIGNS.md)，验证见 [测试结果](docs/TEST_RESULTS.md)。
 
+产品增强分支新增统一工作面板、文档草稿与受控本地交付，以及实验性 Edge 兼容层。当前验收结果与未完成边界见 [Axis Next](docs/AXIS_NEXT.md)；离线流程和实际工作台截图不代表真实 Edge 扩展任务已通过。
+
 ## 项目结构
 
 ```text
@@ -31,6 +33,7 @@ axis-evo/
 │   ├── research_*.py                        # 隔离实验、不可变协议与只读导出
 │   └── migrations/                        # SQLite 显式迁移
 ├── examples/                              # 程序化示例与一条命令开发启动器
+├── browser/edge-extension/                 # 受限 Edge MV3 兼容层
 ├── web/                                   # React 工作台、离线演示与样式
 ├── web_api/                               # 只读桥接、Provider、多轮会话、持久化调度与独立 Worker
 ├── docs/

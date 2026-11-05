@@ -1,6 +1,8 @@
 import { validateCoreData } from "./api";
 import { createSessionInitializer } from './runtimeSession';
 import {validateFeedbackData} from './feedbackData';
+import {validateBrowserData} from './browser';
+import {validateWorkspaceData} from './workspace';
 import type { RunView } from "./types";
 
 export type SkillRef = { skill_id: string; skill_version: number };
@@ -165,6 +167,8 @@ const errorMessages: Record<string, string> = {
 
 export function validateRuntimeData(path: string, data: unknown, mutating = false): void {
   const reject = () => { throw new RuntimeError("INVALID_DATA", "Runtime 响应结构无效，未使用演示数据替代。"); };
+  if(path.startsWith('/browser/')) {if(!validateBrowserData(path,data))reject();return;}
+  if(path.includes('/workspace/drafts')||path.endsWith('/workspace-drafts')||path.endsWith('/artifact-preview')) {if(!validateWorkspaceData(path,data))reject();return;}
   if (path === "/capabilities") {
     if (!object(data) || typeof data.enabled !== "boolean" || typeof data.authenticated !== "boolean" || !list(data.projects) || !data.projects.every((p) => object(p) && text(p.id) && text(p.name) && list(p.skills) && p.skills.every(skillRef)) || !list(data.allowedTools) || !data.allowedTools.every(text) || !list(data.blockedTools) || !data.blockedTools.every(text) || !list(data.limitations) || !data.limitations.every(text)) reject();
     if (object(data) && (data.supportsConversations !== undefined && typeof data.supportsConversations !== 'boolean' || data.supportsReplies !== undefined && typeof data.supportsReplies !== 'boolean' || data.maximumPromptCodepoints !== undefined && (!integer(data.maximumPromptCodepoints) || data.maximumPromptCodepoints < 1 || data.maximumPromptCodepoints > 8192) || list(data.projects) && !data.projects.every(p => object(p) && (p.taskTemplates === undefined || list(p.taskTemplates) && p.taskTemplates.length <= 9 && p.taskTemplates.every(t => object(t) && text(t.id) && text(t.name) && (t.readPolicy === undefined || readScope(t.readPolicy))))))) reject();
@@ -297,7 +301,8 @@ export async function runtimeRequest<T>(path: string, options: { body?: unknown;
       await initializeLocalSession();
       return runtimeRequest<T>(path, options, false);
     }
-    throw new RuntimeError(code, errorMessages[code] ?? "Runtime 拒绝了当前操作。请检查权限与已记录状态；未自动重试。");
+    const localMessage=/^(EDGE|BROWSER|WORKSPACE|DRAFT|DELIVERY|ARTIFACT)_/.test(code)&&object(payload)&&object(payload.error)&&typeof payload.error.message==='string'&&payload.error.message.length<=300?payload.error.message:undefined;
+    throw new RuntimeError(code, errorMessages[code] ?? localMessage ?? "Runtime 拒绝了当前操作。请检查权限与已记录状态；未自动重试。");
   }
   if (!object(payload) || payload.schema_version !== 1 || payload.mode !== "runtime" || !("data" in payload)) throw new RuntimeError("INVALID_SOURCE", "响应不属于真实 Runtime 数据源。");
   validateRuntimeData(path, payload.data, options.body !== undefined);

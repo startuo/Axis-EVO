@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — Axis Next M1 + M2 product branch
+
+- 统一对话、任务活动与工作面板；计划审批、交付物和深度证据分层展示，长对话保持输入区可见。
+- 网页整理形成文档草稿，支持 Markdown 预览、不可变版本、变化区间、继续修改与精确批准保存；保存复用 Core 文件工具和字节验收。
+- 新增受限 Microsoft Edge MV3 兼容层、自动连接与按实例/标签页绑定的单次操作审计；移除配对码、连接验证及相关引导。
+- Windows 浏览器桥独占监听端口，拒绝重复进程抢占；未确认操作保留 UNKNOWN，不自动重派。
+- 产品仍为 0.1.0 Preview；扩展组件版本独立为 0.2.0。真实 Edge 扩展和真实 Provider 的端到端验收尚未完成，详见 [产品边界](docs/AXIS_NEXT.md)。
+- 研究证据继续绑定 `12c789b`，没有修改 Core 源码、旧 Skill 身份或历史实验事实。
+
 ## Unreleased — release stabilization on 0.1.0 Preview
 
 - Stage 2E 保留v1并新增v2证据审定，显式保留全篇审计与参考标准争议，不把位置校验或自报HUMAN当语义真值。

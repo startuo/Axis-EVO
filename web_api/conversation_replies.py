@@ -401,7 +401,7 @@ class ReplyService:
     def _history(self, c, conversation_id, profile):
         return bounded_history(c, self.providers, conversation_id, profile)
 
-    def send(self, project_id, body, conversation_id=None):
+    def send(self, project_id, body, conversation_id=None, *, title=None):
         self.runtime._project(project_id)  # Admission identity only; no seed or Core read.
         if (type(body) is not dict or body.keys() != {'prompt', 'messageId', 'profileId', 'profileRevision'}
                 or self._closed or type(body.get('profileRevision')) is not int
@@ -452,7 +452,7 @@ class ReplyService:
                         _error('CONVERSATION_LIMIT')
                     conversation_id = 'conversation_' + uuid4().hex
                     _one(c, 'INSERT INTO main.runtime_conversations VALUES(?,?,?,?)',
-                         (conversation_id, project_id, prompt.strip().splitlines()[0][:80], created_at))
+                         (conversation_id, project_id, (title or prompt).strip().splitlines()[0][:80], created_at))
                 elif not c.execute('SELECT 1 FROM main.runtime_conversations WHERE conversation_id=? AND project_id=?',
                                    (conversation_id, project_id)).fetchone():
                     _error('CONVERSATION_NOT_FOUND', 404)

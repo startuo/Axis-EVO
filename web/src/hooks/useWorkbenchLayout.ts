@@ -9,10 +9,10 @@ export function useStoredPreference<T extends boolean>(key: string, fallback: T)
   return [value, setValue];
 }
 
-export function useWorkbenchLayout() {
+export function useWorkbenchLayout(initialInspectorWidth=376) {
   const [compact, setCompact] = useStoredPreference("axis.sidebar.compact", false);
   const [inspector, setInspector] = useState(false);
-  const [inspectorWidth, setInspectorWidth] = useState(376);
+  const [inspectorWidth, setInspectorWidth] = useState(initialInspectorWidth);
   const [mobile, setMobile] = useState(window.innerWidth < 760);
   const [narrow, setNarrow] = useState(window.innerWidth < 1200);
   const [drawer, setDrawer] = useState(false);

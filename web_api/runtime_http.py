@@ -27,6 +27,10 @@ class RuntimeServer(WorkbenchServer):
             self.feedback = FeedbackService(runtime, self.evolution)
             from .conversation_replies import ReplyService
             self.replies = ReplyService(runtime)
+            from .browser_service import BrowserService
+            self.browser = BrowserService(runtime)
+            from .collaboration_service import CollaborationService
+            self.workspace = CollaborationService(runtime, self.replies, self.browser)
             self.RequestHandlerClass = RuntimeHandler
         except BaseException:
             self.server_close()
@@ -34,6 +38,10 @@ class RuntimeServer(WorkbenchServer):
 
     def server_close(self):
         try:
+            if hasattr(self, 'workspace'):
+                self.workspace.close()
+            if hasattr(self, 'browser'):
+                self.browser.close()
             if hasattr(self, 'replies'):
                 self.replies.close(wait=False)
             if hasattr(self, 'evolution'):
@@ -148,7 +156,20 @@ class RuntimeHandler(WorkbenchHandler):
         if path == "/api/runtime/session":
             return {"csrfToken": self.server.sessions.resume(self._cookie(), self._origin())}
         self._authenticated()
+        if path == '/api/runtime/browser/status':
+            return self.server.browser.status()
+        if path.startswith('/api/runtime/browser/operations/'):
+            self.server.browser.require()
+            return self.server.browser.store.get(path.rsplit('/', 1)[1])
         parts = path.strip("/").split("/")
+        if len(parts) >= 7 and parts[:3] == ['api','runtime','projects']:
+            if parts[4:6] == ['workspace','drafts']:
+                if len(parts) == 7:
+                    return self.server.workspace.get(parts[3], parts[6])
+                if len(parts) == 8 and parts[7] == 'evidence':
+                    return self.server.workspace.evidence(parts[3], parts[6])
+            if len(parts) == 7 and parts[4] == 'conversations' and parts[6] == 'workspace-drafts':
+                return self.server.workspace.list(parts[3], parts[5])
         if len(parts) == 7 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'threads' and parts[6] == 'feedback':
             return self.server.feedback.list(parts[3], parts[5])
         if len(parts) == 6 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'feedback':
@@ -248,7 +269,28 @@ class RuntimeHandler(WorkbenchHandler):
             body = self._body()
             runtime, parts = self.server.runtime, path.strip("/").split("/")
             status = 200
-            if len(parts) == 7 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'threads' and parts[6] == 'feedback':
+            if len(parts) >= 6 and parts[:3] == ['api','runtime','projects'] and parts[4:6] == ['workspace','drafts']:
+                if len(parts) == 6:
+                    conversation = body.pop('conversationId', None)
+                    result = self.server.workspace.create(parts[3], body, conversation)
+                elif len(parts) == 8 and parts[7] == 'prepare':
+                    result = self.server.workspace.prepare(parts[3], parts[6], body)
+                elif len(parts) == 8 and parts[7] == 'approve':
+                    result = self.server.workspace.approve(parts[3], parts[6], body)
+                else:
+                    raise ApiError('ROUTE_NOT_FOUND', 'The workspace operation does not exist.', 404)
+                status = 202
+            elif parts[:3] == ['api', 'runtime', 'browser']:
+                browser_routes = {'prepare-storage': self.server.browser.prepare_storage,
+                    'connect': self.server.browser.connect, 'tabs': self.server.browser.tabs,
+                    'bind': self.server.browser.bind, 'observe': self.server.browser.observe,
+                    'prepare-action': self.server.browser.prepare_action, 'approve-action': self.server.browser.approve_action,
+                    'handoff': self.server.browser.handoff}
+                handler = browser_routes.get(parts[3]) if len(parts) == 4 else None
+                if handler is None:
+                    raise ApiError('ROUTE_NOT_FOUND', 'The browser operation does not exist.', 404)
+                result = handler(body)
+            elif len(parts) == 7 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'threads' and parts[6] == 'feedback':
                 result = self.server.feedback.submit(parts[3], parts[5], body)
                 status = 201
             elif len(parts) == 7 and parts[:3] == ['api', 'runtime', 'projects'] and parts[4] == 'feedback' and parts[6] == 'revision-proposals':
@@ -314,6 +356,9 @@ class RuntimeHandler(WorkbenchHandler):
                 if len(parts) == 5:
                     result = runtime.create_thread(parts[3], body)
                     status = 202
+                elif len(parts) == 7 and parts[6] == 'artifact-preview':
+                    from .runtime_artifacts import preview
+                    result = preview(runtime, parts[3], parts[5], body)
                 elif len(parts) == 7 and parts[6] == "approve":
                     result = runtime.approve(parts[3], parts[5], body)
                     status = 202

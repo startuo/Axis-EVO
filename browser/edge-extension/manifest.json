@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Axis-Evo · Microsoft Edge",
+  "version": "0.2.0",
+  "description": "将你明确授权的 Edge 标签页连接到本地 Axis-Evo 工作台。",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Axis-Evo Edge 连接"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:*"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzSV+R1SlD8TezsS0es+pwsLvCkOGyVDHyxAjKWefKxf18tVHfA2IkU4Zhb1OB3siOWo/CKU+9HGWegh0qiWVR6wF0xy64R58IqhAixd7jsxTAirAYYhdRY9/lO7wXToRv5MJrJcnwQC0jCagsh+EWz+XZjcqtBNms/hJ/famZ7I3/Wltl8RF5/D6ECwge5QJno1i4vOmbOO4MpUwfENFd4vHNYT2688f4SgXSUkAj3E3/9+gp1kexuLaWQ6aJUyTI7pl6Zl2C642d0Klz19cFu3905mN3P8Yyww2IDvvK1elDJVmdAX+Ng10hXEk6Lp/7yj9QcDrBB0SN15m9kIQmwIDAQAB"
+}

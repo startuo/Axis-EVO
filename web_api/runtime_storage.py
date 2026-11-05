@@ -141,6 +141,10 @@ def _initialize_metadata(providers):
             initialize_reply_schema(c)
             from .runtime_read_policy import initialize
             initialize(c)
+            from .browser_store import initialize as initialize_browser
+            initialize_browser(c)
+            from .collaboration_service import initialize as initialize_workspace
+            initialize_workspace(c)
             require_complete_schema(c)
         except BaseException:
             c.rollback()
