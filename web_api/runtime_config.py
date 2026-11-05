@@ -104,6 +104,14 @@ def _path(value, *, existing=False, directory=False):
     return path
 
 
+def _validate_proxy_grant(proxy, expires_at):
+    match = re.fullmatch(r'http://127\.0\.0\.1:([1-9][0-9]{0,4})', proxy) if type(proxy) is str else None
+    if not match or int(match[1]) > 65535:
+        raise ValueError('An explicit literal loopback HTTP proxy is required')
+    if type(expires_at) is not int or not 0 < expires_at <= time.time() + 86400:
+        raise ValueError('A bounded route expiration is required')
+
+
 @dataclass(frozen=True)
 class ProviderRoute:
     """Explicit administrator CONNECT target, never inferred from proxy env."""
@@ -114,9 +122,7 @@ class ProviderRoute:
 
     def __post_init__(self):
         validate_endpoint(self.endpoint)
-        match = re.fullmatch(r'http://127\.0\.0\.1:([1-9][0-9]{0,4})', self.proxy) if type(self.proxy) is str else None
-        if not match or int(match[1]) > 65535:
-            raise ValueError('An explicit literal loopback HTTP proxy is required')
+        _validate_proxy_grant(self.proxy, self.expires_at)
         try:
             address = ipaddress.ip_address(self.address)
         except (ValueError, TypeError):
@@ -127,8 +133,6 @@ class ProviderRoute:
             raise ValueError('A canonical public IPv4 CONNECT target is required')
         # Expired facts remain readable; current authorization is checked only
         # when attempting network I/O. A new route cannot be pinned indefinitely.
-        if type(self.expires_at) is not int or not 0 < self.expires_at <= time.time() + 86400:
-            raise ValueError('A bounded route expiration is required')
 
     def to_dict(self):
         return {'endpoint': self.endpoint, 'proxy': self.proxy,
@@ -141,10 +145,40 @@ class ProviderRoute:
         return cls(**value)
 
 
+@dataclass(frozen=True)
+class OfficialHostRoute:
+    """Explicit official-host CONNECT; the trusted proxy resolves the host."""
+    endpoint: str
+    proxy: str
+    expires_at: int
+
+    def __post_init__(self):
+        if self.endpoint not in DEFAULT_ENDPOINTS:
+            raise ValueError('Official-host CONNECT requires an exact supported official endpoint')
+        _validate_proxy_grant(self.proxy, self.expires_at)
+
+    def to_dict(self):
+        return {'endpoint': self.endpoint, 'proxy': self.proxy,
+                'connect_target': 'official-host', 'expires_at': self.expires_at}
+
+    @classmethod
+    def from_dict(cls, value):
+        if (type(value) is not dict or value.keys() != {'endpoint', 'proxy', 'connect_target', 'expires_at'}
+                or value['connect_target'] != 'official-host'):
+            raise ValueError('Unexpected official-host proxy authority')
+        return cls(value['endpoint'], value['proxy'], value['expires_at'])
+
+
+def provider_route_from_dict(value):
+    if type(value) is dict and 'connect_target' in value:
+        return OfficialHostRoute.from_dict(value)
+    return ProviderRoute.from_dict(value)
+
+
 def parse_provider_routes(value, endpoints):
     if type(value) is not list or len(value) > 8:
         raise ValueError('A bounded explicit provider route allowlist is required')
-    routes = tuple(ProviderRoute.from_dict(item) for item in value)
+    routes = tuple(provider_route_from_dict(item) for item in value)
     if len({r.endpoint for r in routes}) != len(routes) or any(r.endpoint not in endpoints for r in routes):
         raise ValueError('Provider routes must bind unique authorized endpoints')
     return routes
@@ -216,7 +250,7 @@ class RuntimeConfig:
     credentials: dict[str, str]
     endpoints: tuple[str, ...] = DEFAULT_ENDPOINTS
     local_gateways: tuple[LocalGateway, ...] = ()
-    provider_routes: tuple[ProviderRoute, ...] = ()
+    provider_routes: tuple[ProviderRoute | OfficialHostRoute, ...] = ()
 
     def __post_init__(self):
         # A frozen dataclass alone does not freeze nested configuration objects.
@@ -229,7 +263,7 @@ class RuntimeConfig:
             raise ValueError('Invalid local gateway authority')
         object.__setattr__(self, 'local_gateways', tuple(self.local_gateways))
         routes = tuple(self.provider_routes)
-        if (len(routes) > 8 or any(type(item) is not ProviderRoute for item in routes)
+        if (len(routes) > 8 or any(type(item) not in (ProviderRoute, OfficialHostRoute) for item in routes)
                 or len({item.endpoint for item in routes}) != len(routes)
                 or any(item.endpoint not in self.endpoints for item in routes)):
             raise ValueError('Invalid administrator provider routes')

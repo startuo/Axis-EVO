@@ -1,20 +1,25 @@
 <!-- AXIS_NEXT_M1_M2_CURRENT_START -->
 # Axis Next M1 + M2 产品增强 — 2026-11-05
 
-**统一协作、受控交付及 Edge 兼容层已实现；真实 Edge 扩展与真实 Provider 的端到端验收尚未完成。** 产品保持 0.1.0 Preview，扩展组件 0.2.0。功能分支 `feature/axis-next-m1-m2-edge`，学术基线仍为 `12c789b187a6bf8332b8d5222d00cc0702d4bdc8`。没有修改 `src/axis_evo`、旧 SQL、Skill、Run、Gate 或研究数据。
+**统一协作、受控交付及 Edge 兼容层已实现；真实 Edge 扩展操作、中断恢复及真实 DeepSeek 网页到本地文档、持续修订已验证。** 产品保持 0.1.0 Preview，扩展组件 0.2.0。功能分支 `feature/axis-next-m1-m2-edge`，学术基线仍为 `12c789b187a6bf8332b8d5222d00cc0702d4bdc8`。没有修改 `src/axis_evo`、旧 SQL、Skill、Run、Gate 或研究数据。
 
 ## 当前验证结果
 
 | 范围 | 实际结果 |
 | --- | --- |
-| Web 后端完整关联回归 | `pytest web_api/tests -q --tb=short`：558 passed，355.89s，exit0 |
+| Web 后端完整关联回归 | `pytest web_api/tests -q --tb=short`：574 passed，607.84s，exit0；含16项新官方域名代理边界 |
 | 新增浏览器/交付物/HTTP/文件预览 | 24 passed，16.73s，exit0；真实 SQLite、HTTP、回复及文件子进程、Core 与文件字节，页面/模型数据是明确标记的离线夹具 |
-| 前端单元与交互 | 28 files / 270 passed，17.96s，exit0；覆盖无配对入口、固定操作审阅、独立保存批准、UNKNOWN 与无效回执 |
+| 前端单元与交互 | 28 files / 275 passed，15.94s，exit0；新增已绑定页面保留/其它标签页折叠，截图失败说明且不自动重试，以及代理/地址策略/超时分类提示 |
 | TypeScript、ESLint、构建 | 通过；生产构建资产 manifest 独立完整性检查通过 |
 | 扩展 JavaScript | background、popup、适配 content script 的 Node 语法检查通过 |
 | 生产依赖审计 | `npm audit --omit=dev`：0 漏洞；本轮没有新增 npm 依赖 |
 | 实际 Edge 工作台页面 | 预览→批准→独立 Core 保存→下载入口→持续修订 v1/v2/v3/v4；来源和模型均为离线夹具，v1 原文件精确字节保持不变 |
 | 实际 Edge DOM 兼容脚本 | 10/10 通过：快照、隐藏表单值、单次点击、输入、选择、改名/历史地址变化后的陈旧引用、敏感操作拦截、限制消息入口；使用显式消息 shim，不是扩展 API 或 Bridge 验收 |
+| 真实 Edge MV3 扩展 | 用户重载目录后自动登记；固定实例及标签页的 bind/read/click/type/select/focus 原生回执与本地隔离网页状态一致；删除与密码输入返回 AXIS_HANDOFF_REQUIRED |
+| 真实页面变化 | 批准前替换文档：RESULT/EDGE_TAB_CHANGED，点击0次；动作发出后改变 URL fragment：UNKNOWN/EDGE_TAB_CHANGED，动作1次 |
+| 真实断线、响应丢失与重启 | 原生动作发出后停止经进程身份核对的隔离开发服务；磁盘先有 DISPATCHED，重启追加 UNKNOWN/EDGE_COORDINATOR_RESTARTED，扩展自动重连并追加 LATE_RESULT/ok=true/actionIssued=true；页面计数保持1，无重放 |
+| 真实 Provider 全链路 | DeepSeek / deepseek-flash、固定 r4；原生 Edge 正文来源→模型回复→用户精确保存批准→独立文件 Worker/Core；v1与v2均 COMPLETED、RUN_COMPLETED、trace.consistent=true、pending=0，现场字节逐一与批准摘要一致，v1未覆盖 |
+| 真实截图 | 原生 screenshot 返回 RESULT/ok=false/EDGE_ACTION_NOT_CONFIRMED，无产品截图；已补明确手动恢复提示，成功截图仍未验证 |
 | 布局与键盘 | Edge 320/768/1024/1440 像素；无页面横向溢出，窄屏抽屉、方向键切换、Escape 归还焦点；输入区始终可见，阅读旧消息时背景刷新不抢滚动；明暗模式及控制台错误检查通过 |
 
 ## 发现、修正和边界
@@ -24,11 +29,16 @@
 - 首轮前端旧文案/内联审批断言 3 项失败，改为审查新入口；没有恢复重复的审批 UI 来迎合旧断言。新夹具曾因模型响应缺少必需 envelope 字段被拒绝，补全夹具后通过，未放宽 Provider 协议。
 - Runtime 文件预览保持平台换行原字节；测试按实际系统换行断言。现场文件与 seed 被修改都会拒绝展示为原交付物；硬链接撤销当前字节核对标记。
 - 已派发未确认、迟到回执、重复批准、队列拒绝、网页不能授予权限、错误来源和 Chrome 伪装等均有离线边界检查。它们不替代真实 Edge 扩展 API 的兼容性验收。
-- DOM 隔离页在日常 Edge 中加载当前 `content.js` 原字节，源码 SHA-256 为 `0c449b6d138ea59bbdb82db57edc041e149a4456e6c53599f84d2bec943f036a`。页面实际安全点击计数1、敏感点击计数0，输入/选择状态与回执一致。伪装发送方检查只覆盖 shim 中的消息入口判断；未据此证明浏览器 isolated-world 或扩展身份认证。网页越权文字作为材料读出，不进入真实模型。
+- DOM 隔离页在日常 Edge 中加载修正后的 `content.js` 原字节，源码 SHA-256 为 `bb939f888d6eae9a86bfab729c9b17716fc1cc6426b4bd9aa083a6b6f3e0c37d`，10/10再次通过。页面实际安全点击计数1、敏感点击计数0，输入/选择状态与回执一致。shim 与原生扩展分开验证；网页越权文字先作为材料读出；随后真实模型明确将其作为不可信测试数据，未调用删除操作。
+- 原生密码用例暴露定位预检未复用密码字段判断：底层写入保护已拒绝，但一次操作仍被保守地记为 UNKNOWN。统一 `doLocate` 的敏感字段判断后，新操作在写入前明确返回接管，隔离页自己的状态观察确认密码未变化；保留旧 UNKNOWN。没有依靠读取密码值进行验证。
+- 已绑定页保留实例标识并折叠其它日常标签页；更换页和绑定失效时仍能显式选择。截图失败的原生原因未获得更细粒度回执，不断言具体权限错误；界面给出在目标页打开扩展、手动再获取预览的路径。没有扩大扩展权限。
+- 本次前端新增用例首轮2失败：一个文本匹配同时命中可见实例标识与折叠选项，另一个正确揭示缺少截图恢复说明。限定可见段落断言并实现提示后，针对7项及完整272项通过。
 - 已从产品中移除 Edge 配对码、连接验证表单及相关引导。固定扩展来源、精确操作审批、数据接收方授权与 UNKNOWN 保护仍保留。
+- 真实配置初次在请求前返回 endpoint_policy：本机 DNS 为 198.18.0.42；固定公网 IP CONNECT 后仍记录 timeout/connection。新增单独 official-host CONNECT 类型，代理解析官方域名，保留 TLS/SNI/Host、限时授权和无自动重试；仅支持明确列出的官方 Endpoint，浏览器不能提交路由。原直连与固定 IP 修订及失败事实不变。新类型不进入冻结学术 campaign，Core 源码没有修改。
+- 新代理路由关联检查41项通过（16项新类型边界、25项既有固定 IP 与历史身份回归）；新类型最初因尚未实现而导入失败，完整实现后通过。Provider 连接失败提示新增针对地址策略、超时和网络的分类，首轮新增断言正确暴露旧通用文案。
 - 主 bundle 约 524 kB（gzip 约 164 kB），构建仍有 >500 kB 提示，未放宽阈值。实际 UI 使用本地开发地址；未将其冒充独立生产浏览器验收。
 
-真实扩展连接、页面读取/低风险交互、断线/页面改变的实际 Edge 验收，以及真实模型处理网页并交付文件，仍为 **NOT_VERIFIED**。本次没有调用真实 Provider。配对流程已删除不等于已完成真实连接，工作台在 Edge 中显示也不等于本产品扩展任务通过。产品与新协议说明见 [Axis Next](AXIS_NEXT.md)。
+真实扩展连接、页面读取/低风险交互、断线及页面变化已有原生扩展与持久记录证据；仅覆盖不含真实账户的本地隔离网页，不外推任意业务站点。真实 DeepSeek 整理该隔离页、独立 Core 保存及同一对话修订 v2 均已通过；成功截图仍为 **NOT_VERIFIED**。产品与新协议说明见 [Axis Next](AXIS_NEXT.md)。
 
 原始日志、测试源码、夹具及截图留在本地；公开 Git 只使用明确的源码/必要说明清单，旧研究证据不被覆盖。
 <!-- AXIS_NEXT_M1_M2_CURRENT_END -->

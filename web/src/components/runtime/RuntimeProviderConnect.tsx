@@ -1,6 +1,14 @@
 import {useEffect,useRef,useState} from 'react';
 import {runtimeApi,type RuntimeProfiles,type RuntimeProfile,type ProviderTestResult} from '../../lib/runtime';
 
+export function providerConnectionSummary(result:ProviderTestResult) {
+  if(result.testStatus==='CONNECTED')return '连接已通过';
+  if(result.category==='endpoint_policy')return '连接被网络地址策略拦截。请检查代理或 DNS 路由；本次尚未到达模型服务。';
+  if(result.category==='timeout')return '模型响应超时。请检查代理链路，或增加连接超时后手动重试。';
+  if(result.category==='connection')return '未能完成与模型服务的连接。请检查代理链路和网络。';
+  return '连接未通过，请检查 API Key 与网络设置。';
+}
+
 export function RuntimeProviderConnect({data,token,reload,reportError,onChat}:{
   data:RuntimeProfiles;token:string;reload:()=>void;reportError:(error:unknown)=>void;onChat?:(profile:RuntimeProfile)=>void;
 }) {
@@ -50,7 +58,7 @@ export function RuntimeProviderConnect({data,token,reload,reportError,onChat}:{
       {!enrollment.available&&<p role="status">安全凭据存储不可用。已有后端凭据可继续使用；新录入需要 Windows 凭据管理器及 Web 依赖。</p>}
       <button type="submit" className="button primary" disabled={busy||!configured&&(!key.trim()||!enrollment.available)}>{busy?'正在连接…':'测试连接'}</button>
     </form>
-    {result&&<div className="provider-connection-result" role="status"><p>{result.testStatus==='CONNECTED'?'连接已通过':'连接未通过，请检查 API Key 与网络设置。'}</p>
+    {result&&<div className="provider-connection-result" role="status"><p>{providerConnectionSummary(result)}</p>
       <details><summary>连接详情</summary><p>{result.category}{result.httpStatus!==null?` (HTTP ${result.httpStatus})`:''}</p><p>本次测试模型：{profile?.modelId}。任务操作仍需单独审阅。</p></details>
     </div>}
     {(result||profile)&&<label>模型<select aria-label="选择模型" value={model} disabled={busy} onChange={event=>{setModel(event.target.value);setResult(null);}}>{preset.models.map(value=><option key={value} value={value}>{value}</option>)}</select></label>}

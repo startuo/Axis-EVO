@@ -916,7 +916,7 @@
       tag: el.tagName,
       role: roleOf(el),
       prefer: preferOf(el),
-      sensitive: isSensitive(el),
+      sensitive: isSensitive(el) || isSecretField(el),
       pay: payInfo(el),
       baseline,
     };

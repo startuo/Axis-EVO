@@ -60,6 +60,23 @@ provider_routes: [
 
 客户端只向代理发送 CONNECT public-IP:443，Provider Authorization 仅在官方域名校验的 TLS 内发送；SNI/HTTP Host 保持官方域名，拒绝 redirect，不自动重试。代理是否实际遵守 CONNECT 属于管理员信任边界，不能称为独立观测到的公网出口。授权期限不等于 DNS TTL 或地址长期可用证明。实际 campaign transport 也固定并核对完整 route。
 
+### 产品工作台的官方域名代理
+
+代理分流环境可以显式使用另一种独立路由类型：
+
+```text
+provider_routes: [
+  {endpoint: https://api.deepseek.com/chat/completions,
+   proxy: http://127.0.0.1:<administrator port>,
+   connect_target: official-host,
+   expires_at: <integer Unix timestamp within the next 24 hours>}
+]
+```
+
+此类型仅支持代码中明确列出的 OpenAI、DeepSeek 官方完整 Endpoint；不接受任意域名、地址、代理凭据或浏览器提交的路由。它向显式 loopback 代理发送 `CONNECT api.deepseek.com:443`，由该可信代理解析域名，客户端仍核验官方 TLS 证书、SNI 和 HTTP Host。Authorization 仅在 TLS 建立后发送，不使用本机 Fake-IP DNS，也不把凭据发给代理请求头。它不是自动发现系统代理或隐式 fallback。
+
+`connect_target` 与旧 `address` 类型互斥，配置修订摘要包含完整路由；旧直连和旧固定 IP 版本不会自动采用新类型。限时授权、到期拒绝、无自动重试保持一致。该新类型供产品回复/任务 Worker 使用；冻结的学术 campaign transport 校验器仍拒绝此类型，没有修改 Core、研究协议或历史网络身份。
+
 固定 wire 为 `model/messages/n=1/stream=false`；Thinking、reasoning_effort、max_tokens 未发送，不能在 UI 宣称已启用。64 KiB response 预算、严格 UTF-8/JSON 与完整 HTTP 定界同时校验；不支持 chunk extensions/trailers、压缩或含歧义长度的响应，可能拒绝部分兼容 Provider。连接测试、有效 Plan、精确审批、真实执行和独立验收是不同事实。
 
 ## 备份、升级与恢复

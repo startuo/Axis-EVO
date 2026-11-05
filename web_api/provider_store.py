@@ -17,7 +17,7 @@ from axis_evo.hashing import canonical_json_bytes
 from axis_evo.planning_adapter import (OpenAICompatiblePlanningAdapter, PlanningResponse,
                                        PlanningTransportError)
 
-from .runtime_config import ProviderRoute, validate_endpoint, validate_gateway_endpoint, validate_gateway_model
+from .runtime_config import provider_route_from_dict, validate_endpoint, validate_gateway_endpoint, validate_gateway_model
 from .local_gateway import LocalGatewayPlanningAdapter
 from .provider_network import RoutedPlanningAdapter
 from .schemas import ApiError, no_redirected_parents, public_text
@@ -160,7 +160,7 @@ def _configuration(body, config, *, stored=False):
     value = {"name": name, "protocol": body["protocol"], "endpoint": endpoint,
              "modelId": model, "credentialRef": alias, "timeout": timeout}
     if stored and 'networkRoute' in body:
-        route = ProviderRoute.from_dict(body['networkRoute'])
+        route = provider_route_from_dict(body['networkRoute'])
         if route.endpoint != endpoint or body['protocol'] == 'local-gateway':
             raise ValueError('Provider route identity mismatch')
         value['networkRoute'] = route.to_dict()
@@ -457,7 +457,7 @@ class ProviderStore:
             adapter_type = LocalGatewayPlanningAdapter if pinned['protocol'] == 'local-gateway' else OpenAICompatiblePlanningAdapter
             options = {}
             if 'networkRoute' in pinned:
-                route = ProviderRoute.from_dict(pinned['networkRoute'])
+                route = provider_route_from_dict(pinned['networkRoute'])
                 if route not in self.config.provider_routes or time.time() >= route.expires_at:
                     raise ValueError('Exact administrator route is unavailable')
                 adapter_type = RoutedPlanningAdapter
