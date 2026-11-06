@@ -5,13 +5,14 @@ import type { WorkbenchLayout } from "../../hooks/useWorkbenchLayout";
 
 import { keepDialogTab } from "../ui/Primitives";
 
-export function WorkbenchShell({ layout, sidebar, toolbar, children, inspector, inspectorLabel = "审查面板", mainId = "main-content", className = "", resetKey = "", overlays }: {
+export function WorkbenchShell({ layout, sidebar, toolbar, children, inspector, inspectorLabel = "审查面板", inspectorMaxWidth = 520, mainId = "main-content", className = "", resetKey = "", overlays }: {
   layout: WorkbenchLayout;
   sidebar: ReactNode;
   toolbar: ReactNode;
   children: ReactNode;
   inspector?: ReactNode;
   inspectorLabel?: string;
+  inspectorMaxWidth?: number;
   mainId?: string;
   className?: string;
   resetKey?: string | number;
@@ -22,6 +23,7 @@ export function WorkbenchShell({ layout, sidebar, toolbar, children, inspector, 
   const returnFocus = useRef<HTMLElement | null>(null);
   const reduced = useReducedMotion();
   const showPanel = !!inspector && layout.inspector && !layout.narrow;
+  const inspectorWidth=Math.min(layout.inspectorWidth,inspectorMaxWidth);
   const showOverlay = layout.drawer || (layout.sheet && !!inspector);
   useEffect(() => {
     const element = overlay.current;
@@ -35,7 +37,7 @@ export function WorkbenchShell({ layout, sidebar, toolbar, children, inspector, 
   useEffect(() => {
     main.current?.querySelectorAll<HTMLElement>(".workspace-scroll, .runtime-scroll").forEach(element => { element.scrollTop = 0; });
   }, [resetKey]);
-  return <div className={`cds-shell ${layout.compact ? "cds-compact" : ""} ${showPanel ? "cds-with-inspector" : ""} ${className}`} style={{ "--inspector-width": `${layout.inspectorWidth}px` } as CSSProperties}>
+  return <div className={`cds-shell ${layout.compact ? "cds-compact" : ""} ${showPanel ? "cds-with-inspector" : ""} ${className}`} style={{ "--inspector-width": `${inspectorWidth}px`, "--inspector-max-width": `${inspectorMaxWidth}px` } as CSSProperties}>
     <a className="skip-link" href={`#${mainId}`} onClick={event => { event.preventDefault(); main.current?.focus(); }}>跳到主要内容</a>
     {!layout.mobile && <aside className="sidebar cds-sidebar-pane" aria-label="项目与对话导航">{sidebar}</aside>}
     <header className="cds-toolbar">
@@ -45,13 +47,13 @@ export function WorkbenchShell({ layout, sidebar, toolbar, children, inspector, 
     <main ref={main} id={mainId} tabIndex={-1} className="cds-main">{children}</main>
     <AnimatePresence initial={false}>
       {showPanel && <motion.aside key="inspector" className="cds-inspector-pane" aria-label={inspectorLabel} initial={{ opacity: 0, x: reduced ? 0 : 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={reduced ? { duration: 0 } : { duration: 0.18, ease: "easeOut" }}>
-        <div className="cds-splitter" role="separator" aria-label="调整审查面板宽度" aria-orientation="vertical" tabIndex={0} aria-valuemin={320} aria-valuemax={520} aria-valuenow={layout.inspectorWidth}
+        <div className="cds-splitter" role="separator" aria-label="调整审查面板宽度" aria-orientation="vertical" tabIndex={0} aria-valuemin={320} aria-valuemax={inspectorMaxWidth} aria-valuenow={inspectorWidth}
           onKeyDown={event => {
-            const next = event.key === "ArrowLeft" ? layout.inspectorWidth + 16 : event.key === "ArrowRight" ? layout.inspectorWidth - 16 : event.key === "Home" ? 320 : event.key === "End" ? 520 : null;
-            if (next !== null) { event.preventDefault(); layout.setInspectorWidth(Math.max(320, Math.min(520, next))); }
+            const next = event.key === "ArrowLeft" ? inspectorWidth + 16 : event.key === "ArrowRight" ? inspectorWidth - 16 : event.key === "Home" ? 320 : event.key === "End" ? inspectorMaxWidth : null;
+            if (next !== null) { event.preventDefault(); layout.setInspectorWidth(Math.max(320, Math.min(inspectorMaxWidth, next))); }
           }}
           onPointerDown={event => event.currentTarget.setPointerCapture(event.pointerId)}
-          onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) layout.setInspectorWidth(Math.max(320, Math.min(520, window.innerWidth - event.clientX))); }} />
+          onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) layout.setInspectorWidth(Math.max(320, Math.min(inspectorMaxWidth, window.innerWidth - event.clientX))); }} />
         {inspector}
       </motion.aside>}
     </AnimatePresence>

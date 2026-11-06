@@ -5,7 +5,7 @@ export type EdgeInstance = {id:string;label:string;browser:'Microsoft Edge';vers
 export type EdgeTab = {id:number;windowId:number;title:string;url:string;active:boolean};
 export type EdgeStatus = {prepared:boolean;running:boolean;port:number;protocol:2;connectionError?:string|null;extensionDirectory:string;instances:EdgeInstance[];bindings:EdgeBinding[];limitations:string[]};
 export type EdgeObservation = {tabId?:number;documentId?:string;urlSha256?:string;text?:string;snapshot?:string;snapshotId?:string;image?:string;tabs?:EdgeTab[];businessOutcome?:string;actionIssued?:boolean};
-export type EdgeOperation = {id:string;instanceId:string;bindingId:string|null;action:string;request:Record<string,unknown>;requestSha256:string;createdAt:string;state:'QUEUED'|'DISPATCHED'|'RESULT'|'REJECTED'|'UNKNOWN';result:{ok?:boolean;data?:EdgeObservation;error?:{code:string;message?:string};code?:string;source?:string}|null;facts:{seq:number;kind:string;payload:Record<string,unknown>;createdAt:string}[]};
+export type EdgeOperation = {id:string;instanceId:string;bindingId:string|null;action:string;request:Record<string,unknown>;requestSha256:string;createdAt:string;state:'QUEUED'|'DISPATCHED'|'RESULT'|'REJECTED'|'UNKNOWN';result:{ok?:boolean;data?:EdgeObservation;error?:{code:string;message?:string;diagnostic?:{stage:string}};code?:string;source?:string}|null;facts:{seq:number;kind:string;payload:Record<string,unknown>;createdAt:string}[]};
 export type EdgeProposal = {id:string;request:{action:string;params:Record<string,unknown>;binding:EdgeBinding};approvalSha256:string};
 export type EdgeResult = {operation:EdgeOperation;binding:EdgeBinding|null};
 
@@ -25,7 +25,9 @@ function observation(v:unknown):boolean {
 function receipt(v:unknown):boolean {
   return v===null||object(v)&&(v.ok===undefined||typeof v.ok==='boolean')
     &&(v.data===undefined||v.data===null||observation(v.data))
-    &&(v.error===undefined||v.error===null||object(v.error)&&typeof v.error.code==='string'&&(v.error.message===undefined||typeof v.error.message==='string'));
+    &&(v.error===undefined||v.error===null||object(v.error)&&typeof v.error.code==='string'&&(v.error.message===undefined||typeof v.error.message==='string')
+      &&(v.error.diagnostic===undefined||object(v.error.diagnostic)&&Object.keys(v.error.diagnostic).length===1
+        &&['before_identity','before_active_tab','capture','image_validation','after_identity','after_active_tab'].includes(String(v.error.diagnostic.stage))));
 }
 const operation=(v:unknown)=>object(v)&&typeof v.id==='string'&&/^edgeop_[a-f0-9]{32}$/.test(v.id)
   &&typeof v.instanceId==='string'&&(v.bindingId===null||typeof v.bindingId==='string')&&typeof v.action==='string'

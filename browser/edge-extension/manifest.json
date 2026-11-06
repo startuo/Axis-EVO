@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Axis-Evo · Microsoft Edge",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "将你明确授权的 Edge 标签页连接到本地 Axis-Evo 工作台。",
   "minimum_chrome_version": "120",
   "permissions": [

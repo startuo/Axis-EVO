@@ -24,8 +24,8 @@ input:hover:not(:disabled), select:hover:not(:disabled) { border-color: var(--cd
 /* One application frame in every data mode. */
 .cds-shell { display: grid; width: 100%; height: 100dvh; min-width: 0; grid-template-columns: 288px minmax(0, 1fr); grid-template-rows: 46px minmax(0, 1fr); overflow: hidden; background: var(--cds-surface-0); color: var(--text); }
 .cds-shell.cds-compact { grid-template-columns: 64px minmax(0, 1fr); }
-.cds-shell.cds-with-inspector { grid-template-columns: 288px minmax(0, 1fr) clamp(320px, var(--inspector-width, 376px), 520px); }
-.cds-shell.cds-compact.cds-with-inspector { grid-template-columns: 64px minmax(0, 1fr) clamp(320px, var(--inspector-width, 376px), 520px); }
+.cds-shell.cds-with-inspector { grid-template-columns: 288px minmax(0, 1fr) clamp(320px, var(--inspector-width, 376px), var(--inspector-max-width, 520px)); }
+.cds-shell.cds-compact.cds-with-inspector { grid-template-columns: 64px minmax(0, 1fr) clamp(320px, var(--inspector-width, 376px), var(--inspector-max-width, 520px)); }
 .cds-sidebar-pane { grid-column: 1; grid-row: 1 / -1; min-height: 0; min-width: 0; background: var(--cds-surface-1); border-right: 1px solid var(--cds-border); z-index: 5; }
 .cds-toolbar { grid-column: 2 / -1; grid-row: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 0 24px; border: 0; background: var(--cds-surface-0); }
 .cds-main { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; background: var(--cds-surface-0); }

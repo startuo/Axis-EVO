@@ -1,3 +1,31 @@
+<!-- AXIS_NEXT_M3_CURRENT_START -->
+# Axis Next M3 实站与体验精修 — 2026-11-06
+
+**真实Python公开文档 → 日常Edge原生扩展 → 真实DeepSeek → 独立Core保存及修订通过。** 产品0.1.0 Preview、扩展0.2.2、协议2。下方M1+M2及研究记录原样保留，不冒充本轮重跑结果。
+
+| 验证层级 | 本轮结果 |
+| --- | --- |
+| Python浏览器/交付物/HTTP/文件预览 | 31 passed，17.67s；真实SQLite/HTTP/文件子进程，浏览器和模型是标明的离线夹具 |
+| 前端单元与交互 | 29 files / 280 passed，20.38s；含全部原有前端用例和快照保留、截图聚焦/UNKNOWN停止、实例状态、GFM及HTML/图片/链接边界 |
+| 扩展局部检查 | Node17/17；API替身检查阶段、一次捕获、身份漂移、格式/大小及注入读取截止时间，不是原生故障注入 |
+| 静态与构建 | typecheck、lint、build、diff检查通过；主JS528.54kB/gzip165.90kB，惰性Markdown157.33kB/gzip47.12kB；500kB提示保留 |
+| 真实公开网站 | docs.python.org sqlite3，20条原生操作；关联/读取、两项独立批准滚动、失败与成功截图；JPEG155,894 B。未访问账户或提交信息 |
+| 原生截图 | 实际before_active_tab拒绝；聚焦后实际capture权限拒绝；目标页调用扩展后取得EDGE_VISIBLE_TAB_CAPTURE。未改写历史通用失败根因 |
+| 真实模型/文件 | r5真实DeepSeek三次回复；v1/v3两个Core Run均COMPLETED、trace一致、无待定invocation；5,427/2,948 B匹配批准摘要；v2未保存，v1未覆盖 |
+| 内容检查 | fetchone空结果歧义在v3修正；不是通用语义验收器或Skill质量改善证明 |
+| 实际UI/键盘 | 680px阅读区与语义表格；320px/1024px无面板整体横向溢出，窄屏隐藏展开；Home320/End720、Escape关闭；viewport已恢复 |
+| 本轮服务重启 | 确认无进行中任务后重启隔离服务；原对话3版及保存状态保留，磁盘字节再核对；未重放UNKNOWN或恢复旧审批 |
+| 研究隔离 | main仍12c789b，src/axis_evo和旧SQL无差异，未写入Skill、旧Run/Gate或研究数据库 |
+
+v1 SHA-256：`6b366ba91735f5b898068e4b23e922db2338b189cbc0d198485e3c43c3709762`。
+v3 SHA-256：`5c1def684455122690c88505e71de1ca22f7be209719e80d92db9c067706ffec`。
+
+命令：`pytest tests/test_axis_next_browser.py tests/test_axis_next_deliveries.py tests/test_axis_next_workspace_http.py tests/test_axis_next_artifacts.py -q`；`npm test`；`node --test .local/axis_m3_capture.test.mjs .local/axis_m3_site.test.mjs`。测试源码、事实摘录、真实截图仅保留本地并放入精简ZIP复核区，不推送测试、个人数据库或凭据。旧后端574项为M1+M2基线，本轮未声称重跑完整集合。
+
+稳态下一次低风险操作减少1次冗余读取，单次预览减少1个按钮步骤，动作和保存仍独立审批。开发现场3次更新和1次授权补充仍为实际成本。账户网站、长网页全文及跨站自主循环未验证。见[产品说明](AXIS_NEXT.md)。
+
+<!-- AXIS_NEXT_M3_CURRENT_END -->
+
 <!-- AXIS_NEXT_M1_M2_CURRENT_START -->
 # Axis Next M1 + M2 产品增强 — 2026-11-05
 

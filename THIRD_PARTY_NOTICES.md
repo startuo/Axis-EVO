@@ -53,5 +53,7 @@ The UI palette uses [Radix Colors](https://github.com/radix-ui/colors) 3.0.0,
 Copyright (c) 2021 Radix, under the MIT License above.
 The Markdown renderer uses [react-markdown](https://github.com/remarkjs/react-markdown)
 10.1.0, Copyright (c) Espen Hovlandsdal, under the same MIT terms.
+GFM table parsing uses [remark-gfm](https://github.com/remarkjs/remark-gfm)
+4.0.1, Copyright (c) Titus Wormer, under the same MIT terms.
 Their complete notices are also included in the installed packages. Markdown
 HTML is disabled; remote images are rendered as text, with no image request.

@@ -1,3 +1,38 @@
+<!-- AXIS_NEXT_M3_CURRENT_START -->
+# Axis-Evo Next · M3 当前状态（2026-11-06）
+
+产品 **0.1.0 Preview**，扩展组件 **0.2.2**，协议 **2**。本轮基于产品 `9a137e2`，继续使用 `feature/axis-next-m1-m2-edge`；学术 `main` 保持 `12c789b187a6bf8332b8d5222d00cc0702d4bdc8`。未修改 Core、旧 SQL、Skill、Run、Gate 或研究材料。
+
+## 真实任务与交付
+
+用户批准 Python 官方 sqlite3 公开文档 → 现有 DeepSeek → 本地 Markdown。日常 Edge 原生扩展完成关联、读取、两次逐次精确批准的滚动及真实截图；未访问账户或提交网站信息。原生读取16,000字符，模型使用前4,200字符，来源保留原文/上下文摘要及截断标志，不代表整合完整长文档。
+
+固定 Provider r5、真实 DeepSeek / deepseek-flash 产生3版草稿。v1（5,427 B）与修正后的v3（2,948 B）分别经独立Core保存，字节与批准摘要一致；v2为未保存中间草稿，v1未覆盖。内容核对发现并修正fetchone空结果说明歧义，字节验收不被解释为语义质量证明。服务重启后同一对话、3版与最终保存状态保留，两份文件再次核对；网页绑定仍须重新选择，不自动恢复旧操作。
+
+## 本轮改动
+
+- 动作成功后只保留同文档、同URL摘要、成功回执及严格递增的新快照。实站s1→s2→s3中间无额外读取，旧审批不可重用；缺失、回退、失败或UNKNOWN清空可操作快照。
+- 打开原页或截图后保留有效DOM控件；失效绑定不继续展示可执行审批，在线状态对应所选实例。
+- 预览先聚焦已绑定原页，确认成功后仅截图一次；聚焦失败或UNKNOWN立即停止。取得EDGE_VISIBLE_TAB_CAPTURE、JPEG155,894 B，核对前后页面身份及活动页。图像不自动交给模型。
+- 宽屏工作面板440px可展开至680px，分隔条可键盘调整320–720px，并按可用空间限制。实际Edge检查320px/1024px、Escape退出及表格滚动；窄屏隐藏展开按钮，viewport override已撤销。非物理手机验收。
+- 现有react-markdown增加MIT remark-gfm@4.0.1，真实API表格可读、可键盘进入并横向滚动。继续禁止原始HTML、远程图片请求、带凭据及非HTTPS链接。
+- 注入异常不再全部误报权限不足；区分权限、脚本缺失、调试器冲突、更新与未知失败，不保存原生错误文本。两处注入读取各设6秒边界，对休眠/冻结页明确停止；不代表所有浏览器API可通用取消。
+- 截图失败记录身份、活动页、捕获API、格式/大小阶段。未增加all_urls、调试器权限、任意脚本或Shell入口。
+
+## 权限结论、成本与边界
+
+由Codex控制的原标签页和用户新建标签页均可被Axis关联，插件能够并存。本轮实际观察到before_active_tab拒绝、capture权限拒绝，随后在用户调用过Axis扩展的目标页成功截图；不能把历史通用失败倒推成同一确定根因。
+
+网站读取授权与截图所需activeTab授权不同；后者来自用户在目标页调用扩展。后台“不活动”可以是正常休眠，不能单凭该文字判定失败。官方依据：[scripting](https://developer.chrome.com/docs/extensions/reference/api/scripting)、[captureVisibleTab](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-captureVisibleTab)、[后台生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。
+
+下一项低风险操作由“读取＋准备＋批准”变为“准备＋批准”；预览由两个按钮合为一次点击、两个独立事实。开发现场仍有3次扩展更新交接和1次授权补充说明；没有用户A/B测量，不宣称总体效率提升。旧失败及本轮一次关联UNKNOWN原样保留，没有自动重试。
+
+证据仅覆盖此公开文档及提供片段，不证明任意账户网站、完整长网页或普适自主任务。下一阶段优先改善扩展更新/重连与明确范围内的材料授权。主包500kB提示保留，GFM位于惰性Markdown分块。验证分层见[TEST_RESULTS.md](TEST_RESULTS.md)。
+
+<!-- AXIS_NEXT_M3_CURRENT_END -->
+
+以下保留M1+M2基线记录。
+
 # Axis-Evo Next：统一协作与 Edge
 
 产品增强分支以 `12c789b187a6bf8332b8d5222d00cc0702d4bdc8` 为研究基线。旧 Skill、Run、Gate、数据库和实验材料不迁移、不覆盖；产品验证不替代论文实验。

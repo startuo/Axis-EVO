@@ -22,6 +22,8 @@ html:has(.axis-next),body:has(.axis-next){overflow:hidden}
 .next-start-actions>button:hover{color:var(--text);border-color:var(--sand-8);background:var(--sand-3)}
 .next-work-panel{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--sand-1);color:var(--text)}
 .next-work-panel-heading{height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 21px;border-bottom:1px solid var(--sand-4);font-size:12px;font-weight:600;flex-shrink:0}
+.next-work-panel-heading>div{display:flex;align-items:center;gap:4px}
+@media(max-width:1439px){.axis-next .next-work-panel-heading .next-panel-expand{display:none}}
 .next-work-tabs{display:flex;gap:4px;padding:12px 15px 10px;border-bottom:1px solid var(--sand-5);flex-shrink:0}
 .next-work-tabs>button{position:relative;display:flex;align-items:center;justify-content:center;gap:7px;flex:1;min-width:0;padding:9px 5px;border:0;border-radius:7px;font:inherit;font-size:12px;cursor:pointer;background:transparent;color:var(--muted);white-space:nowrap}
 .next-work-tabs>button[aria-selected=true]{color:var(--green-12);background:var(--green-3);font-weight:600}
@@ -42,6 +44,8 @@ html:has(.axis-next),body:has(.axis-next){overflow:hidden}
 .next-edge-start{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:15px 0}
 .next-inline-notice{padding:11px 13px;border-left:2px solid var(--amber-8);background:var(--amber-2);font-size:12px;line-height:1.9;overflow-wrap:anywhere}
 .next-live-state{display:flex;align-items:center;gap:9px;margin:0;font-size:12px;color:var(--muted)}
+.next-page-observed{font-size:11px;line-height:1.8;color:var(--green-11);margin:14px 0 0;padding-left:10px;border-left:2px solid var(--green-7)}
+.next-preview-hint{font-size:10px;line-height:1.8;color:var(--muted);margin:9px 0}
 .next-state-orbit{width:13px;height:13px;display:inline-block;border:1.5px solid var(--green-6);border-top-color:var(--green-11);border-radius:50%;animation:axis-active-spin 1.1s linear infinite;flex-shrink:0}
 @keyframes axis-active-spin{to{transform:rotate(360deg)}}
 .next-edge-chooser select,.next-controlled-actions select,.next-controlled-actions input{width:100%;margin-top:7px;background:var(--sand-2);color:var(--text);border:1px solid var(--sand-7);border-radius:7px;padding:9px;font:inherit;font-size:12px;min-height:38px}
@@ -130,6 +134,11 @@ html:has(.axis-next),body:has(.axis-next){overflow:hidden}
 .next-artifact-title>span:not(.next-eyebrow){display:flex;align-items:center;gap:5px;color:var(--green-11);font-size:10px}
 .next-document-preview{padding:20px 18px;border:1px solid var(--sand-6);background:var(--sand-2);border-radius:9px;min-height:180px;overflow-wrap:anywhere}
 .next-document-preview .assistant-markdown{font-size:12px;line-height:1.9}
+.assistant-markdown .markdown-table-scroll{max-width:100%;overflow-x:auto;margin:16px 0;scrollbar-width:thin}
+.assistant-markdown table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.8}
+.assistant-markdown th,.assistant-markdown td{padding:10px 12px;border:1px solid var(--sand-6);vertical-align:top;text-align:left;min-width:90px}
+.assistant-markdown th{background:var(--sand-3);font-weight:600}
+.assistant-markdown td code{overflow-wrap:anywhere;white-space:normal}
 .next-document-preview h1{font-size:22px;line-height:1.5}.next-document-preview h2{font-size:17px}.next-document-preview h3{font-size:14px}
 .next-artifact-source{font:11px/1.8 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;max-height:600px;overflow:auto;scrollbar-width:thin}
 .next-artifact-actions{display:flex;flex-wrap:wrap;gap:8px}.next-artifact-actions .button{font-size:11px;min-height:36px}

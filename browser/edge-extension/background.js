@@ -1,4 +1,6 @@
 import {redactCreds} from './vendor/redact.js';
+import {captureBoundTab} from './capture.js';
+import {boundedDocumentRead,injectionCode} from './site.js';
 
 const PROTOCOL = 2;
 const READ = new Set(['tabs','bind','snapshot','read','screenshot','focus']);
@@ -22,17 +24,18 @@ async function request(session, route, body) {
 
 async function metadata(tabId) {
   const tab=await chrome.tabs.get(tabId);
+  if(tab.discarded||tab.frozen)throw failure('EDGE_TAB_NOT_READY');
   const url=safeUrl(tab.url);
   if(!url||tab.incognito||/^(?:https?:\/\/127\.0\.0\.1:(?:5173|8765|8767))(?:\/|$)/.test(url)) throw failure('EDGE_PROTECTED_PAGE');
   // The browser enforces optional-site or activeTab permissions at injection.
   let injected;
-  try {injected=await chrome.scripting.executeScript({target:{tabId},files:['vendor/content.js']});}
-  catch {throw failure('EDGE_SITE_PERMISSION_REQUIRED');}
-  const state=await chrome.scripting.executeScript({target:{tabId},func:()=>{
+  try {injected=await boundedDocumentRead(()=>chrome.scripting.executeScript({target:{tabId},files:['vendor/content.js']}));}
+  catch(error) {throw failure(injectionCode(error));}
+  const state=await boundedDocumentRead(()=>chrome.scripting.executeScript({target:{tabId},func:()=>{
     if(document.title.includes('Axis-Evo')&&document.querySelector('[aria-label="任务输入区"]'))return {protected:true};
     window.__axisEdgeDocumentId??=crypto.randomUUID();
     return {documentId:window.__axisEdgeDocumentId,href:location.href};
-  }});
+  }}));
   if(state[0]?.result?.protected)throw failure('EDGE_PROTECTED_PAGE');
   const result=state[0]?.result;
   if(!result||!injected.length)throw failure('EDGE_DOCUMENT_UNAVAILABLE');
@@ -64,21 +67,13 @@ async function perform(command) {
     return {tabs:tabs.filter(t=>safeUrl(t.url)&&!t.incognito).slice(0,80).map(t=>({id:t.id,windowId:t.windowId,title:scrub(t.title).slice(0,200),url:safeUrl(t.url),active:t.active}))};
   }
   if(action==='bind')return await metadata(params.tabId);
+  if(action==='screenshot')return await captureBoundTab(chrome.tabs,binding,metadata,matching);
   const before=await metadata(binding?.tabId);
   matching(before,binding);
   if(action==='focus') {
     await chrome.tabs.update(binding.tabId,{active:true});
     await chrome.windows.update(before.windowId,{focused:true});
     return {focused:true,tabId:binding.tabId};
-  }
-  if(action==='screenshot') {
-    const active=await chrome.tabs.query({windowId:before.windowId,active:true});
-    if(active.length!==1||active[0].id!==binding.tabId)throw failure('EDGE_SCREENSHOT_REQUIRES_ACTIVE_TAB');
-    const image=await chrome.tabs.captureVisibleTab(before.windowId,{format:'jpeg',quality:35});
-    matching(await metadata(binding.tabId),binding);
-    const after=await chrome.tabs.query({windowId:before.windowId,active:true});
-    if(after[0]?.id!==binding.tabId||image.length>300000)throw failure('EDGE_SCREENSHOT_NOT_CONFIRMED');
-    return {...before,image,source:'EDGE_VISIBLE_TAB_CAPTURE'};
   }
   if(action==='snapshot'||action==='read') {
     const snapshot=await content(binding.tabId,{action:'snapshot'});
@@ -124,6 +119,7 @@ async function poll() {
           let data=null,error=null,ok=false;
           try {data=await perform(command);ok=true;}
           catch(e){error={code:e.code??'EDGE_ACTION_NOT_CONFIRMED',message:'操作未确认，请在工作台查看记录或接管。'};
+            if(e.diagnostic)error.diagnostic=e.diagnostic;
             if(command.operationMayHaveIssued)data={outcomeUnknown:true,businessOutcome:'UNKNOWN'};}
           receipt={instanceId:session.instanceId,operationId:command.id,ok,data,error};
           await chrome.storage.session.set({pendingReceipt:receipt});
