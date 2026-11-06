@@ -176,15 +176,27 @@ class BrowserService:
                 reject('EDGE_OPERATION_PENDING', '标签页已有执行中的操作。', 409)
             self._proposals.pop(proposal['id'])
             self._busy.add(binding['id'])
+        keep_snapshot = False
         try:
             record = self.bridge.command(binding['instanceId'], request['action'], request['params'], binding=binding['id'], approval=body['approvalSha256'])
             self._observe_result(binding, record)
-            # Even a normal receipt never authorizes reusing the approved snapshot.
-            binding['snapshotId'] = None
-            return {'operation': record, 'binding': dict(binding)}
+            data = (record.get('result') or {}).get('data') or {}
+            # Continue only from a new, identity-checked post-action observation.
+            # This does not reuse or authorize replay of the approved snapshot.
+            keep_snapshot = (record['state'] == 'RESULT' and record['result'].get('ok') is True
+                             and data.get('actionIssued') is True
+                             and data.get('source') == 'ACTION_AND_FRESH_DOM_OBSERVATION'
+                             and isinstance(data.get('snapshot'), str) and bool(data['snapshot'])
+                             and binding.get('snapshotId') is not None
+                             and int(binding['snapshotId'][1:]) > int(request['binding']['snapshotId'][1:]))
         finally:
             with self._lock:
+                if not keep_snapshot:
+                    binding['snapshotId'] = None
+                    binding.pop('snapshotSha256', None)
+                    binding.pop('snapshotOperationId', None)
                 self._busy.discard(binding['id'])
+        return {'operation': record, 'binding': dict(binding)}
 
     def handoff(self, body):
         if body.keys() != {'bindingId'}:
