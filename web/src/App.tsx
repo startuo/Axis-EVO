@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { MotionConfig } from "framer-motion";
-import { LegacyWorkbench } from "./components/legacy/LegacyWorkbench";
-import { RuntimeWorkbench } from "./components/runtime/RuntimeWorkbench";
+import { AgentWorkbench } from './components/agent/AgentWorkbench';
 import { useStoredPreference } from "./hooks/useWorkbenchLayout";
 import { loadWorkbenchFonts } from "./lib/fonts";
 import { ThemeContext } from "./lib/theme";
 
-const currentRoute = () => window.location.hash.slice(1) || "/runtime";
+const LegacyWorkbench = lazy(() => import('./components/legacy/LegacyWorkbench').then(module => ({ default: module.LegacyWorkbench })));
+const RuntimeWorkbench = lazy(() => import('./components/runtime/RuntimeWorkbench').then(module => ({ default: module.RuntimeWorkbench })));
+const currentRoute = () => window.location.hash.slice(1) || "/agent";
 
 export default function App() {
   const [route, setRoute] = useState(currentRoute);
@@ -17,7 +18,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!window.location.hash) window.history.replaceState(null, "", "#/runtime");
+    if (!window.location.hash) window.history.replaceState(null, "", "#/agent");
     const change = () => setRoute(currentRoute());
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
@@ -30,11 +31,13 @@ export default function App() {
 
   return (
     <ThemeContext.Provider value={dark}><MotionConfig reducedMotion="user">
-      {route === "/runtime" || route.startsWith("/runtime/") ? (
+      <Suspense fallback={<div className="agent-loading" role="status">正在打开工作空间…</div>}>{route === '/agent' || route.startsWith('/agent?') || route.startsWith('/agent/') ? (
+        <AgentWorkbench route={route} navigate={navigate} dark={dark} setDark={setDark}/>
+      ) : route === "/runtime" || route.startsWith("/runtime/") ? (
         <RuntimeWorkbench route={route} navigate={navigate} dark={dark} setDark={setDark} />
       ) : (
         <LegacyWorkbench route={route} navigate={navigate} dark={dark} setDark={setDark} />
-      )}
+      )}</Suspense>
     </MotionConfig></ThemeContext.Provider>
   );
 }

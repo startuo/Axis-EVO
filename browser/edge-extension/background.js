@@ -174,13 +174,14 @@ async function resume(){
     const stored=await chrome.storage.session.get(['axisSession','pendingReceipt']);
     receipt=stored.pendingReceipt??receipt;
     let session=stored.axisSession;
-    if(session?.protocol!==PROTOCOL)session=null;
+    const extensionVersion=chrome.runtime.getManifest().version;
+    if(session?.protocol!==PROTOCOL||session?.extensionVersion!==extensionVersion)session=null;
     if(!session) {
       const instanceId=local.axisInstanceId??'edge_'+crypto.randomUUID().replaceAll('-','');
       await chrome.storage.local.set({axisInstanceId:instanceId});
       session={bridgeUrl:'http://127.0.0.1:8767',instanceId};
-      const result=await request(session,'/connect',{instanceId,extensionId:chrome.runtime.id,label:'我的 Edge',protocol:PROTOCOL});
-      session={...session,connectionId:result.connectionId,protocol:PROTOCOL};
+      const result=await request(session,'/connect',{instanceId,extensionId:chrome.runtime.id,label:'我的 Edge',protocol:PROTOCOL,extensionVersion});
+      session={...session,connectionId:result.connectionId,protocol:PROTOCOL,extensionVersion};
       await chrome.storage.session.set({axisSession:session});
     }
     void poll();

@@ -1,9 +1,9 @@
 import {runtimeRequest} from './runtime';
 
 export type EdgeBinding = {id:string;instanceId:string;tabId:number;windowId:number;documentId:string;urlSha256:string;url:string;title:string;snapshotId:string|null;active:boolean;snapshotSha256?:string;snapshotOperationId?:string};
-export type EdgeInstance = {id:string;label:string;browser:'Microsoft Edge';version:string;extensionId:string;connected:boolean};
+export type EdgeInstance = {id:string;label:string;browser:'Microsoft Edge';version:string;extensionId:string;connected:boolean;extensionVersion?:string|null;extensionUpdateRequired?:boolean};
 export type EdgeTab = {id:number;windowId:number;title:string;url:string;active:boolean};
-export type EdgeStatus = {prepared:boolean;running:boolean;port:number;protocol:2;connectionError?:string|null;extensionDirectory:string;instances:EdgeInstance[];bindings:EdgeBinding[];limitations:string[]};
+export type EdgeStatus = {prepared:boolean;running:boolean;port:number;protocol:2;connectionError?:string|null;extensionDirectory:string;expectedExtensionVersion?:string;instances:EdgeInstance[];bindings:EdgeBinding[];limitations:string[]};
 export type EdgeObservation = {tabId?:number;documentId?:string;urlSha256?:string;text?:string;snapshot?:string;snapshotId?:string;image?:string;tabs?:EdgeTab[];businessOutcome?:string;actionIssued?:boolean};
 export type EdgeOperation = {id:string;instanceId:string;bindingId:string|null;action:string;request:Record<string,unknown>;requestSha256:string;createdAt:string;state:'QUEUED'|'DISPATCHED'|'RESULT'|'REJECTED'|'UNKNOWN';result:{ok?:boolean;data?:EdgeObservation;error?:{code:string;message?:string;diagnostic?:{stage:string}};code?:string;source?:string}|null;facts:{seq:number;kind:string;payload:Record<string,unknown>;createdAt:string}[]};
 export type EdgeProposal = {id:string;request:{action:string;params:Record<string,unknown>;binding:EdgeBinding};approvalSha256:string};

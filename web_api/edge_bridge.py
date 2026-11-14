@@ -146,11 +146,12 @@ class EdgeBridge:
         return self.status()
 
     def connect(self, body, user_agent, origin=''):
-        if (body.keys() != {'instanceId', 'extensionId', 'label', 'protocol'}
+        if (not {'instanceId', 'extensionId', 'label', 'protocol'} <= body.keys() <= {'instanceId', 'extensionId', 'label', 'protocol', 'extensionVersion'}
                 or not INSTANCE.fullmatch(str(body.get('instanceId', '')))
                 or body.get('extensionId') != EXTENSION_ID
                 or body.get('protocol') != PROTOCOL or type(body.get('protocol')) is not int
                 or type(body.get('label')) is not str or not 1 <= len(body['label']) <= 48
+                or 'extensionVersion' in body and (type(body['extensionVersion']) is not str or not re.fullmatch(r'\d{1,4}\.\d{1,4}\.\d{1,4}',body['extensionVersion']))
                 or not re.search(r'\bEdg/\d+', user_agent)
                 or origin and origin != EXTENSION_ORIGIN):
             reject('EDGE_IDENTITY_REJECTED', '请使用 Microsoft Edge 中的 Axis 扩展连接。', 403)
@@ -159,7 +160,8 @@ class EdgeBridge:
             existing = self._sessions.get(instance)
             connection = existing['connectionId'] if existing else uuid4().hex
             self._sessions[instance] = {'connectionId': connection, 'extensionId': body['extensionId'],
-                'label': body['label'], 'lastSeen': self.clock(), 'version': re.search(r'Edg/([\d.]+)', user_agent)[1]}
+                'label': body['label'], 'lastSeen': self.clock(), 'version': re.search(r'Edg/([\d.]+)', user_agent)[1],
+                'extensionVersion':body.get('extensionVersion')}
             self._queues.setdefault(instance, deque())
             self._condition.notify_all()
             return {'instanceId': instance, 'connectionId': connection, 'protocol': PROTOCOL, 'browser': 'Microsoft Edge'}
@@ -289,7 +291,10 @@ class EdgeBridge:
     def status(self):
         with self._condition:
             return {'running': self._server is not None and not self._closed, 'port': self.port,
+                'expectedExtensionVersion':_MANIFEST['version'],
                 'instances': [{'id': key, 'label': s['label'], 'browser': 'Microsoft Edge', 'version': s['version'],
+                    'extensionVersion':s.get('extensionVersion'),
+                    'extensionUpdateRequired':s.get('extensionVersion')!=_MANIFEST['version'],
                     'extensionId': s['extensionId'], 'connected': self.clock() - s['lastSeen'] <= 35}
                     for key, s in self._sessions.items()], 'bindings': [dict(b) for b in self._bindings.values()]}
 

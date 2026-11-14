@@ -3,6 +3,7 @@ import { createSessionInitializer } from './runtimeSession';
 import {validateFeedbackData} from './feedbackData';
 import {validateBrowserData} from './browser';
 import {validateWorkspaceData} from './workspace';
+import {validateAgentData} from './agent';
 import type { RunView } from "./types";
 
 export type SkillRef = { skill_id: string; skill_version: number };
@@ -167,6 +168,7 @@ const errorMessages: Record<string, string> = {
 
 export function validateRuntimeData(path: string, data: unknown, mutating = false): void {
   const reject = () => { throw new RuntimeError("INVALID_DATA", "Runtime 响应结构无效，未使用演示数据替代。"); };
+  if(path.startsWith('/agent/')) {if(!validateAgentData(path,data,mutating))reject();return;}
   if(path.startsWith('/browser/')) {if(!validateBrowserData(path,data))reject();return;}
   if(path.includes('/workspace/drafts')||path.endsWith('/workspace-drafts')||path.endsWith('/artifact-preview')) {if(!validateWorkspaceData(path,data))reject();return;}
   if (path === "/capabilities") {
@@ -301,7 +303,7 @@ export async function runtimeRequest<T>(path: string, options: { body?: unknown;
       await initializeLocalSession();
       return runtimeRequest<T>(path, options, false);
     }
-    const localMessage=/^(EDGE|BROWSER|WORKSPACE|DRAFT|DELIVERY|ARTIFACT)_/.test(code)&&object(payload)&&object(payload.error)&&typeof payload.error.message==='string'&&payload.error.message.length<=300?payload.error.message:undefined;
+    const localMessage=/^(AGENT|EDGE|BROWSER|WORKSPACE|DRAFT|DELIVERY|ARTIFACT)_/.test(code)&&object(payload)&&object(payload.error)&&typeof payload.error.message==='string'&&payload.error.message.length<=300?payload.error.message:undefined;
     throw new RuntimeError(code, errorMessages[code] ?? localMessage ?? "Runtime 拒绝了当前操作。请检查权限与已记录状态；未自动重试。");
   }
   if (!object(payload) || payload.schema_version !== 1 || payload.mode !== "runtime" || !("data" in payload)) throw new RuntimeError("INVALID_SOURCE", "响应不属于真实 Runtime 数据源。");

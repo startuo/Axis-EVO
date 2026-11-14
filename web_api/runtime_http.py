@@ -31,6 +31,8 @@ class RuntimeServer(WorkbenchServer):
             self.browser = BrowserService(runtime)
             from .collaboration_service import CollaborationService
             self.workspace = CollaborationService(runtime, self.replies, self.browser)
+            from .agent_service import AgentService
+            self.agent = AgentService(runtime, self.browser)
             self.RequestHandlerClass = RuntimeHandler
         except BaseException:
             self.server_close()
@@ -38,6 +40,8 @@ class RuntimeServer(WorkbenchServer):
 
     def server_close(self):
         try:
+            if hasattr(self, 'agent'):
+                self.agent.close()
             if hasattr(self, 'workspace'):
                 self.workspace.close()
             if hasattr(self, 'browser'):
@@ -156,6 +160,9 @@ class RuntimeHandler(WorkbenchHandler):
         if path == "/api/runtime/session":
             return {"csrfToken": self.server.sessions.resume(self._cookie(), self._origin())}
         self._authenticated()
+        if path.startswith('/api/runtime/agent/'):
+            from .agent_http import read
+            return read(self.server.agent, path.split('/')[4:])
         if path == '/api/runtime/browser/status':
             return self.server.browser.status()
         if path.startswith('/api/runtime/browser/operations/'):
@@ -269,7 +276,11 @@ class RuntimeHandler(WorkbenchHandler):
             body = self._body()
             runtime, parts = self.server.runtime, path.strip("/").split("/")
             status = 200
-            if len(parts) >= 6 and parts[:3] == ['api','runtime','projects'] and parts[4:6] == ['workspace','drafts']:
+            if parts[:3] == ['api','runtime','agent']:
+                from .agent_http import mutate
+                result = mutate(self.server.agent, parts[3:], body)
+                status = 202 if parts[3:] == ['turns'] else 200
+            elif len(parts) >= 6 and parts[:3] == ['api','runtime','projects'] and parts[4:6] == ['workspace','drafts']:
                 if len(parts) == 6:
                     conversation = body.pop('conversationId', None)
                     result = self.server.workspace.create(parts[3], body, conversation)

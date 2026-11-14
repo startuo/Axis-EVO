@@ -5,7 +5,7 @@ import {
   demoProjects,
   demoRuns,
   demoSkills,
-} from "../fixtures/demo";
+} from "../demo/scenarios";
 import type {
   EvolutionView,
   Mode,

@@ -1,4 +1,5 @@
 import Markdown from 'react-markdown';
+import '../../styles/markdown.css';
 import remarkGfm from 'remark-gfm';
 
 function safeLink(value:string) {

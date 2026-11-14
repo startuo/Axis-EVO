@@ -8,9 +8,11 @@ Axis-Evo 是一个 local-first 的通用 Agent Workbench，支持可核验执行
 
 项目将模型规划、调用方审批、工具执行和独立验收分开，通过 SQLite 持久化执行事实，将任务、计划、Skill 版本及执行结果关联起来，并支持只读审查、可核验检查点、受控恢复和证据门控的技能演化。
 
-工作台支持多轮任务、逐轮 Plan 审批、独立 Worker，以及 Skill 修订、配对评估和独立版本激活。不确定执行结果保留为 UNKNOWN。当前版本 **0.1.0 Preview**；产品功能与正式研究实验分别验证。安装与数据维护见 [运行约定](docs/RELEASE_OPERATIONS.md)，演化见 [多代评估](docs/MULTIGENERATION_CAMPAIGNS.md)，验证见 [测试结果](docs/TEST_RESULTS.md)。
+当前版本 **0.1.0 Preview**。M4 默认进入 **Chat / Work**：选择工作区后自然描述目标，Agent 在预先授权的目录内调用工具、发现 Skill、读取知识、保存文档并持续修订。任务反馈可触发候选修订、独立审阅和真实隔离执行比较。启动与能力边界见 [Agent-Native Workspace](docs/AGENT_WORKSPACE.md)，验证见 [测试结果](docs/TEST_RESULTS.md)。
 
-产品增强分支新增统一工作面板、文档草稿与受控本地交付，以及实验性 Edge 兼容层。当前验收结果与未完成边界见 [Axis Next](docs/AXIS_NEXT.md)；离线流程和实际工作台截图不代表真实 Edge 扩展任务已通过。
+原工程工作台保留逐轮 Plan 审批、独立 Worker、研究评估及证据审查入口。不确定执行结果保留为 UNKNOWN，产品升级不改写正式研究实验事实。旧运行与数据维护见 [运行约定](docs/RELEASE_OPERATIONS.md)，研究演化见 [多代评估](docs/MULTIGENERATION_CAMPAIGNS.md)。
+
+M1–M3 的 Edge 兼容层和受控文档交付继续可用，历史阶段说明见 [Axis Next](docs/AXIS_NEXT.md)。M4 把已关联 Edge 页面的读取纳入同一 Agent 工具回路；实际模型、扩展、文件和离线检查分别记录在测试结果中。
 
 ## 项目结构
 
