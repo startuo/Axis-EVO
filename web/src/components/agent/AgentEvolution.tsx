@@ -27,6 +27,13 @@ const reasons: Record<string, string> = {
   PREFERRED_VERSION_CHANGED: '任务当前使用的版本已变化，本次未采用。',
   AGENT_EVOLUTION_POLICY_CHANGED: '改进策略已变化，本次周期停止。',
   AGENT_EVOLUTION_STALE: '原任务证据已变化，本次未重放。',
+  EVALUATION_OUTPUT_SET_CHANGED: '对照中的交付文件范围发生变化，未以额外文件代替原文档通过检查。',
+  EVALUATION_INPUT_CHANGED: '原任务使用的来源内容已变化，暂不能进行公平对照。',
+  EVALUATION_WEB_CONTEXT_UNAVAILABLE: '原任务使用了网页材料，当前隔离对照尚不能复现该来源。',
+  EVALUATION_CONTEXT_UNAVAILABLE: '原任务没有保留完整对话输入，暂不能重建对照。',
+  EVALUATION_INPUT_LIMIT: '材料超过完整对照的读取范围，未用截断内容评价。',
+  SOURCE_EXECUTION_NOT_CONFIRMED: '原任务尚未确认完成，反馈保留，暂不归因于 Skill。',
+  SOURCE_TOOL_FAILURE_REQUIRES_REVIEW: '原任务有工具失败，需要先分清执行问题与 Skill 缺陷。',
 };
 const cycleStatus: Record<string, string> = { RUNNING: '正在改进', OBSERVING: '继续观察', ADOPTED: '已自动采用', STOPPED: '已停止', UNKNOWN: '结果待确认' };
 
@@ -68,12 +75,14 @@ export function EvolutionCycle({ cycle }: { cycle: AgentEvolutionCycle }) {
     return row && check && typeof check.value === 'string' && typeof row.referencePassed === 'boolean' && typeof row.candidatePassed === 'boolean' ? [{ kind: String(check.kind), value: check.value, before: row.referencePassed, after: row.candidatePassed }] : [];
   });
   const verdict = review?.verdict === 'ACCEPT' ? '建议接受' : review?.verdict === 'REJECT' ? '建议停止' : review?.verdict === 'UNCERTAIN' ? '仍有疑问' : '未进行模型审查';
+  const outputPaths = strings(gate?.outputPaths);
   return <article className="agent-evolution-cycle">
     <header><div><strong>{candidate && typeof candidate.skillId === 'string' ? candidate.skillId : '任务反馈改进'}</strong><span>{typeof candidate?.version === 'number' ? `候选 v${candidate.version}` : '反馈已关联执行记录'}</span></div><span className={`agent-cycle-status${cycle.status === 'ADOPTED' ? ' is-adopted' : ''}`}>{cycle.workerActive && <LoaderCircle size={13} className="loader"/>}{cycleStatus[cycle.status] ?? cycle.status}</span></header>
     {cycle.workerActive && <p role="status">正在生成候选、审查或进行隔离执行对比。完成后会自动更新。</p>}
     {outcomeReasons.length > 0 && <ul className="agent-cycle-reasons">{outcomeReasons.map(reason => <li key={reason}>{reasons[reason] ?? reason}</li>)}</ul>}
     {checks.length > 0 && <div className="agent-check-results"><table><caption>保存文档的实际检查</caption><thead><tr><th scope="col">要求</th><th scope="col">原版</th><th scope="col">候选</th></tr></thead><tbody>{checks.map((check, index) => <tr key={index}><th scope="row"><small>{check.kind === 'heading' ? '标题' : check.kind === 'not_contains' ? '不得包含' : '必须包含'}</small>{check.value}</th><td>{check.before ? '通过' : '未通过'}</td><td>{check.after ? '通过' : '未通过'}</td></tr>)}</tbody></table><p>仅说明这些明确要求的结果，不代表一般语义质量或学术实验结论。</p></div>}
-    {review && <details className="agent-cycle-review"><summary>模型审查建议 · {verdict}<ChevronRight size={12}/></summary><p>{review.independence === 'DIFFERENT_MODEL' ? '不同模型、独立上下文' : review.independence === 'SEPARATE_CONTEXT_SAME_MODEL' ? '同一模型、独立上下文；不视为跨模型评价' : '未配置独立审查模型'}</p>{strings(review.reasons).map((reason, index) => <p key={`reason-${index}`}>{reason}</p>)}{strings(review.uncertainties).length > 0 && <p>审阅保留的局限与不确定性：{strings(review.uncertainties).join('；')}</p>}</details>}
+    {outputPaths.length > 0 && <p>检查范围固定为原任务的每份交付文档：{outputPaths.join('、')}。每份文档分别核验；增加其他文件不能补足原文档的要求。</p>}
+    {review && <details className="agent-cycle-review"><summary>模型审查建议 · {verdict}<ChevronRight size={12}/></summary><p>{['DIFFERENT_MODEL', 'DIFFERENT_CONFIGURED_MODEL'].includes(String(review.independence)) ? '不同模型配置、独立上下文；配置名称不证明底层模型或训练来源独立。' : review.independence === 'SEPARATE_CONTEXT_SAME_MODEL' ? '同一模型、独立上下文；不视为跨模型评价' : '未配置独立审查模型'}</p>{strings(review.reasons).map((reason, index) => <p key={`reason-${index}`}>{reason}</p>)}{strings(review.uncertainties).length > 0 && <p>审阅保留的局限与不确定性：{strings(review.uncertainties).join('；')}</p>}</details>}
     <details className="agent-cycle-evidence"><summary>查看版本与执行证据</summary><pre>{JSON.stringify({ cycleId: cycle.id, feedbackId: cycle.feedbackId, policy: cycle.policy, facts: cycle.facts, result: cycle.result }, null, 2)}</pre></details>
   </article>;
 }

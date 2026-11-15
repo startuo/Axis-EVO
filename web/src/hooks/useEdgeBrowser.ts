@@ -28,6 +28,7 @@ export function useEdgeBrowser(enabled:boolean) {
   const [proposal,setProposal]=useState<EdgeProposal|null>(null);
   const [busy,setBusy]=useState('');
   const [error,setError]=useState('');
+  const [statusError,setStatusError]=useState('');
   const lock=useRef(false);
   const alive=useRef(true);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
@@ -35,14 +36,17 @@ export function useEdgeBrowser(enabled:boolean) {
   useEffect(()=>{
     if(!enabled)return;
     const abort=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
-    const read=async()=>{try{const result=await edgeApi.status(abort.signal);if(!abort.signal.aborted){setStatus(result);setBinding(current=>{
+    const read=async()=>{try{const result=await edgeApi.status(abort.signal);if(!abort.signal.aborted){setStatus(result);setStatusError('');setBinding(current=>{
       if(!current?.active)return current;
       const remote=result.bindings.find(item=>item.id===current.id);
       const connected=result.instances.some(item=>item.id===current.instanceId&&item.connected);
       return remote?.active&&connected?current:{...current,active:false,snapshotId:null};
-    });timer=setTimeout(()=>void read(),3500);}}catch(e){if(!abort.signal.aborted)report(e);}};
+    });}}catch{if(!abort.signal.aborted){
+      setStatusError('暂时无法读取 Edge 连接状态，正在等待本机服务恢复。已发出的操作不会重试。');
+      setStatus(current=>current?{...current,instances:current.instances.map(instance=>({...instance,connected:false}))}:null);
+    }}finally{if(!abort.signal.aborted)timer=setTimeout(()=>void read(),3500);}};
     void read();return()=>{abort.abort();clearTimeout(timer);};
-  },[enabled,report]);
+  },[enabled]);
   const run=useCallback(async<T,>(label:string,job:()=>Promise<T>,accept:(result:T)=>void)=>{
     if(lock.current)return;lock.current=true;setBusy(label);setError('');
     try{const result=await job();if(alive.current)accept(result);}catch(e){if(alive.current)report(e);}finally{lock.current=false;if(alive.current)setBusy('');}
@@ -66,6 +70,6 @@ export function useEdgeBrowser(enabled:boolean) {
   const currentProposal=binding?.active&&proposal?.request.binding.snapshotId===binding.snapshotId?proposal:null;
   const approve=()=>currentProposal&&run('执行已批准操作',()=>edgeApi.approveAction(currentProposal),accept);
   const handoff=()=>binding&&run('交还控制',()=>edgeApi.handoff(binding.id),result=>{setBinding(result.binding);setProposal(null);});
-  return {status,instanceId,binding,tabs,operation,snapshot:binding?.active&&snapshot?.snapshotId===binding.snapshotId?snapshot:null,proposal:currentProposal,busy,error,connect,prepareStorage,loadTabs,selectTab,observe,prepareAction,approve,handoff,setError,setBinding};
+  return {status,instanceId,binding,tabs,operation,snapshot:binding?.active&&snapshot?.snapshotId===binding.snapshotId?snapshot:null,proposal:currentProposal,busy,error:error||statusError,connect,prepareStorage,loadTabs,selectTab,observe,prepareAction,approve,handoff,setError,setBinding};
 }
 export type EdgeBrowserController=ReturnType<typeof useEdgeBrowser>;

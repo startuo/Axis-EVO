@@ -18,7 +18,7 @@ MAX_SNAPSHOT_BYTES=2*1024*1024
 
 def _file_key(source_id, path):
     # Windows aliases cannot become different evidence identities.
-    return source_id, path.casefold() if os.name == 'nt' else path
+    return source_id, os.path.normcase(relative_path(path)).replace('\\', '/')
 
 
 def evaluate_candidate(service, request):
@@ -28,6 +28,14 @@ def evaluate_candidate(service, request):
     workspace=service.workspaces.get(request['workspaceId'])
     if source['workspaceId']!=workspace['id']:
         raise ApiError('EVALUATION_SCOPE','原任务与工作区不一致。',409)
+    source_events=list(service.store.iter_records(parent_id=source['id']))
+    if any(event['kind']=='tool_intent' and event['payload'].get('tool') in
+            ('browser_read','browser_snapshot') for event in source_events):
+        # The evaluator deliberately has no live browser capability. Until a
+        # captured-page adapter exists, omitting that input would be a different
+        # task and cannot establish a fair automatic adoption comparison.
+        raise ApiError('EVALUATION_WEB_CONTEXT_UNAVAILABLE',
+            '原任务使用了网页材料，当前隔离对照尚不能重放该来源；保留反馈。',409)
     history=source['payload'].get('contextMessages')
     if history is None and len(service.store.records('turn',parent_id=source['parentId'],limit=2))>1:
         raise ApiError('EVALUATION_CONTEXT_UNAVAILABLE','此旧任务没有保留完整对话输入，不能自动重建对照。',409)
@@ -45,6 +53,8 @@ def evaluate_candidate(service, request):
         for item in listing['files']:
             check_current()
             material=service.workspaces.read(workspace['id'],origin['id'],item['path'],max_chars=MAX_FILE_BYTES)
+            if material.get('truncated'):
+                raise ApiError('EVALUATION_INPUT_LIMIT','材料超过当前完整对照读取范围，未使用截断内容评价。',409)
             data=material['content'].encode('utf-8')
             # BOM/encoding changes cannot silently become original byte evidence.
             if hashlib.sha256(data).hexdigest()!=material['sha256']:
@@ -56,7 +66,6 @@ def evaluate_candidate(service, request):
     # Restore the pre-task content of files that this source task changed. A new
     # output is omitted, so neither evaluator can copy the already-solved answer.
     restored=set()
-    source_events=service.store.records(parent_id=source['id'],limit=1000)
     for artifact in (event for event in source_events if event['kind']=='artifact'):
         payload=artifact['payload']
         key=_file_key('workspace',payload['path'])
@@ -85,8 +94,13 @@ def evaluate_candidate(service, request):
         if result['kind']!='tool_result':
             continue
         data=result['payload'].get('data') or {}
-        if {'sourceId','path','sha256','content'}<=data.keys():
-            if material_hashes.get(_file_key(data['sourceId'],data['path']))!=data['sha256']:
+        # Search excerpts are model-visible source evidence too; requiring an
+        # explicit read_file first would silently miss search-only input drift.
+        observations=([data] if {'sourceId','path','sha256','content'}<=data.keys() else [])
+        observations.extend(data.get('matches',[]))
+        for observation in observations:
+            if (not {'sourceId','path','sha256'}<=observation.keys()
+                    or material_hashes.get(_file_key(observation['sourceId'],observation['path']))!=observation['sha256']):
                 raise ApiError('EVALUATION_INPUT_CHANGED','原任务输入已改变，停止自动对照。',409)
     if sum(len(m['data']) for m in materials)>MAX_SNAPSHOT_BYTES:
         raise ApiError('EVALUATION_INPUT_LIMIT','原始对照材料超过2MiB。',409)

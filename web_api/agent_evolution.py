@@ -26,7 +26,7 @@ from axis_evo.skill_storage import initialize_skill_schema
 from axis_evo.storage import connect_database
 
 from .agent_provider_worker import complete_isolated
-from .agent_skill_gate import (POLICY_ID, TERMINAL, assess_comparison,
+from .agent_skill_gate import (POLICY_ID, SUCCESS, TERMINAL, assess_comparison,
     task_summary, validate_checks)
 from .agent_store import digest, identity
 from .agent_workspace import root_identity
@@ -54,6 +54,13 @@ def _text(value, limit, *, empty=False):
 
 def _profile_identity(profile):
     return {key: profile[key] for key in ('id', 'revision', 'modelId', 'configSha256')}
+
+
+def _tool_failures(task):
+    return [{'id': event['id'], 'status': event['payload'].get('status'),
+             'code': event['payload'].get('code')}
+        for event in task.get('events', []) if event['kind'] == 'tool_result'
+        and event['payload'].get('status') != 'SUCCESS']
 
 
 class AgentEvolution:
@@ -284,9 +291,12 @@ class AgentEvolution:
     def submit_feedback(self, workspace_id, turn_id, body):
         required = {'evaluation', 'comment'}
         if (type(body) is not dict or not required <= body.keys()
-                or not body.keys() <= required | {'skillId', 'checks', 'submissionId'}
+                or not body.keys() <= required | {'skillId', 'checks', 'submissionId', 'scope'}
                 or body['evaluation'] not in EVALUATIONS):
             raise ApiError('AGENT_FEEDBACK_INPUT', '反馈字段无效。')
+        scope = body.get('scope', 'TASK_ONLY')
+        if scope not in ('TASK_ONLY', 'REUSABLE_PREFERENCE'):
+            raise ApiError('AGENT_FEEDBACK_INPUT', '反馈范围无效。')
         _text(body['comment'], 4096, empty=True)
         checks = validate_checks(body.get('checks', []))
         task = self._task(workspace_id, turn_id)
@@ -300,18 +310,28 @@ class AgentEvolution:
         record_id = body.get('submissionId') or 'agent_feedback_' + uuid4().hex
         identity(record_id)
         payload = {'evaluation': body['evaluation'], 'comment': body['comment'],
-            'checks': checks, 'checksOrigin': 'EXPLICIT_USER_INPUT', 'skillId': selected,
+            'checks': checks, 'checksOrigin': 'EXPLICIT_USER_INPUT', 'skillId': selected, 'scope': scope,
             'executionEvidence': source, 'executionEvidenceSha256': digest(source),
-            'userFeedbackRole': 'UNVERIFIED_USER_CLAIM', 'attribution': 'UNDETERMINED'}
+            'userFeedbackRole': 'UNVERIFIED_USER_CLAIM',
+            'attribution': 'EXECUTION_NOT_CONFIRMED' if source['status'] not in SUCCESS else
+                'TOOL_OR_ENVIRONMENT_FAILURE_PRESENT' if _tool_failures(task) else 'UNDETERMINED',
+            'toolFailures': _tool_failures(task),
+            'criteriaRole': 'USER_DOCUMENT_REQUIREMENTS_NOT_GENERAL_SKILL_QUALITY'}
         with self._lock:
             existing = self._find(record_id)
             if existing:
-                if (existing['kind'], existing['workspaceId'], existing['parentId'], existing['payload']) != (
-                        'agent_feedback', workspace_id, turn_id, payload):
+                # Lost-receipt recovery compares the original user input. New
+                # attribution metadata must not make old submissions conflict.
+                fields = ('evaluation', 'comment', 'checks', 'skillId')
+                if ((existing['kind'], existing['workspaceId'], existing['parentId']) !=
+                        ('agent_feedback', workspace_id, turn_id)
+                        or any(existing['payload'].get(key) != payload[key] for key in fields)
+                        or existing['payload'].get('scope', 'TASK_ONLY') != scope):
                     raise ApiError('AGENT_FEEDBACK_DUPLICATE', '反馈标识已用于其他内容。', 409)
                 return existing
             feedback = self._append('agent_feedback', payload, workspace_id, turn_id, record_id=record_id)
-        if self.get_policy(workspace_id)['mode'] != 'OFF' and body['evaluation'] == 'NEEDS_IMPROVEMENT':
+        if (scope == 'REUSABLE_PREFERENCE' and self.get_policy(workspace_id)['mode'] != 'OFF'
+                and body['evaluation'] == 'NEEDS_IMPROVEMENT'):
             self.start_cycle(workspace_id, feedback['id'])
         return feedback
 
@@ -325,6 +345,8 @@ class AgentEvolution:
         with self._lock:
             if self._find(cycle_id):
                 return self.get_cycle(workspace_id, cycle_id)
+            if feedback['payload'].get('scope') != 'REUSABLE_PREFERENCE':
+                raise ApiError('AGENT_FEEDBACK_SCOPE_REQUIRED', '这条反馈仅针对本次任务；需要明确的后续任务偏好才会改进 Skill。', 409)
             policy = self.get_policy(workspace_id)
             if policy['mode'] == 'OFF':
                 raise ApiError('AGENT_EVOLUTION_DISABLED', '此工作区已关闭自动演化。', 409)
@@ -469,9 +491,14 @@ class AgentEvolution:
                 raise ApiError('AGENT_EVOLUTION_REVIEW', '审阅说明超过范围。', 409)
             for item in value[key]:
                 _text(item, 2048)
-        different = (reviewer.get('endpoint'), reviewer['modelId']) != (generator.get('endpoint'), generator['modelId'])
+        # A second route to the same configured model is not cross-model
+        # evidence. Different model names remain configuration claims; gateway
+        # aliases and independent training provenance are not authenticated.
+        different = reviewer['modelId'] != generator['modelId']
         return {**value, 'status': 'REVIEWED', 'provider': _profile_identity(reviewer),
-            'independence': 'DIFFERENT_MODEL' if different else 'SEPARATE_CONTEXT_SAME_MODEL',
+            'independence': 'DIFFERENT_CONFIGURED_MODEL' if different else 'SEPARATE_CONTEXT_SAME_MODEL',
+            'independenceBasis': 'CONFIGURED_MODEL_ID_ONLY',
+            'limitations': ['Configured model names do not authenticate independent underlying models or training data.'],
             'evidenceRole': 'ADVISORY_ONLY'}
 
     def _run_cycle(self, workspace_id, cycle_id):
@@ -487,6 +514,16 @@ class AgentEvolution:
                 raise ApiError('AGENT_EVOLUTION_STALE', '原任务事实已变化；没有自动重放。', 409)
             if source['status'] in ('UNKNOWN', 'INTERRUPTED'):
                 self._finish(workspace_id, cycle_id, 'STOPPED', ['SOURCE_EXECUTION_UNKNOWN'])
+                return
+            if source['status'] not in SUCCESS:
+                self._finish(workspace_id, cycle_id, 'OBSERVING', ['SOURCE_EXECUTION_NOT_CONFIRMED'],
+                    actualValidation='NOT_RUN', attribution='EXECUTION_NOT_CONFIRMED')
+                return
+            failures = _tool_failures(source)
+            if failures:
+                self._finish(workspace_id, cycle_id, 'OBSERVING', ['SOURCE_TOOL_FAILURE_REQUIRES_REVIEW'],
+                    actualValidation='NOT_RUN', attribution='TOOL_OR_ENVIRONMENT_FAILURE_PRESENT',
+                    toolFailures=failures)
                 return
             uses = [use for use in source.get('skillUses', []) if use['skillId'] == feedback['payload']['skillId']]
             distinct = {(use['skillId'], use['version'], use['cardSha256']) for use in uses}
@@ -537,7 +574,9 @@ class AgentEvolution:
                 'feedback': feedback['payload']['comment'], 'checks': feedback['payload']['checks'],
                 'profile': source['profile']}
             self._append('evolution_evaluation_intent', {'requestSha256': digest(request),
-                'sourceTurnId': source['id'], 'checks': feedback['payload']['checks']}, workspace_id,
+                'sourceTurnId': source['id'], 'checks': feedback['payload']['checks'],
+                'outputPaths': sorted({artifact['path'] for artifact in source.get('artifacts', [])}),
+                'checksOrigin': 'IMMUTABLE_USER_FEEDBACK', 'feedbackSha256': digest(feedback['payload'])}, workspace_id,
                 cycle_id, record_id=cycle_id + '-evaluation-intent')
             evaluation = self.evaluation_runner(request)
             self.assert_cycle_current(workspace_id, cycle_id)
@@ -600,7 +639,8 @@ class AgentEvolution:
                 or _profile_identity(tasks[0]['profile']) != _profile_identity(tasks[1]['profile'])
                 or _profile_identity(tasks[0]['profile']) != _profile_identity(source['profile'])):
             raise ApiError('AGENT_EVALUATION_CONDITIONS', '对照任务的隔离空间或条件不一致。', 409)
-        return assess_comparison(*tasks, reference, candidate, checks, review)
+        return assess_comparison(*tasks, reference, candidate, checks, review,
+            output_paths=[artifact['path'] for artifact in source.get('artifacts', [])])
 
     def close(self):
         self._closed = True

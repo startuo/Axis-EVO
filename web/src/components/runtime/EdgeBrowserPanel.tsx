@@ -17,10 +17,13 @@ export function EdgeBrowserPanel({edge,onAttach}:{edge:EdgeBrowserController;onA
   const boundInstance=edge.status?.instances.find(instance=>instance.id===edge.binding?.instanceId);
   const selectedInstance=edge.status?.instances.find(instance=>instance.id===(edge.binding?.instanceId||edge.instanceId));
   const connected=selectedInstance?selectedInstance.connected:!edge.instanceId&&edge.status?.instances.some(instance=>instance.connected);
+  const needsUpdate=selectedInstance?.extensionUpdateRequired??edge.status?.instances.some(instance=>instance.connected&&instance.extensionUpdateRequired);
   return <div className="next-edge-panel">
     <div className="next-panel-intro"><Globe2 size={21}/><div><h2>Microsoft Edge</h2><p>{edge.binding?.active?`${boundInstance?.label??'Microsoft Edge'} · ${edge.binding.instanceId.slice(-8)}`:'使用你的浏览器，保留登录状态'}</p></div><span className={`next-connection-dot ${connected?'online':''}`} aria-label={connected?'扩展在线':'扩展未连接'}/></div>
     {edge.error&&<div className="next-inline-notice" role="alert">{edge.error}</div>}
+    {needsUpdate&&<p className="next-inline-notice" role="status">扩展需要更新到 {edge.status?.expectedExtensionVersion}。请展开下方安装说明，重新加载扩展，再刷新连接并选择标签页。</p>}
     {edge.status?.expectedExtensionVersion&&<details className="next-source-preview"><summary>安装与更新扩展 · {edge.status.expectedExtensionVersion}</summary><p>在 Edge 打开 edge://extensions，启用开发人员模式，选择“加载解压缩的扩展”，使用下面的目录。已有扩展可在该页点“重新加载”，然后回到这里刷新连接；无须重新授予已有网站权限。</p><pre>{edge.status.extensionDirectory}</pre><button className="button secondary" onClick={()=>void navigator.clipboard.writeText(edge.status?.extensionDirectory??'')}>复制扩展目录</button>{edge.status.instances.map(instance=><p key={instance.id}>{instance.label}：{instance.extensionVersion??'旧版未报告版本'}{instance.extensionUpdateRequired?' · 请重新加载本版本扩展':' · 已是当前版本'}；{instance.connected?'已连接':'等待重连'}</p>)}</details>}
+    {edge.status?.expectedExtensionVersion&&<p className="next-preview-hint">如果移动过项目目录，请在 Edge 扩展页核对加载位置；仍指向旧位置时，改为加载上方的新目录。</p>}
     {edge.busy&&<p className="next-live-state" role="status"><span className="next-state-orbit"/>{edge.busy}</p>}
     <>
       {!edge.status?.instances.length&&<div className="next-edge-start"><h3>等待 Edge 自动连接</h3><p>扩展启用后会自动连接本机工作台。连接后直接选择要处理的标签页。</p><button className="button primary" disabled={busy} onClick={()=>void edge.connect()}><Link2 size={15}/>连接 Microsoft Edge</button></div>}

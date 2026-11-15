@@ -19,6 +19,7 @@ from .agent_workspace import AgentWorkspaces, bounded_text, relative_path, fail
 from .agent_tools import AgentTools
 from .agent_evolution import AgentEvolution
 from .agent_provider_worker import complete_isolated
+from .agent_context import conversation_history, bounded_context
 from .schemas import ApiError, strict_json, no_redirected_parents
 
 MAX_ROUNDS=16
@@ -88,13 +89,43 @@ class AgentService:
             return result
 
     def _finish(self,turn,status,code=None,answer=None):
+        interruption_code=None
+        if status!='UNKNOWN' and self._unknown_write(turn):
+            # A coordinator error/cancellation cannot turn a dispatched write
+            # with no committed receipt into a confirmed non-write.
+            status,interruption_code,code='UNKNOWN',code,'TOOL_OUTCOME_UNKNOWN'
+            answer=None
         payload={'status':status,'code':code,'completionBasis':'MODEL_STOPPED' if status=='COMPLETED' else 'HOST_STATE'}
+        if interruption_code:
+            payload['interruptionCode']=interruption_code
         if answer is not None:
             payload['answer']=answer
         try:
             self.store.append('terminal',payload,turn['workspaceId'],turn['id'],identity='terminal_'+turn['id'])
         except sqlite3.IntegrityError:
             pass  # A terminal fact wins; late workers cannot rewrite it.
+
+    def _unknown_write(self,turn):
+        receipts={row['payload'].get('intentId'):row['payload'] for row in
+            self.store.iter_records('tool_result',parent_id=turn['id'])}
+        return any(row['payload'].get('mutating') and (
+            row['id'] not in receipts or receipts[row['id']]['status']=='UNKNOWN')
+            for row in self.store.iter_records('tool_intent',parent_id=turn['id']))
+
+    def bind_execution(self,turn,call_id,adapter,reference):
+        """Commit the external execution identity before that adapter dispatches.
+
+        Core and Edge retain their own append-only stores. This link makes an
+        interrupted call inspectable without inventing a successful result.
+        """
+        intents=[row for row in self.store.iter_records('tool_intent',parent_id=turn['id'])
+            if row['payload'].get('callId')==call_id]
+        if len(intents)!=1 or adapter not in ('core','edge'):
+            fail('AGENT_EXECUTION_IDENTITY','工具执行身份无法核对。',409)
+        intent=intents[0]
+        return self.store.append('tool_execution',{'intentId':intent['id'],'callId':call_id,
+            'adapter':adapter,'reference':reference},turn['workspaceId'],turn['id'],
+            identity='execution_'+intent['id'])
 
     def _status(self,tid):
         rows=self.store.records('terminal',parent_id=tid,limit=1)
@@ -143,9 +174,13 @@ class AgentService:
         events=self.store.records(parent_id=tid,limit=1000)
         terminals=[e for e in events if e['kind']=='terminal']
         terminal=terminals[-1]['payload'] if terminals else {}
+        # Status, reason and answer must come from the same event snapshot.
+        # A terminal appended between separate reads must not yield BLOCKED
+        # with no reason, or COMPLETED without its final answer.
+        status=terminal.get('status') or ('RUNNING' if any(e['kind']=='started' for e in events) else 'QUEUED')
         return {'id':tid,'workspaceId':row['workspaceId'],'conversationId':row['parentId'],
             'prompt':row['payload']['prompt'],'profile':row['payload']['profile'],
-            'status':terminal.get('status',self._status(tid)),'code':terminal.get('code'),
+            'status':status,'code':terminal.get('code'),
             'answer':terminal.get('answer',''),'createdAt':row['createdAt'],
             'completionBasis':terminal.get('completionBasis'),
             'evaluation':row['payload'].get('evaluation'),
@@ -240,23 +275,13 @@ class AgentService:
         return self.turn(tid)
 
     def _history_messages(self,cid):
-        messages=[]
-        earlier=self.store.records('turn',parent_id=cid,limit=6)
-        for prior in earlier:
-            detail=self.turn(prior['id'])
-            messages.append({'role':'user','content':detail['prompt'][:8000]})
-            messages.append({'role':'assistant','content':(detail['answer'] or 'Prior task state: '+detail['status'])[:8000]})
-            if detail['feedback']:
-                messages.append({'role':'user','content':'Feedback on the preceding task: '+canonical([
-                    {'rating':f['rating'],'comment':f['comment']} for f in detail['feedback'][-3:]])[:4000]})
-            if detail['artifacts']:
-                messages.append({'role':'user','content':'Host delivery receipts (read current files before revising): '+canonical([
-                    {'path':a['path'],'sha256':a['sha256'],'matchesCurrentFile':a['verified']} for a in detail['artifacts']])})
-        return messages
+        return conversation_history(self,cid)
 
     def _messages(self,turn):
         workspace=self.workspaces.get(turn['workspaceId'])
         context={'workspace':workspace['name'],'policy':workspace['policy'],
+            'materialPolicy':'Read ranges are partial unless coverage is FULL. Cite source paths and lines. '
+                'Context checkpoints omit source text, not user requirements; reread before source claims.',
             'sources':[{'id':'workspace','name':workspace['name'],'kind':'workspace'}]+[
                 {'id':s['id'],'name':s['name'],'kind':s['kind']} for s in workspace['sources'] if s['enabled']],
             'browserAttached':bool(turn['payload'].get('browserBindingId'))}
@@ -290,9 +315,15 @@ class AgentService:
                 catalog=self.tools.catalog()
                 if turn['payload'].get('evaluation'):
                     catalog=[t for t in catalog if t['function']['name'] not in ('find_skills','use_skill','browser_read','browser_snapshot')]
+                messages,checkpoint=bounded_context(messages,catalog)
+                if checkpoint:
+                    self.store.append('context_checkpoint',{'round':round_number+1,**checkpoint},wid,tid)
                 message=self._completion(self.runtime.providers,turn['payload']['profile'],messages,catalog,lambda:self._cancelled(turn) or time.monotonic()>deadline)
                 if self._cancelled(turn):
                     self._finish_cancelled(turn)
+                    return
+                if time.monotonic()>deadline:
+                    self._finish(turn,'LIMIT_REACHED','TURN_DEADLINE')
                     return
                 self.runtime.providers.check_text(canonical(message))
                 self.store.append('assistant',{'message':message,'trust':'MODEL_OUTPUT'},wid,tid)
@@ -304,6 +335,9 @@ class AgentService:
                 for call in proposed:
                     if self._cancelled(turn):
                         self._finish_cancelled(turn)
+                        return
+                    if time.monotonic()>deadline:
+                        self._finish(turn,'LIMIT_REACHED','TURN_DEADLINE')
                         return
                     calls+=1
                     if calls>MAX_CALLS or call['id'] in used_ids:
@@ -321,6 +355,8 @@ class AgentService:
         except PlanningTransportError as error:
             if self._cancelled(turn):
                 self._finish_cancelled(turn,'PROVIDER_'+error.category.upper())
+            elif time.monotonic()>deadline:
+                self._finish(turn,'LIMIT_REACHED','TURN_DEADLINE')
             else:
                 self._finish(turn,'FAILED','PROVIDER_'+error.category.upper())
         except ApiError as error:
@@ -382,27 +418,40 @@ class AgentService:
                         return self._result(turn,call_id,None,{'status':'SUCCESS','reusedResult':receipt['id'],'data':receipt['payload'].get('data')})
             intent=self.store.append('tool_intent',{'callId':call_id,'tool':name,'arguments':args,'fingerprint':fingerprint,
                 'mutating':mutating,'path':args.get('path'),'canonicalPath':target_key,'authorityRevision':turn['payload']['workspaceRevision']},wid,tid)
-            try:
-                data=self.tools.execute(turn,call_id,name,args)
-                self.runtime.providers.check_text(canonical(data))
-                result={'status':'FAILED' if data.get('status')=='FAILED' else 'SUCCESS','data':data}
-            except ApiError as error:
-                uncertain = mutating and error.code in ('AGENT_STORAGE_LIMIT','AGENT_STORAGE_UNAVAILABLE','AGENT_STORE_INTEGRITY')
-                result={'status':'UNKNOWN' if uncertain else 'REJECTED','code':error.code}
-            except (OSError,ValueError,UnicodeError) as error:
-                result={'status':'UNKNOWN' if mutating else 'FAILED','code':'TOOL_IO_UNCONFIRMED' if mutating else 'MATERIAL_UNAVAILABLE'}
-            except Exception:
-                result={'status':'UNKNOWN','code':'TOOL_OUTCOME_UNKNOWN'}
-            return self._result(turn,call_id,intent['id'],result)
+            if mutating:
+                # Keep admission and a file effect serialized with authority
+                # changes; bounded reads/Edge waits need not own that lock.
+                return self._execute_call(turn,call_id,name,args,intent)
+        return self._execute_call(turn,call_id,name,args,intent)
+
+    def _execute_call(self,turn,call_id,name,args,intent):
+        mutating=intent['payload']['mutating']
+        try:
+            data=self.tools.execute(turn,call_id,name,args)
+            self.runtime.providers.check_text(canonical(data))
+            result={'status':'FAILED' if data.get('status')=='FAILED' else 'SUCCESS','data':data}
+        except ApiError as error:
+            dispatched=any(row['payload'].get('intentId')==intent['id'] for row in
+                self.store.iter_records('tool_execution',parent_id=turn['id']))
+            uncertain = mutating and (dispatched or error.code in (
+                'AGENT_STORAGE_LIMIT','AGENT_STORAGE_UNAVAILABLE','AGENT_STORE_INTEGRITY'))
+            result={'status':'UNKNOWN' if uncertain else 'REJECTED','code':error.code}
+        except (OSError,ValueError,UnicodeError):
+            result={'status':'UNKNOWN' if mutating else 'FAILED','code':'TOOL_IO_UNCONFIRMED' if mutating else 'MATERIAL_UNAVAILABLE'}
+        except Exception:
+            result={'status':'UNKNOWN','code':'TOOL_OUTCOME_UNKNOWN'}
+        return self._result(turn,call_id,intent['id'],result)
 
     def _result(self,turn,call_id,intent_id,result):
-        self.store.append('tool_result',{'callId':call_id,'intentId':intent_id,**result},turn['workspaceId'],turn['id'])
+        execution=next((row['id'] for row in self.store.iter_records('tool_execution',parent_id=turn['id'])
+            if row['payload'].get('intentId')==intent_id),None) if intent_id else None
+        self.store.append('tool_result',{'callId':call_id,'intentId':intent_id,'executionId':execution,**result},turn['workspaceId'],turn['id'])
         return result
 
     def feedback(self,tid,body):
         turn=self.store.get(tid,'turn')
         if 'rating' in body:
-            if body['rating'] not in ('positive','negative') or not body.keys() <= {'rating','comment','checks','submissionId','skillId'}:
+            if body['rating'] not in ('positive','negative') or not body.keys() <= {'rating','comment','checks','submissionId','skillId','scope'}:
                 fail('AGENT_FEEDBACK_INPUT','反馈字段无效。')
             body={'evaluation':'MET_EXPECTATIONS' if body['rating']=='positive' else 'NEEDS_IMPROVEMENT',
                 **{k:v for k,v in body.items() if k!='rating'}}

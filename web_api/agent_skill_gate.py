@@ -13,7 +13,7 @@ from axis_evo.hashing import canonical_json_bytes
 from .schemas import ApiError
 
 
-POLICY_ID = 'agent-skill-product-gate-v1'
+POLICY_ID = 'agent-skill-product-gate-v2'
 SUCCESS = frozenset(('COMPLETED', 'SUCCEEDED', 'FINISHED', 'SUCCESS'))
 TERMINAL = SUCCESS | frozenset(('FAILED', 'UNKNOWN', 'STOPPED', 'CANCELLED', 'INTERRUPTED',
     'BLOCKED', 'LIMIT_REACHED'))
@@ -53,7 +53,12 @@ def task_summary(task):
         'answerIsExecutionEvidence': False}
 
 
-def _verified_text(task):
+def _path_key(path):
+    # Keep the host's path semantics; Linux case-sensitive names remain distinct.
+    return os.path.normcase(PurePosixPath(path).as_posix()).replace('\\', '/')
+
+
+def _verified_documents(task):
     if task.get('status') not in SUCCESS:
         return None
     artifacts = task.get('artifacts', [])
@@ -68,11 +73,10 @@ def _verified_text(task):
         if type(path) is not str or not path:
             return None
         path = PurePosixPath(path).as_posix()
-        key = path.casefold() if os.name == 'nt' else path
-        latest[key] = artifact
-    parts = []
+        latest[_path_key(path)] = artifact
+    documents = {}
     total = 0
-    for artifact in latest.values():
+    for path, artifact in latest.items():
         content = artifact.get('content')
         if artifact.get('verified') is not True or type(content) is not str:
             return None
@@ -81,8 +85,8 @@ def _verified_text(task):
         if (total > 256 * 1024 or hashlib.sha256(raw).hexdigest() != artifact.get('sha256')
                 or artifact.get('sizeBytes') != len(raw)):
             return None
-        parts.append(content)
-    return '\n'.join(parts)
+        documents[path] = content
+    return documents
 
 
 def check_document(text, check):
@@ -110,7 +114,8 @@ def check_document(text, check):
     return False
 
 
-def assess_comparison(reference, candidate, reference_skill, candidate_skill, checks, review=None):
+def assess_comparison(reference, candidate, reference_skill, candidate_skill, checks, review=None,
+                      *, output_paths=None):
     """Recalculate every check from independently read, hash-verified output."""
     checks = validate_checks(checks)
     reasons = []
@@ -125,13 +130,28 @@ def assess_comparison(reference, candidate, reference_skill, candidate_skill, ch
             reasons.append(label + '_SKILL_BINDING_MISMATCH')
         if task.get('status') not in SUCCESS:
             reasons.append(label + '_EXECUTION_UNCONFIRMED')
-    before, after = _verified_text(reference), _verified_text(candidate)
+    before, after = _verified_documents(reference), _verified_documents(candidate)
     if before is None or after is None:
         reasons.append('OUTPUT_BYTES_NOT_VERIFIED')
-    results = [{'check': check, 'referencePassed': check_document(before, check),
-        'candidatePassed': check_document(after, check)} for check in checks]
-    regressions = sum(row['referencePassed'] and not row['candidatePassed'] for row in results)
-    improvements = sum(not row['referencePassed'] and row['candidatePassed'] for row in results)
+    # The original task fixes the delivery set before either replay runs. A
+    # candidate cannot pass by putting the requested heading in an extra file,
+    # or by moving an existing requirement from one document to another.
+    targets = sorted({_path_key(path) for path in output_paths}) if output_paths is not None else sorted(before or {})
+    if not targets or set(before or {}) != set(targets) or set(after or {}) != set(targets):
+        reasons.append('EVALUATION_OUTPUT_SET_CHANGED')
+    results = []
+    for check in checks:
+        documents = [{'path': path,
+            'referencePassed': check_document((before or {}).get(path), check),
+            'candidatePassed': check_document((after or {}).get(path), check)} for path in targets]
+        results.append({'check': check,
+            'referencePassed': bool(documents) and all(row['referencePassed'] for row in documents),
+            'candidatePassed': bool(documents) and all(row['candidatePassed'] for row in documents),
+            'documents': documents})
+    regressions = sum(row['referencePassed'] and not row['candidatePassed']
+        for check in results for row in check['documents'])
+    improvements = sum(not row['referencePassed'] and row['candidatePassed']
+        for check in results for row in check['documents'])
     if regressions:
         reasons.append('REGRESSION_DETECTED')
     if results and not all(row['candidatePassed'] for row in results):
@@ -145,6 +165,7 @@ def assess_comparison(reference, candidate, reference_skill, candidate_skill, ch
         'regressions': regressions, 'improvements': improvements,
         'reviewRole': 'ADVISORY_ONLY', 'reasons': reasons,
         'scope': 'EXPLICIT_USER_DOCUMENT_CHECKS',
+        'outputPaths': targets, 'checkApplication': 'EACH_ORIGINAL_OUTPUT_DOCUMENT',
         'limitations': ['Format and literal text checks do not establish general semantic quality.',
             'Development feedback and its replay are not an independent heldout research experiment.']}
     return {**manifest, 'eligible': not reasons,

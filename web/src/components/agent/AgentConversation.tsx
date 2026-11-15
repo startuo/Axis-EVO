@@ -6,7 +6,7 @@ import { AxisLogo } from '../ui/AxisLogo';
 import { CopyButton } from '../ui/Primitives';
 import { AgentFeedback } from './AgentFeedback';
 
-const eventLabels: Record<string, string> = { tool_intent: '准备调用', tool_result: '工具回执', assistant: '模型回复', model_response: '模型回复', model_request: '请求模型', validation: '实际验证', feedback: '用户反馈', agent_feedback: '用户反馈', cancelled: '停止请求', cancel_requested: '停止请求', unknown: '结果待确认', skill_use: '使用 Skill', skill_selected: '使用 Skill', skill_loaded: '已读取 Skill', artifact: '已保存交付版本', error: '执行异常', terminal: '本轮结束', completed: '本轮结束', started: '任务开始', claimed: '任务开始' };
+const eventLabels: Record<string, string> = { tool_intent: '准备调用', tool_execution: '关联执行记录', context_checkpoint: '整理上下文', tool_result: '工具回执', assistant: '模型回复', model_response: '模型回复', model_request: '请求模型', validation: '实际验证', feedback: '用户反馈', agent_feedback: '用户反馈', cancelled: '停止请求', cancel_requested: '停止请求', unknown: '结果待确认', skill_use: '使用 Skill', skill_selected: '使用 Skill', skill_loaded: '已读取 Skill', artifact: '已保存交付版本', error: '执行异常', terminal: '本轮结束', completed: '本轮结束', started: '任务开始', claimed: '任务开始' };
 function eventTitle(event: AgentEvent) {
   const tool = event.payload.tool ?? event.payload.toolName ?? event.payload.name;
   return `${eventLabels[event.kind] ?? event.kind}${typeof tool === 'string' ? ` · ${tool}` : ''}`;

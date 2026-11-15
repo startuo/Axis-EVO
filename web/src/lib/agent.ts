@@ -14,7 +14,7 @@ export type AgentTurn = { id: string; workspaceId?: string; conversationId?: str
 export type AgentConversation = { id: string; workspaceId: string; title: string; turns: AgentTurn[] };
 export type AgentTurnInput = { workspaceId: string; conversationId?: string; requestId: string; prompt: string; profileId: string; profileRevision: number; browserBindingId?: string };
 export type AgentCheck = { kind: 'contains' | 'not_contains' | 'heading'; value: string };
-export type AgentFeedbackInput = { rating: 'positive' | 'negative'; comment: string; checks?: AgentCheck[]; submissionId: string; skillId?: string };
+export type AgentFeedbackInput = { rating: 'positive' | 'negative'; comment: string; checks?: AgentCheck[]; submissionId: string; skillId?: string; scope?: 'TASK_ONLY' | 'REUSABLE_PREFERENCE' };
 export type AgentEvolutionPolicyInput = { mode: 'OFF' | 'OBSERVE' | 'AUTO'; revisionProfileId: string | null; revisionProfileRevision: number | null; reviewerProfileId: string | null; reviewerProfileRevision: number | null };
 export type AgentEvolutionPolicy = AgentEvolutionPolicyInput & { id: string | null; gatePolicyId: string };
 export type AgentEvolutionCycle = { id: string; workspaceId: string; feedbackId: string; status: string; workerActive: boolean; policy: AgentEvolutionPolicy; facts: AgentEvent[]; result: Record<string, unknown> | null };
@@ -69,6 +69,8 @@ export function agentStopReason(code?: string | null) {
     TURN_DEADLINE: '本轮已达到运行时间上限，已保存的成果保留在这里。',
     ROUND_LIMIT: '本轮已达到工具协作轮数上限，可以依据现有成果补充下一步。',
     CALL_LIMIT_OR_DUPLICATE: '本轮工具调用已达到上限或返回了重复标识，后续操作已停止。',
+    AGENT_CONTEXT_LIMIT: '本轮必要上下文已达到预算，已执行的事实和交付物保留。请缩小材料范围后继续。',
+    AGENT_CONTEXT_HISTORY_LIMIT: '本会话原始要求和反馈超过上下文预算，请新建对话并明确带入仍需遵守的要求。',
   };
   return reasons[code] ?? (code.startsWith('PROVIDER_') ? '模型请求未完成，本轮已停止。已保存的交付物仍可查看；请检查模型连接后继续。' : null);
 }

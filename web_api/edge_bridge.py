@@ -235,7 +235,7 @@ class EdgeBridge:
             self._condition.notify_all()
         return {'disconnected': True}
 
-    def command(self, instance, action, params=None, *, binding=None, approval=None):
+    def command(self, instance, action, params=None, *, binding=None, approval=None, on_prepared=None):
         if action not in READ_ACTIONS | WRITE_ACTIONS or type(params or {}) is not dict:
             reject('EDGE_ACTION_REJECTED', '该浏览器工具未开放。', 403)
         with self._condition:
@@ -253,6 +253,13 @@ class EdgeBridge:
             if action in WRITE_ACTIONS:
                 request['authorization'] = {'source': 'USER_EXACT_APPROVAL', 'sha256': approval}
             operation = self.store.create(instance, binding, action, request)
+            if on_prepared is not None:
+                try:
+                    on_prepared(operation)
+                except Exception:
+                    # The operation exists but has not entered a dispatch queue.
+                    self.store.fact(operation,'REJECTED',{'code':'EDGE_COORDINATOR_LINK_FAILED'})
+                    raise
             command = {'id': operation, **request}
             pending = {'instance': instance, 'command': command, 'dispatched': False}
             self._pending[operation] = pending

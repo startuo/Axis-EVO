@@ -2,6 +2,7 @@
 import hashlib
 import os
 from pathlib import Path, PurePosixPath
+import re
 import stat
 import time
 from uuid import uuid4
@@ -10,8 +11,9 @@ from axis_evo.sandbox import WorkspacePathResolver
 from .schemas import ApiError, no_redirected_parents, public_text
 
 MAX_FILE_BYTES = 128 * 1024
+MAX_READ_FILE_BYTES = 4 * 1024 * 1024
 MAX_SCAN_ENTRIES = 2000
-MAX_SEARCH_BYTES = 2 * 1024 * 1024
+MAX_SEARCH_BYTES = 8 * 1024 * 1024
 TEXT_SUFFIXES = frozenset(('.md','.txt','.rst','.csv','.tsv','.json','.yaml','.yml','.toml',
     '.py','.js','.mjs','.cjs','.ts','.tsx','.jsx','.html','.css','.scss','.c','.h','.cpp','.rs','.go','.java','.xml','.sql'))
 EXCLUDED = frozenset(('.git','.svn','.hg','.local','.axis-evo','.ssh','.aws','.azure','.gnupg','.config',
@@ -143,25 +145,45 @@ class AgentWorkspaces:
             fail('WORKSPACE_ROOT_CHANGED','工作区目录身份发生变化，请重新选择。',409)
         return WorkspacePathResolver(root)
 
-    def read(self, workspace_id, source_id, path, *, max_chars=24000):
+    def read(self, workspace_id, source_id, path, *, max_chars=24000, start_char=0, expected_sha256=None):
+        if (type(start_char) is not int or start_char < 0 or type(max_chars) is not int
+                or not 1 <= max_chars <= MAX_READ_FILE_BYTES):
+            fail('WORKSPACE_READ_RANGE', '读取范围需要非负字符起点和有效长度。')
+        if expected_sha256 is not None and (type(expected_sha256) is not str
+                or not re.fullmatch('[a-f0-9]{64}', expected_sha256)):
+            fail('FILE_EXPECTED_DIGEST', '分段读取需要来源返回的 SHA-256。')
         path = relative_path(path)
         resolver = self.resolver(workspace_id,source_id)
         no_redirected_parents(resolver.root / path)
         target = resolver.resolve(path)
         with target.open('rb') as stream:
-            data = stream.read(MAX_FILE_BYTES+1)
-        if len(data)>MAX_FILE_BYTES:
-            fail('WORKSPACE_FILE_LIMIT','文件超过128KiB文本读取上限。',413)
+            data = stream.read(MAX_READ_FILE_BYTES+1)
+        if len(data)>MAX_READ_FILE_BYTES:
+            fail('WORKSPACE_FILE_LIMIT','文件超过4MiB文本读取上限。',413)
+        sha256 = hashlib.sha256(data).hexdigest()
+        if expected_sha256 is not None and sha256 != expected_sha256:
+            fail('FILE_CHANGED', '来源已变化，请重新检索并核对范围。', 409)
         text = data.decode('utf-8-sig')
         self.providers.check_text(text)
-        return {'sourceId':source_id,'path':path,'sha256':hashlib.sha256(data).hexdigest(),
-            'sizeBytes':len(data),'content':text[:max_chars],'truncated':len(text)>max_chars,'trust':'UNTRUSTED_MATERIAL'}
+        if start_char > len(text):
+            fail('WORKSPACE_READ_RANGE', '读取起点超过文件长度，请重新检索。')
+        end_char = min(len(text), start_char + max_chars)
+        partial = start_char != 0 or end_char != len(text)
+        return {'sourceId':source_id,'path':path,'sha256':sha256,
+            'sizeBytes':len(data),'content':text[start_char:end_char],
+            'startChar':start_char,'endChar':end_char,'totalChars':len(text),
+            'startLine':text.count('\n',0,start_char)+1,
+            'endLine':text.count('\n',0,max(start_char,end_char-1))+1,
+            'nextStartChar':end_char if end_char<len(text) else None,
+            'coverage':'PARTIAL' if partial else 'FULL','truncated':partial,
+            'trust':'UNTRUSTED_MATERIAL'}
 
     def files(self, workspace_id, source_id='workspace'):
         resolver = self.resolver(workspace_id,source_id)
         stack, found, visited = [resolver.root], [], 0
         deadline = time.monotonic()+3
         truncated = False
+        oversized = 0
         while stack:
             directory = stack.pop()
             no_redirected_parents(directory)
@@ -183,18 +205,23 @@ class AgentWorkspaces:
                         continue
                     if stat.S_ISDIR(info.st_mode):
                         stack.append(Path(entry.path))
-                    elif stat.S_ISREG(info.st_mode) and info.st_nlink==1 and info.st_size<=MAX_FILE_BYTES:
+                    elif stat.S_ISREG(info.st_mode) and info.st_nlink==1:
                         try:
                             name=relative_path(Path(entry.path).relative_to(resolver.root).as_posix())
                         except ApiError:
                             continue
+                        if info.st_size>MAX_READ_FILE_BYTES:
+                            oversized+=1
+                            continue
                         found.append({'sourceId':source_id,'path':name,'sizeBytes':info.st_size})
                 if truncated:
                     break
-        return {'files':sorted(found,key=lambda f:f['path'].casefold()),'truncated':truncated,'entriesExamined':visited}
+        return {'files':sorted(found,key=lambda f:f['path'].casefold()),'truncated':truncated or oversized>0,
+            'entriesExamined':visited,'oversizedFilesSkipped':oversized,'maximumFileBytes':MAX_READ_FILE_BYTES}
 
     def search(self, workspace_id, query, source_id=None):
-        query=bounded_text(query,160).casefold()
+        query=bounded_text(query,160)
+        pattern=re.compile(re.escape(query),re.IGNORECASE)
         workspace=self.get(workspace_id)
         sources=[source_id] if source_id else ['workspace']+[s['id'] for s in workspace['sources'] if s['enabled'] and s['kind']=='knowledge']
         matches, used, truncated = [],0,False
@@ -205,12 +232,22 @@ class AgentWorkspaces:
                 if used+item['sizeBytes']>MAX_SEARCH_BYTES or len(matches)>=30:
                     return {'matches':matches,'truncated':True,'bytesExamined':used}
                 try:
-                    material=self.read(workspace_id,source,item['path'],max_chars=MAX_FILE_BYTES)
+                    material=self.read(workspace_id,source,item['path'],max_chars=MAX_READ_FILE_BYTES)
                 except (ApiError,UnicodeError,OSError,ValueError):
+                    truncated=True
                     continue
                 used+=material['sizeBytes']
-                at=material['content'].casefold().find(query)
-                if at>=0 or query in item['path'].casefold():
+                content=material['content']
+                match=pattern.search(content)
+                at=match.start() if match else -1
+                if at>=0 or query.casefold() in item['path'].casefold():
                     start=max(0,at-120)
-                    matches.append({**item,'sha256':material['sha256'],'excerpt':material['content'][start:start+480]})
+                    end=min(len(content),start+480)
+                    matches.append({**item,'sha256':material['sha256'],'excerpt':content[start:end],
+                        'startChar':start,'endChar':end,'totalChars':len(content),
+                        'startLine':content.count('\n',0,start)+1,
+                        'endLine':content.count('\n',0,max(start,end-1))+1,
+                        'matchStartChar':at if match else None,
+                        'matchLine':content.count('\n',0,at)+1 if match else None,
+                        'truncated':start>0 or end<len(content),'trust':'UNTRUSTED_MATERIAL'})
         return {'matches':matches,'truncated':truncated,'bytesExamined':used}

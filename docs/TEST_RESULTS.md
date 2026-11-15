@@ -1,3 +1,56 @@
+<!-- AXIS_M4_FIX_CURRENT_START -->
+# Axis-Evo M4 Fix — 2026-11-15
+
+产品保持 **0.1.0 Preview**，独立分支 `Axis/m4-fix-codex`，共同起点 `30fb4bc631ba6d21d7d8805d49236e1947bcd663`。未合并学术 `main @ 12c789b187a6bf8332b8d5222d00cc0702d4bdc8`，`src/axis_evo` 与旧 SQL 无差异。下方 M4 历史结果原样保留，不把历史真实模型验收计入本轮。
+
+## 已复现并修复
+
+| 范围 | 变更前直接证据 | 当前能力 |
+| --- | --- | --- |
+| 中断与执行事实 | Core 副作用前后中断缺少 Agent→Core 定位；写后回执落盘失败显示 BLOCKED；派发后的其他错误可被当成 REJECTED | 派发前追加 `tool_execution`，关联 intent/call 与 Core Run/目录或 Edge operation；无法确认的写入保持 UNKNOWN，迟到回执不改写终态，不重放未知写入 |
+| 时限与撤销 | 同批第二次写入可越过总期限；只读等待持有授权锁，停止/撤销被阻塞 | 每次工具调用前检查期限；只读/Edge 等待移出写入锁，取消或撤销后的数据不进入后续请求和写入 |
+| 状态读取 | 集成中出现 BLOCKED 搭配空结束原因；确定性插入终态的反例同样失败 | 状态、原因、最终回复使用同一事件快照，读取竞争不会混出半个终态 |
+| 评价可信度 | 额外旁文件只含目标标题即可通过；要求从一份文档搬到另一份可掩盖退步；搜索来源变化/遗漏原网页仍可采用 | 产品 Gate v2 固定原交付集合、逐文档计算；搜索及读取摘要核对来源；不能复现网页输入时停止对照。精确标题负结果继续失败 |
+| 反馈与审阅 | 原任务工具失败仍进入自动 Skill 修订；同 modelId 换 endpoint 被称为不同模型 | 工具/环境问题先暂停归因；新反馈默认仅本次任务，明确后续偏好才进入改进；不同配置名也不认证底层模型独立性 |
+| 长资料与上下文 | 精确基线 `30fb4bc` 上四项反例均失败：380 KB文档消失、分段参数拒绝、首轮长约束丢失、大工具结果撞请求上限 | 4 MiB只读、搜索位置/行号/完整SHA、按段续读与变化拒绝；保留有界用户原文和反馈检查；旧工具正文压缩成可追溯回执并显式标记省略 |
+| Edge 与加载 | 一次状态查询失败后不再轮询；Markdown随首页加载 | 只读状态查询恢复，操作错误独立保留；扩展更新/路径搬迁提示可见；对话、Work、设置按需加载 |
+
+集成首轮 **1 failed / 117 passed**：新历史说明中的 `authorization:` 触发原凭据检查，第二次修订停止。仅调整宿主说明文字，未放宽检查；连续修订及历史反馈要求复核通过。第二轮 **1 failed / 136 passed** 暴露上表终态读取竞争，另用确定性反例复现后修复。失败日志保留，最终结果另列。中断用例中的本地 HTTP fixture 可打印连接被取消的 `ConnectionResetError`；这是主动取消连接的测试输出，不计作生产网站或 Provider 故障。
+
+## 本轮验证
+
+| 层级 | 结果与边界 |
+| --- | --- |
+| Windows 后端关联回归 | **138 passed / 216.39s**；普通 CPython 3.12.10 / pytest 9.2.0，全部状态、材料、数据库在本工作树独立目录。实际 HTTP、模型子进程、SQLite、Core 与文件字节，模型选择为明确的离线响应 |
+| 跨工具链 | 授权合成网页 → 搜索知识备份 → 使用外部 Skill → 读取并修改受控文档；完成、实际写入前中断、写入后中断分别检查文件字节及 Edge/Core 关联，重启与重复请求不重放。Edge 为真实 Bridge/SQLite 协议上的扩展替身，不是日常 Edge 原生扩展验收 |
+| 文件系统 | Windows 实际大小写别名、目录 junction、硬链接拒绝及既有重叠工作区/完整历史保护；按运行平台处理路径，没有在 Linux 强制模拟 Windows 大小写。Linux/特殊大小写敏感 Windows 目录本轮未运行 |
+| 长上下文 | 约380KB文档第20002行定位；完整SHA固定续读与来源变化拒绝；8轮后保留首轮超过8000字符的原始要求；列表+8次大材料读取完成10次模型请求；6工具同批回执保持配对，压缩明确标记；超预算明确停止 |
+| 前端 | 全集 **31 files / 298 passed**；随后仅补终止说明/事件标签，最终关联 **3 files / 28 passed**，不累加。TypeScript、ESLint、生产构建通过 |
+| 资源 | 主 JS **607.33 → 411.97 kB**，gzip **190.44 → 131.50 kB**；Markdown **157.33 kB** 按需加载，未调高告警阈值。生产浏览器首页仅请求入口与两个共享脚本，对话打开后才请求 Markdown |
+| 生产界面 | 独立 Chromium，真实 API 创建工作区→离线 HTTP 模型4次请求/3次工具→Core文档→预览/下载；下载130B与磁盘SHA一致；Escape归还焦点、默认任务反馈、390px Work无整体横溢出、页面console/pageerror为空 |
+| 打包 | 完整已提交源码+最新web/dist+本轮本地测试/合成复核材料；不含依赖、凭据、个人数据库或历史私有资料。对应提交、逐文件SHA、ZIP完整性与解包启动/静态资产/重启验证见包内 `MANIFEST.json` |
+
+界面文档 SHA-256：`3e490146bc94d370affea82ca807d6f3f970a56feb49f65e9ed06323cc577856`。
+
+命令（设置 `PYTHONUTF8=1`，`PYTHONPATH` 包含根与 `src`；使用普通 CPython）：
+
+```powershell
+python -m pytest web_api/tests/test_agent_provider.py web_api/tests/test_agent_workspace_runtime.py web_api/tests/test_agent_evolution.py web_api/tests/test_agent_authority_revocation.py web_api/tests/test_m4_runtime_review.py web_api/tests/test_m4_fix_interruption.py web_api/tests/test_m4_fix_context.py web_api/tests/test_m4_fix_evaluation.py tests/test_axis_next_browser.py -q --tb=short --basetemp .local/m4-fix-independent-review
+npm --prefix web test
+npm --prefix web run lint
+npm --prefix web run build
+```
+
+## 架构判断与未完成项
+
+**当前证据不要求中型或大型重构。** 缺陷集中在 `AgentService._call/_finish/turn` 的事实与读取边界、`AgentEvolution/agent_skill_gate` 的评价准入，以及原历史/正文直接累加策略。新增 `bind_execution` 和两个内部派发前回调即可关联已有 Core/Edge 记录；`agent_context.py` 集中组装与预算规则。未发现必须统一数据库或推倒 Core 才能修复的状态分裂。文件与数据库仍不原子，UNKNOWN 保持诚实；这不是完整 OS 沙箱。
+
+本轮未使用真实凭据、原知识库、真实 Provider、日常 Edge 账户或原生扩展0.2.3升级。本轮没有真实模型候选晋升证据，旧 M4 精确标题失败仍保持原记录。跨模型训练独立性、语义质量、未见任务收益和论文主实验均未证明。网页来源隔离重放、任意规模/无限轮研究、逐文件差异化评价、未知写入人工核销、Office/任意Shell与任意MCP仍未实现。当前用户要求预算80KiB、会话64轮、上下文224KiB；单文件只读4MiB，写入128KiB；达到边界明确停止。
+
+手工搬迁后 Git 的旧 C: 登记被实际识别为 prunable，已用 `git worktree repair` 修复到 F:；工作树不再被标记可清理。无需合并到主目录或学术 main 才能使用修复分支。主项目 `.git` 仍是共享管理目录；Edge扩展目录、虚拟环境与运行状态的绝对路径需分别核对，本轮没有迁移个人运行数据库或凭据。
+
+<!-- AXIS_M4_FIX_CURRENT_END -->
+
 <!-- AXIS_M4_CURRENT_START -->
 # Axis-Evo M4 · Agent-Native Workspace — 2026-11-14
 

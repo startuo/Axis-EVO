@@ -88,7 +88,7 @@ class BrowserService:
             reject('EDGE_BINDING_REQUIRED', '请重新选择并授权标签页。', 403)
         return binding
 
-    def observe(self, body):
+    def observe(self, body, *, on_prepared=None):
         self.require()
         if body.keys() != {'bindingId', 'action'} or body['action'] not in ('snapshot', 'read', 'screenshot', 'focus'):
             reject('EDGE_REQUEST_REJECTED', '观察请求不正确。', 400)
@@ -98,7 +98,10 @@ class BrowserService:
                 reject('EDGE_OPERATION_PENDING', '此标签页还有未结束操作。', 409)
             self._busy.add(binding['id'])
         try:
-            record = self.bridge.command(binding['instanceId'], body['action'], binding=binding['id'])
+            options={'binding':binding['id']}
+            if on_prepared is not None:
+                options['on_prepared']=on_prepared
+            record = self.bridge.command(binding['instanceId'], body['action'], **options)
             self._observe_result(binding, record)
             return {'operation': record, 'binding': dict(binding)}
         finally:
