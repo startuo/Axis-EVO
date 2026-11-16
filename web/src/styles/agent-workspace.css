@@ -222,3 +222,16 @@
 @media(max-width:1100px) { .agent-settings-page,.agent-work-page { padding:28px; } .agent-work-layout { grid-template-columns:1fr; gap:28px; } }
 @media(max-width:640px) { .agent-home { padding:40px 18px; } .agent-welcome { margin:0 0 26px; } .agent-welcome h1 { font-size:31px; } .agent-composer { padding:12px 15px 16px; } .agent-conversation { padding:22px 20px; } .agent-composer-caption small { display:none; } .agent-start-options { gap:0; } .agent-start-options button { padding:5px 9px; font-size:11px; } .agent-settings-page,.agent-work-page { padding:25px 20px; } .agent-settings-tabs { gap:2px; } .agent-settings-tabs button { padding:8px; } .agent-field-row { grid-template-columns:1fr; gap:0; } .agent-user-message { max-width:95%; } .agent-feedback-controls { flex-wrap:wrap; } .agent-feedback-form>div { flex-wrap:wrap; } .agent-settings-footer { flex-direction:column; align-items:flex-start; } .agent-section-heading { flex-wrap:wrap; gap:10px; } .agent-error { margin:10px; } }
 @media(max-width:420px) { .agent-check-editor { grid-template-columns:minmax(0,1fr) 28px; } .agent-check-editor select { grid-column:1/-1; } .agent-evolution-cycle { padding:16px; } .agent-evolution-cycle>header { flex-wrap:wrap; gap:12px; } .agent-tool-list>li { flex-wrap:wrap; gap:8px; } .agent-tool-list>li>div { flex-basis:calc(100% - 32px); } .agent-tool-list>li>span { margin-left:24px; } .agent-feedback-actions>span { flex-basis:100%; } }
+
+/* Task plans, verified command receipts and file differences share the chat flow. */
+.agent-task-progress { margin: 1rem 0; display: grid; gap: 1rem; min-width: 0; }
+.agent-task-progress h3 { display: flex; align-items: center; gap: .5rem; font-size: .85rem; margin: 0 0 .6rem; }
+.agent-plan ol { list-style: none; padding: 0; margin: 0 0 .5rem; display: grid; gap: .45rem; }
+.agent-plan li { display: flex; align-items: center; gap: .6rem; font-size: .85rem; }
+.agent-task-progress small, .agent-project-changes p { opacity: .68; font-size: .75rem; }
+.agent-task-progress details { padding: .7rem 0; border-bottom: 1px solid var(--border-subtle, #8883); }
+.agent-task-progress summary { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; cursor: pointer; font-size: .8rem; }
+.agent-task-progress summary code { min-width: 0; overflow-wrap: anywhere; }
+.agent-task-progress summary span { flex-shrink: 0; font-size: .75rem; opacity: .7; }
+.agent-task-progress pre { max-height: 24rem; overflow: auto; padding: .8rem; background: #8881; font-size: .75rem; line-height: 1.6; tab-size: 2; }
+.agent-settings-form textarea { width: 100%; box-sizing: border-box; padding: .7rem; resize: vertical; border: 1px solid var(--border-subtle, #8885); border-radius: .5rem; color: inherit; background: transparent; font: inherit; font-size: .85rem; }

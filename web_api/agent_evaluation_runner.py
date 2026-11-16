@@ -21,11 +21,10 @@ def _file_key(source_id, path):
     return source_id, os.path.normcase(relative_path(path)).replace('\\', '/')
 
 
-def evaluate_candidate(service, request):
-    check_current=lambda: service.evolution.assert_cycle_current(request['workspaceId'],request['cycleId'])
+def capture_inputs(service, workspace_id, source_turn_id, check_current=lambda:None):
     check_current()
-    source=service.store.get(request['sourceTurnId'],'turn')
-    workspace=service.workspaces.get(request['workspaceId'])
+    source=service.store.get(source_turn_id,'turn')
+    workspace=service.workspaces.get(workspace_id)
     if source['workspaceId']!=workspace['id']:
         raise ApiError('EVALUATION_SCOPE','原任务与工作区不一致。',409)
     source_events=list(service.store.iter_records(parent_id=source['id']))
@@ -104,6 +103,19 @@ def evaluate_candidate(service, request):
                 raise ApiError('EVALUATION_INPUT_CHANGED','原任务输入已改变，停止自动对照。',409)
     if sum(len(m['data']) for m in materials)>MAX_SNAPSHOT_BYTES:
         raise ApiError('EVALUATION_INPUT_LIMIT','原始对照材料超过2MiB。',409)
+    return materials,sources,history,source
+
+
+def evaluate_candidate(service, request):
+    check_current=lambda: service.evolution.assert_cycle_current(request['workspaceId'],request['cycleId'])
+    check_current()
+    workspace=service.workspaces.get(request['workspaceId'])
+    if request.get('experienceId'):
+        from .agent_experience import load_inputs
+        materials,sources,history,source=load_inputs(service,request['workspaceId'],request['experienceId'])
+    else:
+        materials,sources,history,source=capture_inputs(service,workspace['id'],request['sourceTurnId'],check_current)
+    execution=service.execution.policy(workspace['id'])
     snapshot_manifest=[{k:v for k,v in m.items() if k!='data'} for m in materials]
     service.store.append('evaluation_snapshot',{'cycleId':request['cycleId'],'inputs':snapshot_manifest,
         'manifestSha256':digest(snapshot_manifest),'contextSha256':digest(history),
@@ -118,6 +130,8 @@ def evaluate_candidate(service, request):
         wid=service.store.append('workspace',{'name':'Skill comparison '+role,'path':str(root),
             'rootIdentity':root_identity(root),'policy':{'writeMode':'write','evolutionMode':'off','style':workspace['policy']['style']},
             'shareWithProvider':True,'internalEvaluation':True})['id']
+        if execution['enabled']:
+            service.store.append('execution_policy',{k:v for k,v in execution.items() if k!='id'},wid)
         mapped={'workspace':root}
         for origin in sources[1:]:
             material_root=directory/('source_'+uuid4().hex)
@@ -139,4 +153,8 @@ def evaluate_candidate(service, request):
             context_messages=history)
         result[key]=conversation['turns'][0]['id']
         check_current()
+        if execution['enabled'] and execution['checks']:
+            verification=service.execution.verify(wid,result[key],cancelled=lambda:service.evolution.cycle_cancelled(request['cycleId']))
+            service.store.append('evaluation_verification',verification,wid,result[key])
+            check_current()
     return result

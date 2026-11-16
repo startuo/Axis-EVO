@@ -24,6 +24,7 @@ export function useAgentWorkspace(route: string, navigate: (path: string) => voi
   const [detail, setDetail] = useState<AgentConversation | null>(null);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [continuations, setContinuations] = useState<Record<string, string | undefined>>({});
   const [unconfirmed, setUnconfirmed] = useState<Record<string, { requestId: string; prompt: string } | undefined>>({});
   const lock = useRef(false);
   const mounted = useRef(true);
@@ -116,6 +117,11 @@ export function useAgentWorkspace(route: string, navigate: (path: string) => voi
     navigate(`/agent${view === 'chat' ? '' : `/${view}`}${params.size ? `?${params}` : ''}`);
   };
   const setPrompt = (value: string) => setDrafts(current => ({ ...current, [draftKey]: value }));
+  const continueTask = (turnId: string) => {
+    setContinuations(current => ({ ...current, [draftKey]: turnId }));
+    setPrompt('请依据已保留的进展继续：先核对当前文件与执行结果，再完成尚未完成的目标。不要重做未知副作用。');
+    document.querySelector<HTMLTextAreaElement>('.agent-composer textarea')?.focus();
+  };
   const selectWorkspace = (id: string) => { setSelection(id); setError(''); go('chat', { workspaceId: id }); };
 
   async function mutate(label: string, operation: () => Promise<unknown>): Promise<boolean> {
@@ -132,10 +138,11 @@ export function useAgentWorkspace(route: string, navigate: (path: string) => voi
     const requestId = crypto.randomUUID();
     return mutate('send', async () => {
       try {
-        const result = await agentApi.send({ workspaceId, ...(parsed.conversationId ? { conversationId: parsed.conversationId } : {}), requestId, prompt, profileId: profile.id, profileRevision: profile.revision, ...(browserBindingId ? { browserBindingId } : {}) });
+        const result = await agentApi.send({ workspaceId, ...(parsed.conversationId ? { conversationId: parsed.conversationId } : {}), requestId, prompt, profileId: profile.id, profileRevision: profile.revision, ...(browserBindingId ? { browserBindingId } : {}), ...(continuations[draftKey] ? { continueFrom: continuations[draftKey] } : {}) });
         if (result.workspaceId !== workspaceId) throw new RuntimeError('INVALID_DATA', '任务返回了不同工作区的记录。');
         if (!mounted.current) return;
         setDrafts(current => current[draftKey] === savedPrompt ? { ...current, [draftKey]: '' } : current);
+        setContinuations(current => ({ ...current, [draftKey]: undefined }));
         setDetail(result);
         if (requestedRoute === routeRef.current) go('chat', { conversationId: result.id });
       } catch (failure) {
@@ -161,7 +168,7 @@ export function useAgentWorkspace(route: string, navigate: (path: string) => voi
       if (requestedRoute === routeRef.current) go('chat', { conversationId: result.id });
     });
   }
-  return { parsed, state, profiles, token, initializing, error, errorCode, setError, busy, revision, workspaceId, workspace, rows, conversation, loadingConversation, prompt, setPrompt, profileKey, setProfileKey, profile, running, unresolved, unconfirmed: !!unconfirmed[draftKey], reload, reportError, go, selectWorkspace, mutate, send, recoverSubmission };
+  return { parsed, state, profiles, token, initializing, error, errorCode, setError, busy, revision, workspaceId, workspace, rows, conversation, loadingConversation, prompt, setPrompt, profileKey, setProfileKey, profile, running, unresolved, unconfirmed: !!unconfirmed[draftKey], reload, reportError, go, selectWorkspace, mutate, send, recoverSubmission, continueTask };
 }
 
 export type AgentWorkspaceController = ReturnType<typeof useAgentWorkspace>;

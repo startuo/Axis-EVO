@@ -12,14 +12,17 @@ export type AgentFeedback = { rating: 'positive' | 'negative'; comment: string; 
 export type AgentSkillUse = { skillId: string; version: number; cardSha256: string; name?: string };
 export type AgentTurn = { id: string; workspaceId?: string; conversationId?: string; prompt: string; status: string; code?: string | null; answer: string | null; events: AgentEvent[]; artifacts: AgentArtifact[]; feedback: AgentFeedback[]; skillUses?: AgentSkillUse[] };
 export type AgentConversation = { id: string; workspaceId: string; title: string; turns: AgentTurn[] };
-export type AgentTurnInput = { workspaceId: string; conversationId?: string; requestId: string; prompt: string; profileId: string; profileRevision: number; browserBindingId?: string };
-export type AgentCheck = { kind: 'contains' | 'not_contains' | 'heading'; value: string };
+export type AgentTurnInput = { workspaceId: string; conversationId?: string; requestId: string; prompt: string; profileId: string; profileRevision: number; browserBindingId?: string; continueFrom?: string };
+export type AgentCheck = { kind: 'contains' | 'not_contains' | 'heading'; value: string; path?: string };
+export type ExecutionPolicy = { id?: string | null; enabled: boolean; imageId: string | null; timeoutSeconds: number; checks: { name: string; argv: string[] }[]; protectedPaths: string[] };
+export type ExecutionSettings = { policy: ExecutionPolicy; environment: { available: boolean; images: { id: string; name: string }[]; reason?: string } };
+export type ProjectChanges = { turnId: string; workspaceId: string; atomic: false; files: { path: string; diff: string; matchesCurrentFile: boolean; beforeSha256: string | null; afterSha256: string }[] };
 export type AgentFeedbackInput = { rating: 'positive' | 'negative'; comment: string; checks?: AgentCheck[]; submissionId: string; skillId?: string; scope?: 'TASK_ONLY' | 'REUSABLE_PREFERENCE' };
 export type AgentEvolutionPolicyInput = { mode: 'OFF' | 'OBSERVE' | 'AUTO'; revisionProfileId: string | null; revisionProfileRevision: number | null; reviewerProfileId: string | null; reviewerProfileRevision: number | null };
 export type AgentEvolutionPolicy = AgentEvolutionPolicyInput & { id: string | null; gatePolicyId: string };
 export type AgentEvolutionCycle = { id: string; workspaceId: string; feedbackId: string; status: string; workerActive: boolean; policy: AgentEvolutionPolicy; facts: AgentEvent[]; result: Record<string, unknown> | null };
 export type AgentEvolution = { policy: AgentEvolutionPolicy; cycles: AgentEvolutionCycle[] };
-export type AgentSkill = AgentSkillUse & { name: string; state: string; source: { sourceId: string; path: string; sha256: string }; permissionsGranted: false };
+export type AgentSkill = AgentSkillUse & { name: string; state: string; source: { sourceId: string; path: string; sha256: string }; permissionsGranted: false; rollbackVersions?: number[] };
 
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown, limit = 65536): value is string => typeof value === 'string' && value.length <= limit;
@@ -40,6 +43,8 @@ const evolutionPolicy = (value: unknown) => object(value) && ['OFF', 'OBSERVE', 
 const evolutionCycle = (value: unknown) => object(value) && id(value.id) && id(value.workspaceId) && id(value.feedbackId) && text(value.status, 64) && typeof value.workerActive === 'boolean' && evolutionPolicy(value.policy) && list(value.facts, 128) && value.facts.every(event) && (value.result === null || object(value.result));
 
 export function validateAgentData(path: string, data: unknown, mutating: boolean): boolean {
+  if (/\/workspaces\/[^/]+\/execution$/.test(path) && !mutating) return object(data) && object(data.policy) && typeof data.policy.enabled === 'boolean' && (data.policy.imageId === null || text(data.policy.imageId, 80)) && integer(data.policy.timeoutSeconds) && list(data.policy.checks, 8) && data.policy.checks.every(c => object(c) && text(c.name, 80) && list(c.argv, 64) && c.argv.every(a => text(a, 4096))) && list(data.policy.protectedPaths, 64) && data.policy.protectedPaths.every(p => text(p, 512)) && object(data.environment) && typeof data.environment.available === 'boolean' && list(data.environment.images, 64) && data.environment.images.every(i => object(i) && text(i.id, 80) && text(i.name, 512));
+  if (/\/turns\/[^/]+\/changes$/.test(path)) return object(data) && id(data.turnId) && encodeURIComponent(String(data.turnId)) === path.split('/')[3] && id(data.workspaceId) && data.atomic === false && list(data.files, 128) && data.files.every(f => object(f) && text(f.path, 512) && text(f.diff, 262144) && typeof f.matchesCurrentFile === 'boolean' && hash(f.afterSha256));
   if (path === '/agent/state') return object(data) && typeof data.prepared === 'boolean' && list(data.workspaces, 128) && data.workspaces.every(workspace) && list(data.tools, 256) && data.tools.every(t => object(t) && id(t.name) && text(t.description) && typeof t.mutating === 'boolean' && typeof t.available === 'boolean');
   if (/\/workspaces\/[^/]+\/conversations$/.test(path)) return object(data) && list(data.conversations, 256) && data.conversations.every(c => object(c) && id(c.id) && text(c.title, 512) && text(c.updatedAt, 100) && text(c.status, 64));
   if (/\/workspaces\/[^/]+\/evolution$/.test(path)) return object(data) && evolutionPolicy(data.policy) && list(data.cycles, 100) && data.cycles.every(c => evolutionCycle(c) && object(c) && encodeURIComponent(String(c.workspaceId)) === path.split('/')[3]);
@@ -77,6 +82,10 @@ export function agentStopReason(code?: string | null) {
 
 const encoded = encodeURIComponent;
 export const agentApi = {
+  execution: (workspaceId: string, signal?: AbortSignal) => runtimeRequest<ExecutionSettings>(`/agent/workspaces/${encoded(workspaceId)}/execution`, { signal }),
+  executionPolicy: (workspaceId: string, body: ExecutionPolicy) => runtimeRequest<unknown>(`/agent/workspaces/${encoded(workspaceId)}/execution`, { body }),
+  changes: (turnId: string, signal?: AbortSignal) => runtimeRequest<ProjectChanges>(`/agent/turns/${encoded(turnId)}/changes`, { signal }),
+  rollback: (workspaceId: string, body: { skillId: string; version: number; reason: string }) => runtimeRequest<unknown>(`/agent/workspaces/${encoded(workspaceId)}/evolution/rollback`, { body }),
   state: (signal?: AbortSignal) => runtimeRequest<AgentState>('/agent/state', { signal }),
   addWorkspace: (body: { name: string; path: string; writeMode: AgentPolicy['writeMode']; shareWithProvider: true }) => runtimeRequest<unknown>('/agent/workspaces', { body }),
   settings: (workspaceId: string, body: AgentPolicy) => runtimeRequest<unknown>(`/agent/workspaces/${encoded(workspaceId)}/settings`, { body }),

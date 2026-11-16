@@ -13,7 +13,7 @@ from axis_evo.hashing import canonical_json_bytes
 from .schemas import ApiError
 
 
-POLICY_ID = 'agent-skill-product-gate-v2'
+POLICY_ID = 'agent-skill-product-gate-v3'
 SUCCESS = frozenset(('COMPLETED', 'SUCCEEDED', 'FINISHED', 'SUCCESS'))
 TERMINAL = SUCCESS | frozenset(('FAILED', 'UNKNOWN', 'STOPPED', 'CANCELLED', 'INTERRUPTED',
     'BLOCKED', 'LIMIT_REACHED'))
@@ -24,12 +24,15 @@ def validate_checks(value):
         raise ApiError('EVOLUTION_CHECKS_INVALID', '最多提供 16 项明确的文档检查。')
     result = []
     for check in value:
-        if (type(check) is not dict or check.keys() != {'kind', 'value'}
+        if (type(check) is not dict or not {'kind', 'value'} <= check.keys() <= {'kind','value','path'}
                 or check['kind'] not in ('contains', 'not_contains', 'heading')
                 or type(check['value']) is not str or not check['value'].strip()
                 or len(check['value'].encode('utf-8')) > 512
                 or any(ord(c) < 32 for c in check['value'])):
             raise ApiError('EVOLUTION_CHECKS_INVALID', '文档检查须为必含文本、禁含文本或标题。')
+        if 'path' in check:
+            from .agent_workspace import relative_path
+            relative_path(check['path'])
         if check in result:
             raise ApiError('EVOLUTION_CHECKS_INVALID', '文档检查不可重复。')
         result.append(dict(check))
@@ -115,11 +118,11 @@ def check_document(text, check):
 
 
 def assess_comparison(reference, candidate, reference_skill, candidate_skill, checks, review=None,
-                      *, output_paths=None):
+                      *, output_paths=None, command_checks=None):
     """Recalculate every check from independently read, hash-verified output."""
     checks = validate_checks(checks)
     reasons = []
-    if not checks:
+    if not checks and not command_checks:
         reasons.append('NO_EXPLICIT_USER_CHECKS')
     if reference.get('id') == candidate.get('id'):
         reasons.append('EVALUATION_TASKS_NOT_DISTINCT')
@@ -137,35 +140,44 @@ def assess_comparison(reference, candidate, reference_skill, candidate_skill, ch
     # candidate cannot pass by putting the requested heading in an extra file,
     # or by moving an existing requirement from one document to another.
     targets = sorted({_path_key(path) for path in output_paths}) if output_paths is not None else sorted(before or {})
-    if not targets or set(before or {}) != set(targets) or set(after or {}) != set(targets):
+    if (not targets or before is not None and set(before) != set(targets)
+            or after is not None and set(after) != set(targets)):
         reasons.append('EVALUATION_OUTPUT_SET_CHANGED')
     results = []
     for check in checks:
-        documents = [{'path': path,
+        check_targets=[_path_key(check['path'])] if 'path' in check else targets
+        if not set(check_targets)<=set(targets):
+            reasons.append('CHECK_PATH_OUTSIDE_DELIVERY')
+        documents = [{'path': path, 'comparable': before is not None and after is not None,
             'referencePassed': check_document((before or {}).get(path), check),
-            'candidatePassed': check_document((after or {}).get(path), check)} for path in targets]
+            'candidatePassed': check_document((after or {}).get(path), check)} for path in check_targets]
         results.append({'check': check,
+            'comparable': before is not None and after is not None,
             'referencePassed': bool(documents) and all(row['referencePassed'] for row in documents),
             'candidatePassed': bool(documents) and all(row['candidatePassed'] for row in documents),
             'documents': documents})
-    regressions = sum(row['referencePassed'] and not row['candidatePassed']
+    regressions = sum(row['comparable'] and row['referencePassed'] and not row['candidatePassed']
         for check in results for row in check['documents'])
-    improvements = sum(not row['referencePassed'] and row['candidatePassed']
+    improvements = sum(row['comparable'] and not row['referencePassed'] and row['candidatePassed']
         for check in results for row in check['documents'])
+    commands=command_checks or []
+    regressions+=sum(row['referencePassed'] and not row['candidatePassed'] for row in commands)
+    improvements+=sum(not row['referencePassed'] and row['candidatePassed'] for row in commands)
     if regressions:
         reasons.append('REGRESSION_DETECTED')
-    if results and not all(row['candidatePassed'] for row in results):
+    if (any(row['comparable'] and not row['candidatePassed'] for row in results)
+            or commands and not all(row['candidatePassed'] for row in commands)):
         reasons.append('CANDIDATE_CHECK_FAILED')
     if not improvements:
         reasons.append('NO_MEASURED_IMPROVEMENT')
     if review and review.get('verdict') in ('REJECT', 'UNCERTAIN'):
         reasons.append('REVIEW_CONCERNS_UNRESOLVED')
     manifest = {'policyId': POLICY_ID, 'reference': task_summary(reference),
-        'candidate': task_summary(candidate), 'checks': results,
+        'candidate': task_summary(candidate), 'checks': results, 'commandChecks':commands,
         'regressions': regressions, 'improvements': improvements,
         'reviewRole': 'ADVISORY_ONLY', 'reasons': reasons,
-        'scope': 'EXPLICIT_USER_DOCUMENT_CHECKS',
-        'outputPaths': targets, 'checkApplication': 'EACH_ORIGINAL_OUTPUT_DOCUMENT',
+        'scope': 'FIXED_USER_PROJECT_CHECKS' if commands else 'EXPLICIT_USER_DOCUMENT_CHECKS',
+        'outputPaths': targets, 'checkApplication': 'EXPLICIT_PATH_OR_EACH_ORIGINAL_OUTPUT_DOCUMENT' if any('path' in check for check in checks) else 'EACH_ORIGINAL_OUTPUT_DOCUMENT',
         'limitations': ['Format and literal text checks do not establish general semantic quality.',
             'Development feedback and its replay are not an independent heldout research experiment.']}
     return {**manifest, 'eligible': not reasons,

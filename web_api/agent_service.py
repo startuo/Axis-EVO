@@ -20,11 +20,12 @@ from .agent_tools import AgentTools
 from .agent_evolution import AgentEvolution
 from .agent_provider_worker import complete_isolated
 from .agent_context import conversation_history, bounded_context
+from .agent_execution_policy import AgentExecution
 from .schemas import ApiError, strict_json, no_redirected_parents
 
-MAX_ROUNDS=16
-MAX_CALLS=48
-MAX_TURN_SECONDS=600
+MAX_ROUNDS=32
+MAX_CALLS=96
+MAX_TURN_SECONDS=1200
 TERMINAL={'COMPLETED','FAILED','UNKNOWN','CANCELLED','LIMIT_REACHED','BLOCKED'}
 SYSTEM = '''You are Axis-Evo, a local-first agent collaborating on goals and deliverables.
 Use the user's language. Work autonomously within the host-provided workspace policy.
@@ -41,6 +42,13 @@ Exact-byte verification proves persistence, not semantic quality. Do not claim a
 tool succeeded unless its result confirms it. UNKNOWN actions must not be retried.
 Tool errors can be explained or addressed by a different authorized action; never
 repeat an uncertain side effect. Do not pretend to have shell or unrestricted web access.
+For a complex project task use project_overview and update_plan. Inspect configuration,
+make related file edits, run authorized commands/checks, diagnose actual failures,
+then inspect_changes and report the verified result. run_command only runs an isolated
+copy; edits there are discarded. Save actual source edits with write_file/patch_file.
+Configured checks are user-owned; do not weaken tests to manufacture a pass. Nonzero
+exitCode is a confirmed test/command failure, not proof of a tool transport failure.
+If execution is disabled or Docker unavailable, say verification was not run.
 Your final response should name delivered files, useful results and genuine limitations.
 Use readable filenames for sources. Internal IDs, hashes and a tool-by-tool account
 belong in the evidence panel; include them in the reply only when the user asks.
@@ -58,10 +66,13 @@ class AgentService:
         self._pool=ThreadPoolExecutor(max_workers=2,thread_name_prefix='axis-agent')
         self._closed=False
         self._active={}
+        self._deadlines={}
         self._completion=completion or complete_isolated
         self.evolution=AgentEvolution(self.store,runtime.providers,runtime.config.data_dir,self.turn,
-            evaluation_runner=self.evaluate_candidate,authority_reader=self.workspaces.source,authority_lock=self._lock)
+            evaluation_runner=self.evaluate_candidate,authority_reader=self.workspaces.source,authority_lock=self._lock,
+            experience_capture=self.capture_experience)
         self.tools=AgentTools(self)
+        self.execution=AgentExecution(self)
         # Startup never replays a tool or reissues a model request.
         if self.store.prepared:
             for turn in self.store.iter_records('turn'):
@@ -120,7 +131,7 @@ class AgentService:
         """
         intents=[row for row in self.store.iter_records('tool_intent',parent_id=turn['id'])
             if row['payload'].get('callId')==call_id]
-        if len(intents)!=1 or adapter not in ('core','edge'):
+        if len(intents)!=1 or adapter not in ('core','edge','container'):
             fail('AGENT_EXECUTION_IDENTITY','工具执行身份无法核对。',409)
         intent=intents[0]
         return self.store.append('tool_execution',{'intentId':intent['id'],'callId':call_id,
@@ -191,7 +202,7 @@ class AgentService:
 
     def submit(self,body,*,evaluation=None,forced_skill=None,inline=False,context_messages=None):
         required={'workspaceId','requestId','prompt','profileId','profileRevision'}
-        if type(body) is not dict or not required<=body.keys()<=required|{'conversationId','browserBindingId'}:
+        if type(body) is not dict or not required<=body.keys()<=required|{'conversationId','browserBindingId','continueFrom'}:
             fail('AGENT_REQUEST_INVALID','任务请求字段无效。')
         request=body['requestId']
         if type(request) is not str or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',request):
@@ -222,6 +233,12 @@ class AgentService:
             if binding:
                 self.browser._binding(binding)
             cid=body.get('conversationId')
+            continued=body.get('continueFrom')
+            if continued:
+                parent=self.store.get(continued,'turn')
+                if parent['workspaceId']!=wid or self._status(continued) not in TERMINAL or (cid and cid!=parent['parentId']):
+                    fail('AGENT_CONTINUE_INVALID','只能依据同工作区的已结束任务继续。',409)
+                cid=parent['parentId']
             if cid:
                 conversation=self.store.get(cid,'conversation')
                 if conversation['workspaceId']!=wid:
@@ -234,6 +251,7 @@ class AgentService:
             turn=self.store.append('turn',{'prompt':prompt,'profile':profile,'workspaceRevision':workspace['revision'],
                 'sourceGrantIds':sorted(s['id'] for s in workspace['sources'] if s['enabled']),
                 'requestSha256':digest(body),'browserBindingId':binding,'evaluation':evaluation,'forcedSkill':forced_skill,
+                'executionPolicyId':self.execution.policy(wid)['id'],'continuedFrom':continued,
                 'contextMessages':history},
                 wid,cid,identity=tid)
             self._active[tid]=turn
@@ -257,10 +275,13 @@ class AgentService:
         return (self._closed or bool(self.store.records('cancel',parent_id=turn['id'],limit=1))
             or bool(self.store.records('terminal',parent_id=turn['id'],limit=1))
             or self._sources_changed(turn)
+            or turn['payload'].get('executionPolicyId')!=self.execution.policy(turn['workspaceId'])['id']
             or bool(evaluation and self.evolution.cycle_cancelled(evaluation['cycleId'])))
 
     def _finish_cancelled(self,turn,code='STOP_REQUESTED'):
-        if self._sources_changed(turn):
+        if turn['payload'].get('executionPolicyId')!=self.execution.policy(turn['workspaceId'])['id']:
+            self._finish(turn,'BLOCKED','EXECUTION_POLICY_CHANGED')
+        elif self._sources_changed(turn):
             self._finish(turn,'BLOCKED','SOURCE_AUTHORITY_CHANGED')
         else:
             self._finish(turn,'CANCELLED',code)
@@ -280,6 +301,7 @@ class AgentService:
     def _messages(self,turn):
         workspace=self.workspaces.get(turn['workspaceId'])
         context={'workspace':workspace['name'],'policy':workspace['policy'],
+            'execution':self.execution.public_policy(turn['workspaceId']),
             'materialPolicy':'Read ranges are partial unless coverage is FULL. Cite source paths and lines. '
                 'Context checkpoints omit source text, not user requirements; reread before source claims.',
             'sources':[{'id':'workspace','name':workspace['name'],'kind':'workspace'}]+[
@@ -296,6 +318,7 @@ class AgentService:
     def _run(self,turn):
         tid,wid=turn['id'],turn['workspaceId']
         deadline=time.monotonic()+MAX_TURN_SECONDS
+        self._deadlines[tid]=deadline
         used_ids=set()
         calls=0
         try:
@@ -311,6 +334,8 @@ class AgentService:
                 if self.workspaces.get(wid)['revision']!=turn['payload']['workspaceRevision']:
                     self._finish(turn,'BLOCKED','WORKSPACE_POLICY_CHANGED')
                     return
+                if turn['payload'].get('evaluation'):
+                    self.evolution.reserve_request(turn['payload']['evaluation']['cycleId'])
                 self.store.append('model_request',{'round':round_number+1,'profile':{k:turn['payload']['profile'][k] for k in ('id','revision','modelId','configSha256')}},wid,tid)
                 catalog=self.tools.catalog()
                 if turn['payload'].get('evaluation'):
@@ -366,6 +391,7 @@ class AgentService:
         finally:
             with self._lock:
                 self._active.pop(tid,None)
+                self._deadlines.pop(tid,None)
 
     def _call(self,turn,call_id,name,args):
         tid,wid=turn['id'],turn['workspaceId']
@@ -383,6 +409,8 @@ class AgentService:
                     fail('EVALUATION_TOOL_DENIED','隔离评价只使用固定 Skill 和已捕获材料。',403)
                 if mutating:
                     path=relative_path(args['path'])
+                    if self.execution.is_protected(wid,path):
+                        fail('VERIFICATION_FILE_PROTECTED','此文件已被用户固定为验证依据，Agent不能修改。',403)
                     resolver=self.workspaces.resolver(wid,write=True)
                     no_redirected_parents(resolver.root/path)
                     target_key=os.path.normcase(str(resolver.resolve(path)))
@@ -429,7 +457,8 @@ class AgentService:
         try:
             data=self.tools.execute(turn,call_id,name,args)
             self.runtime.providers.check_text(canonical(data))
-            result={'status':'FAILED' if data.get('status')=='FAILED' else 'SUCCESS','data':data}
+            result={'status':'UNKNOWN' if data.get('status')=='UNKNOWN' else
+                'FAILED' if data.get('status') in ('FAILED','CANCELLED','TIMED_OUT') else 'SUCCESS','data':data}
         except ApiError as error:
             dispatched=any(row['payload'].get('intentId')==intent['id'] for row in
                 self.store.iter_records('tool_execution',parent_id=turn['id']))
@@ -461,6 +490,10 @@ class AgentService:
         # Set below by the isolation runner; a missing runner never becomes a pass.
         from .agent_evaluation_runner import evaluate_candidate
         return evaluate_candidate(self,request)
+
+    def capture_experience(self,wid,feedback):
+        from .agent_experience import capture
+        return capture(self,wid,feedback)
 
     def close(self):
         self._closed=True

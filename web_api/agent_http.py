@@ -9,6 +9,9 @@ def read(service,tail):
         return service.conversation(tail[1])
     if len(tail)==2 and tail[0]=='turns':
         return service.turn(tail[1])
+    if len(tail)==3 and tail[0]=='turns' and tail[2]=='changes':
+        from .agent_project import changes
+        return changes(service,tail[1])
     if len(tail)>=3 and tail[0]=='workspaces':
         wid=tail[1]
         service.workspaces.get(wid)
@@ -16,6 +19,8 @@ def read(service,tail):
             return service.conversations(wid)
         if tail[2:]==['skills']:
             return {'skills':service.evolution.list_skills(wid)}
+        if tail[2:]==['execution']:
+            return {'policy':service.execution.public_policy(wid),'environment':service.execution.runner.status()}
         if tail[2:]==['evolution']:
             return {'policy':service.evolution.get_policy(wid),'cycles':service.evolution.list_cycles(wid)}
     raise ApiError('ROUTE_NOT_FOUND','Agent 查询不存在。',404)
@@ -36,6 +41,10 @@ def mutate(service,tail,body):
         service.workspaces.get(wid)
         if tail[2:]==['settings']:
             return service.settings(wid,body)
+        if tail[2:]==['execution']:
+            return service.execution.configure(wid,body)
+        if tail[2:]==['evolution','rollback']:
+            return service.evolution.rollback(wid,body)
         if tail[2:]==['sources']:
             with service._lock:
                 return service.workspaces.add_source(wid,body)

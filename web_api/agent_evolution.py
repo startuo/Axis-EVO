@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import threading
+import time
 from uuid import uuid4
 
 from axis_evo.hashing import canonical_json_bytes
@@ -26,6 +27,7 @@ from axis_evo.skill_storage import initialize_skill_schema
 from axis_evo.storage import connect_database
 
 from .agent_provider_worker import complete_isolated
+from .agent_experience import diagnose, cost, tool_incidents
 from .agent_skill_gate import (POLICY_ID, SUCCESS, TERMINAL, assess_comparison,
     task_summary, validate_checks)
 from .agent_store import digest, identity
@@ -57,15 +59,12 @@ def _profile_identity(profile):
 
 
 def _tool_failures(task):
-    return [{'id': event['id'], 'status': event['payload'].get('status'),
-             'code': event['payload'].get('code')}
-        for event in task.get('events', []) if event['kind'] == 'tool_result'
-        and event['payload'].get('status') != 'SUCCESS']
+    return [row for row in tool_incidents(task) if not row['recoveredAdmission']]
 
 
 class AgentEvolution:
     def __init__(self, store, providers, data_dir, task_reader, *, evaluation_runner=None,
-                 provider_factory=None, authority_reader=None, authority_lock=None):
+                 provider_factory=None, authority_reader=None, authority_lock=None, experience_capture=None):
         self.store, self.providers = store, providers
         self.data_dir = Path(data_dir).absolute()
         self.database = self.data_dir / 'agent-skills.sqlite3'
@@ -73,6 +72,7 @@ class AgentEvolution:
         no_redirected_parents(self.database)
         self.task_reader = task_reader
         self.evaluation_runner = evaluation_runner
+        self.experience_capture = experience_capture
         self._provider_factory = provider_factory
         self._authority_reader = authority_reader
         self._authority_lock = authority_lock or threading.RLock()
@@ -80,6 +80,7 @@ class AgentEvolution:
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='axis-agent-evolution')
         self._slots = threading.BoundedSemaphore(8)
         self._active = set()
+        self._limits = {}
         self._closed = False
 
     def _prepare(self):
@@ -164,7 +165,11 @@ class AgentEvolution:
 
     def _authority_snapshot(self, workspace_id):
         workspace = self._authority(workspace_id)
+        execution=self.store.records('execution_policy',workspace_id=workspace_id,limit=1)
+        rollback=self.store.records('skill_rollback',workspace_id=workspace_id,limit=1)
         return {'revision': workspace['revision'], 'rootIdentity': workspace['rootIdentity'],
+            'executionPolicyId':execution[0]['id'] if execution else None,
+            'rollbackId':rollback[0]['id'] if rollback else None,
             'sourceIds': sorted(source['id'] for source in workspace['sources'] if source['enabled'])}
 
     def _current_import(self, workspace_id, skill_id):
@@ -240,7 +245,10 @@ class AgentEvolution:
         result = []
         for skill_id in families:
             try:
-                result.append(self.use_skill(workspace_id, skill_id))
+                base=self._current_import(workspace_id,skill_id)
+                versions={base['payload']['version']}|{r['payload']['version'] for r in self.store.iter_records('skill_adoption',workspace_id=workspace_id)
+                    if r['payload']['skillId']==skill_id and r['payload']['importId']==base['id']}
+                result.append({**self.use_skill(workspace_id, skill_id),'rollbackVersions':sorted(versions)})
             except ApiError as error:
                 if error.code != 'SOURCE_NOT_AUTHORIZED':
                     raise
@@ -258,9 +266,34 @@ class AgentEvolution:
                 if gate['payload'].get('eligible') is not True or gate['payload'].get('manifestSha256') != adoption['payload']['gateSha256']:
                     raise ApiError('AGENT_SKILL_INTEGRITY', '已采用 Skill 的评价凭据无法核对。', 409)
                 version = adoption['payload']['version']
+            selections=[record for record in self.store.iter_records('skill_rollback',workspace_id=workspace_id)
+                if record['payload']['skillId']==skill_id and record['payload']['importId']==base['id']]
+            if selections:
+                selection=selections[-1]
+                # A later validated adoption supersedes an earlier user rollback.
+                history=list(self.store.iter_records(workspace_id=workspace_id))
+                positions={row['id']:index for index,row in enumerate(history)}
+                if not adoptions or positions[selection['id']]>positions[adoptions[-1]['id']]:
+                    version=selection['payload']['version']
         card = self._card(workspace_id, skill_id, version)[0]
         self._authority(workspace_id, card['source']['sourceId'])
         return card
+
+    def rollback(self, workspace_id, body):
+        if type(body) is not dict or body.keys()!={'skillId','version','reason'} or type(body['version']) is not int:
+            raise ApiError('AGENT_ROLLBACK_INPUT','回退需要 Skill、版本与原因。')
+        _text(body['reason'],1024)
+        with self._authority_lock,self._lock:
+            base=self._current_import(workspace_id,body['skillId'])
+            allowed={base['payload']['version']}|{r['payload']['version'] for r in self.store.iter_records('skill_adoption',workspace_id=workspace_id)
+                if r['payload']['skillId']==body['skillId'] and r['payload']['importId']==base['id']}
+            if body['version'] not in allowed:
+                raise ApiError('AGENT_ROLLBACK_TARGET','只能回退到原版或曾通过评价采用的版本。',403)
+            previous=self.use_skill(workspace_id,body['skillId'])
+            target=self.use_skill(workspace_id,body['skillId'],body['version'])
+            self._append('skill_rollback',{**body,'previousVersion':previous['version'],'cardSha256':target['cardSha256'],
+                'importId':base['id'],'authority':'EXPLICIT_USER_ACTION','scope':'FUTURE_TASKS_ONLY'},workspace_id)
+            return target
 
     def get_policy(self, workspace_id):
         policies = self.store.records('evolution_policy', workspace_id=workspace_id, limit=1)
@@ -330,6 +363,13 @@ class AgentEvolution:
                     raise ApiError('AGENT_FEEDBACK_DUPLICATE', '反馈标识已用于其他内容。', 409)
                 return existing
             feedback = self._append('agent_feedback', payload, workspace_id, turn_id, record_id=record_id)
+        diagnosis=diagnose(task,payload)
+        self._append('feedback_diagnosis',diagnosis,workspace_id,feedback['id'])
+        if scope=='REUSABLE_PREFERENCE' and selected and task['status'] in SUCCESS and not _tool_failures(task) and self.experience_capture:
+            try:
+                self.experience_capture(workspace_id,feedback)
+            except Exception as error:
+                self._append('experience_unavailable',{'code':error.code if isinstance(error,ApiError) else 'EXPERIENCE_UNCONFIRMED'},workspace_id,feedback['id'])
         if (scope == 'REUSABLE_PREFERENCE' and self.get_policy(workspace_id)['mode'] != 'OFF'
                 and body['evaluation'] == 'NEEDS_IMPROVEMENT'):
             self.start_cycle(workspace_id, feedback['id'])
@@ -356,12 +396,15 @@ class AgentEvolution:
                 self._append('evolution_cycle', {'feedbackId': feedback_id,
                     'feedbackSha256': digest(feedback['payload']), 'policy': policy,
                     'authority': self._authority_snapshot(workspace_id),
+                    'maximumModelRequests':64,'maximumSeconds':900,'maximumHistoricalCases':2,
                     'dataRole': 'PRODUCT_DEVELOPMENT', 'legacyResearchGate': 'NOT_INVOKED'},
                     workspace_id, feedback_id, record_id=cycle_id)
                 self._active.add(cycle_id)
+                self._limits[cycle_id]={'requests':0,'deadline':time.monotonic()+900}
                 self._pool.submit(self._run_cycle, workspace_id, cycle_id)
             except BaseException:
                 self._active.discard(cycle_id)
+                self._limits.pop(cycle_id,None)
                 self._slots.release()
                 raise
         return self.get_cycle(workspace_id, cycle_id)
@@ -392,11 +435,21 @@ class AgentEvolution:
     def assert_cycle_current(self, workspace_id, cycle_id):
         """Check the original grant during every isolated model/tool operation."""
         cycle = self._owned(cycle_id, workspace_id, 'evolution_cycle')
+        limit=self._limits.get(cycle_id)
+        if limit and time.monotonic()>limit['deadline']:
+            raise ApiError('AGENT_EVOLUTION_BUDGET','本次改进已达到15分钟上限。',409)
         self._policy_current(workspace_id, cycle['payload']['policy'])
         if self._authority_snapshot(workspace_id) != cycle['payload'].get('authority'):
             raise ApiError('AGENT_EVOLUTION_AUTHORITY_CHANGED', '工作区或来源授权已改变；演化停止。', 409)
         if self._find(cycle_id + '-terminal'):
             raise ApiError('AGENT_EVOLUTION_FINISHED', '此演化周期已经结束。', 409)
+
+    def reserve_request(self, cycle_id):
+        with self._lock:
+            limit=self._limits.get(cycle_id)
+            if limit is None or limit['requests']>=64 or time.monotonic()>limit['deadline']:
+                raise ApiError('AGENT_EVOLUTION_BUDGET','本次改进已达到请求或时间上限。',409)
+            limit['requests']+=1
 
     def cycle_cancelled(self, cycle_id):
         try:
@@ -413,6 +466,7 @@ class AgentEvolution:
 
     def _call(self, workspace_id, cycle_id, phase, profile, messages):
         self.assert_cycle_current(workspace_id, cycle_id)
+        self.reserve_request(cycle_id)
         attempt = cycle_id + '-' + phase
         self._append('evolution_model_intent', {'phase': phase, 'provider': _profile_identity(profile),
             'requestSha256': digest(messages)}, workspace_id, cycle_id, record_id=attempt)
@@ -510,6 +564,7 @@ class AgentEvolution:
             if digest(feedback['payload']) != cycle['payload']['feedbackSha256']:
                 raise ApiError('AGENT_EVOLUTION_INTEGRITY', '反馈摘要无法核对。', 409)
             source = self._task(workspace_id, feedback['parentId'])
+            self._append('evolution_diagnosis',diagnose(source,feedback['payload']),workspace_id,cycle_id)
             if task_summary(source) != feedback['payload']['executionEvidence']:
                 raise ApiError('AGENT_EVOLUTION_STALE', '原任务事实已变化；没有自动重放。', 409)
             if source['status'] in ('UNKNOWN', 'INTERRUPTED'):
@@ -562,7 +617,9 @@ class AgentEvolution:
             if review.get('verdict') == 'REJECT':
                 self._finish(workspace_id, cycle_id, 'STOPPED', ['INDEPENDENT_REVIEW_REJECTED'], candidate=receipt['payload'])
                 return
-            if not feedback['payload']['checks'] or self.evaluation_runner is None:
+            execution=self.store.records('execution_policy',workspace_id=workspace_id,limit=1)
+            execution_checks=bool(execution and execution[0]['payload']['enabled'] and execution[0]['payload']['checks'])
+            if (not feedback['payload']['checks'] and not execution_checks) or self.evaluation_runner is None:
                 reasons = ['NO_EXPLICIT_USER_CHECKS'] if not feedback['payload']['checks'] else ['EXECUTION_EVALUATOR_UNAVAILABLE']
                 self._finish(workspace_id, cycle_id, 'OBSERVING', reasons, candidate=receipt['payload'],
                     llmReview=review, actualValidation='NOT_RUN')
@@ -573,6 +630,9 @@ class AgentEvolution:
                 'referenceSkill': reference, 'candidateSkill': candidate_dto,
                 'feedback': feedback['payload']['comment'], 'checks': feedback['payload']['checks'],
                 'profile': source['profile']}
+            experiences=self.store.records('task_experience',workspace_id=workspace_id,parent_id=feedback['id'],limit=1)
+            if experiences:
+                request['experienceId']=experiences[0]['id']
             self._append('evolution_evaluation_intent', {'requestSha256': digest(request),
                 'sourceTurnId': source['id'], 'checks': feedback['payload']['checks'],
                 'outputPaths': sorted({artifact['path'] for artifact in source.get('artifacts', [])}),
@@ -582,6 +642,29 @@ class AgentEvolution:
             self.assert_cycle_current(workspace_id, cycle_id)
             gate = self._evaluate_result(workspace_id, cycle_id, source, reference, candidate_dto,
                 feedback['payload']['checks'], review, evaluation)
+            # Retain up to two previous fixed cases for this Skill. A missing or
+            # changed case is not silently counted as a pass.
+            regressions=[]
+            for case in reversed(self.store.records('task_experience',workspace_id=workspace_id,limit=200)):
+                if case['parentId']==feedback['id']:
+                    continue
+                prior=self.store.get(case['parentId'],'agent_feedback')
+                if prior['payload']['skillId']!=skill_id or not prior['payload']['checks'] and not execution_checks:
+                    continue
+                old=self._task(workspace_id,prior['parentId'])
+                case_request={**request,'sourceTurnId':old['id'],'prompt':old['prompt'],'profile':old['profile'],
+                    'checks':prior['payload']['checks'],'feedback':prior['payload']['comment'],'experienceId':case['id']}
+                compared=self.evaluation_runner(case_request)
+                regression=self._evaluate_result(workspace_id,cycle_id,old,reference,candidate_dto,prior['payload']['checks'],review,compared)
+                regressions.append({'experienceId':case['id'],'gate':regression})
+                if any(reason!='NO_MEASURED_IMPROVEMENT' for reason in regression['reasons']):
+                    gate['reasons'].append('HISTORICAL_REGRESSION_OR_UNCONFIRMED')
+                if len(regressions)>=2:
+                    break
+            gate['regressionCases']=regressions
+            gate['regressionSelection']={'maximumCases':2,'mode':'RECENT_COMPATIBLE_FEEDBACK_CASES','historyExhaustive':False}
+            gate['eligible']=not gate['reasons']
+            gate['manifestSha256']=digest({k:v for k,v in gate.items() if k not in ('eligible','manifestSha256')})
             gate_record = self._append('evolution_gate', gate, workspace_id, cycle_id,
                 record_id=cycle_id + '-gate')
             with self._authority_lock, self._lock:
@@ -619,6 +702,7 @@ class AgentEvolution:
         finally:
             with self._lock:
                 self._active.discard(cycle_id)
+                self._limits.pop(cycle_id,None)
             self._slots.release()
 
     def _evaluate_result(self, workspace_id, cycle_id, source, reference, candidate, checks, review, result):
@@ -639,8 +723,32 @@ class AgentEvolution:
                 or _profile_identity(tasks[0]['profile']) != _profile_identity(tasks[1]['profile'])
                 or _profile_identity(tasks[0]['profile']) != _profile_identity(source['profile'])):
             raise ApiError('AGENT_EVALUATION_CONDITIONS', '对照任务的隔离空间或条件不一致。', 409)
-        return assess_comparison(*tasks, reference, candidate, checks, review,
-            output_paths=[artifact['path'] for artifact in source.get('artifacts', [])])
+        commands=[]
+        execution=self.store.records('execution_policy',workspace_id=workspace_id,limit=1)
+        if execution and execution[0]['payload']['enabled'] and execution[0]['payload']['checks']:
+            if not execution[0]['payload'].get('protectedInputs'):
+                raise ApiError('EVALUATION_FIXED_CHECKS_REQUIRED','代码评价需要用户固定验证文件，不能仅依赖候选自己的测试。',409)
+            pairs=[self.store.records('evaluation_verification',parent_id=task['id'],limit=1) for task in tasks]
+            if not all(pairs) or pairs[0][0]['payload']['policySha256']!=pairs[1][0]['payload']['policySha256']:
+                raise ApiError('EVALUATION_CHECKS_UNCONFIRMED','固定项目验证的条件无法核对。',409)
+            left,right=[pair[0]['payload']['checks'] for pair in pairs]
+            expected=execution[0]['payload']['checks']
+            if len(left)!=len(expected) or len(right)!=len(expected):
+                raise ApiError('EVALUATION_CHECKS_UNCONFIRMED','固定项目验证未全部执行。',409)
+            if any(row['result'].get('status')!='SUCCESS' for row in [*left,*right]):
+                raise ApiError('EVALUATION_CHECKS_UNCONFIRMED','验证执行未确认，不能计为质量退步。',409)
+            commands=[{'name':check['name'],'referencePassed':left[i]['passed'],'candidatePassed':right[i]['passed'],
+                'referenceReceiptId':left[i]['receiptId'],'candidateReceiptId':right[i]['receiptId']} for i,check in enumerate(expected)]
+        gate=assess_comparison(*tasks, reference, candidate, checks, review,
+            output_paths=[artifact['path'] for artifact in source.get('artifacts', [])],command_checks=commands)
+        before,after=map(cost,tasks)
+        gate['cost']={'reference':before,'candidate':after,'basis':'REQUEST_TOOL_COUNTS_AND_OBSERVED_COMMAND_TIME_NOT_BILLING'}
+        if (after['modelRequests']>max(4,2*before['modelRequests']) or after['toolCalls']>max(12,2*before['toolCalls'])
+                or after['commandDurationMs']>max(10000,3*before['commandDurationMs'])):
+            gate['reasons'].append('COST_BUDGET_EXCEEDED')
+        gate['eligible']=not gate['reasons']
+        gate['manifestSha256']=digest({k:v for k,v in gate.items() if k not in ('eligible','manifestSha256')})
+        return gate
 
     def close(self):
         self._closed = True

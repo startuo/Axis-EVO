@@ -1,3 +1,66 @@
+<!-- AXIS_M5_CURRENT_START -->
+# Axis-Evo M5 — 2026-11-16
+
+产品保持 **0.1.0 Preview**，分支 `Axis/m5-autonomous-agent`，基于 `59f765ccb68b7dd84dee4566d047074e42d332c9`。学术 `main` 仍为 `12c789b187a6bf8332b8d5222d00cc0702d4bdc8`；`src/axis_evo` 与旧 SQL 未修改。下方历史结果保留。本轮没有把确定性模型替身称为真实模型验收。
+
+## 集成结果
+
+项目理解、计划、跨文件修改、容器命令、固定测试、失败修复、差异和继续任务进入同一个 Agent 回路。执行授权与 Skill 文本分离；命令使用完整 SHA 固定的本机 Linux 镜像，复制授权文本到无网络容器，不挂载宿主目录、不写回容器内修改。代码修改继续复用原 Core 的意图、保存前后字节与验证机制。
+
+Skill 演化增加反馈诊断、冻结开发案例、逐文件要求、宿主固定代码测试、最多两个历史案例、周期/成本约束和追加式回退。AUTO 可在明确已测范围内采用，不要求逐次人工确认。模型建议不能覆盖固定验收或权限。未知结果继续保留，原 Skill、旧 Gate 与实验不重写。
+
+## 当前验证
+
+| 层级 | 结果与边界 |
+| --- | --- |
+| Windows 后端 | **164 passed / 274.95s**，最终串行关联全集；另增实际撤销运行中容器授权的检查 **1 passed / 2.41s**。普通 CPython 3.12.10 / pytest 9.2，全部状态与材料隔离 |
+| 实际容器 | Docker Desktop Linux 29.4.0；本机官方 Python 3.12 slim 镜像，内部 Python 3.12.16。实际核对 uid 65534、零 capabilities、外网连接失败、宿主路径/套接字不可用、非零退出、截断输出、超时、只读验证输入、撤权终止、协调进程被杀后内部 deadline 终止和资源清理 |
+| Agent 项目链 | 确定性 HTTP 模型 → 概览/读文件/失败测试 → 两文件修复 → 实际测试通过 → 字节差异；重复请求不重放，继续任务关联原会话。另见下方真实 DeepSeek 项目 |
+| Skill 代码演化 | 确定性 HTTP 模型决策，真实 Core + Docker：原版加法错误，候选修复，固定原测试由宿主运行，原版失败/候选通过，自动采用 v2；原项目保持原交付字节，回退只新增选择事实。历史成功案例退步会阻止采用 |
+| 演化边界 | 固定验证文件不能被 Agent 修改；冻结材料不读取后来的当前文件；仅参数准入拒绝且后来纠正可恢复归因，UNKNOWN/实际失败/受保护路径拒绝不可消除；候选未完成不计为已经测得的文档质量退步 |
+| 前端 | **32 files / 302 passed / 16.69s**；TypeScript、ESLint、生产构建通过。主 JS **413.43 kB / gzip 131.91 kB**；Markdown 157.33 kB 按需加载；生产依赖 npm audit 为 0 |
+| 真实生产界面 | 独立 Chromium、实际 HTTP/Core/Docker、本地确定性模型 7 次请求；界面创建工作区和执行授权 → 保存文档 → 固定验证 → 差异 → 预览/下载字节匹配 → 按文件反馈 → 继续草稿不重放。390px Chat/Work/执行设置无整体横溢出；console/pageerror 为空。不是实机手机或日常 Edge 账户测试 |
+| 交付 | Git 不跟踪测试、fixture、报告或运行状态。完整 ZIP 包含提交源码、文档、web/dist 与本地审查材料；逐文件 SHA、CRC、解包启动、静态资源及重启保留的实际结果记录在包内 MANIFEST.json |
+
+镜像 ID：`sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b`。容器是实际 OS 隔离机制，仍信任 Docker daemon、镜像、内核/VM；不是对内核漏洞或宿主用户的完整防御。没有仅凭路径过滤宣称沙箱。
+
+## 两批真实 DeepSeek
+
+两次均经用户明确授权，内存复用既有官方 DeepSeek 连接（配置模型 `deepseek-flash`），只处理新建的合成项目、知识规则与 Skill；未读原知识库，未操作真实账户。每批最多 30 次请求、15 分钟；跨天后另获新窗口授权，没有复用已过期时限或静默增加额度。请求计数由验收包装器在每次 Provider 调用前限制；下列成本不是账单估算。
+
+1. **库存 CSV 修复：16 次请求，110.72 秒。** 自然语言目标触发规则/Skill 发现、代码理解、基线失败、修复 inventory.py 与 cli.py、README 和报告交付；原六项固定测试全部通过，另由宿主独立再验。四份文件、五个保存版本，验收文件 SHA 保持 `5074030a5e853e9fb9e5621d272d7270c89914a27791905606cca1b52cb5f456`。实际任务 `turn_2e891fa32de84366a713b74bec15f773`。格式反馈触发的演化当时停在 OBSERVING：三次派发前参数拒绝虽已纠正，旧诊断仍认为未解决工具故障。该问题后来修复，原观察记录未改写。
+2. **标签整理与 Skill 对照：30 次请求，101.50 秒。** 修复 labels.py 并保存 report.md，四项固定测试通过；原版/候选在独立工作区重新执行，相同任务/模型/材料/固定验证。两侧宿主固定测试均 PASSED。候选生成和同模型独立上下文审阅完成，审阅只是建议。候选任务 `turn_7b0663cceb194541bdc98c7b0287c33d` 已保存两个文件，但最终轮次触及验收总请求上限，终态 FAILED / `PROVIDER_AUTHORIZED_ACCEPTANCE_BUDGET`，演化 STOPPED，没有采用。
+
+第二批原 Gate 将未完成文档的缺失评价计为退步；本轮修正为“未确认可比”，独立反例通过。原 JSON/事件保持不变，不能把旧 `REGRESSION_DETECTED` 解释成候选质量已被证实下降，也不能因其代码测试通过就宣称整个候选比较成功。真实模型候选晋升、本轮通用语义改善与未见任务收益均 **未证明**。
+
+两批格式反馈由验收人员依据实际输出提出：今后报告增加独立“验证记录”标题和实际命令。它们不是用户逐项独立标注，也不是模型自行修改评分标准；检查在反馈提交时固定，候选无修改入口。材料角色为开发反馈，不属于研究 Holdout。
+
+## 修复过程与复核命令
+
+保留的早期失败包括：Docker inspect 的缺省 Volumes 字段处理；测试 fixture 的 CRLF 与预计算 SHA 不一致；旧文档 Gate 范围标签兼容；M4 deadline 测试硬编码 601 秒不再对应 M5 的 1,200 秒（改为引用实际常量，未削弱超时条件）。首次全后端为 1 failed / 155 passed；后续并行回归有 2 failed / 161 passed，两个均为本地 Provider 的 5 秒期限；并行前端 1 failed / 301 passed 为旧测试的 5 秒超时。停止并行压力后，最终串行全集通过，未放宽生产期限。浏览器首次本地模型 10 秒期限超时，验收配置改为 60 秒；最终实际功能验收通过。这些失败不是外部 Provider 事故或生产环境性能保证。
+
+```powershell
+$env:PYTHONUTF8='1'
+$env:PYTHONPATH=(Get-Location).Path+';'+(Join-Path (Get-Location) 'src')
+$env:M5_DOCKER_IMAGE='sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b'
+python -m pytest web_api/tests/test_agent_provider.py web_api/tests/test_agent_workspace_runtime.py web_api/tests/test_agent_evolution.py web_api/tests/test_agent_authority_revocation.py web_api/tests/test_m4_runtime_review.py web_api/tests/test_m4_fix_interruption.py web_api/tests/test_m4_fix_context.py web_api/tests/test_m4_fix_evaluation.py web_api/tests/test_m5_execution.py web_api/tests/test_m5_project.py web_api/tests/test_m5_evolution.py tests/test_axis_next_browser.py -q --tb=short --basetemp .local/m5-independent-review
+npm --prefix web test
+npm --prefix web run lint
+npm --prefix web run build
+```
+
+包内测试已包含后补撤权用例，全命令应收集 165 项；上表记录的是实际运行的 164 项全集与独立 1 项，未冒充一次运行。测试不在 Git 中，使用交付审查包复核。无 Docker 镜像时相关用例会跳过，不代表已验证。
+
+## 后续边界
+
+仍缺少宿主终端、联网依赖安装、任意 MCP 安装/外部脚本权限注册、真正并行子 Agent 执行、自动采用后长期监测/自动回滚、未知副作用人工核销和网页材料完整隔离重放。文件父目录需存在，暂无建目录/删除/移动工具。项目执行只复制有界文本；已有依赖需进入可信镜像。一次任务 32 模型轮次/96 工具/1,200 秒，演化周期 64 次模型请求/900 秒/最多两历史案例，不是无限后台代理。
+
+历史比较严格绑定原 Provider 版本；过期临时路由会停止，尚无保持同模型身份的显式传输续授权流程。崩溃后的项目进程有内部时限，但可能残留已停止容器/volume，尚无自动清理。实际隔离回归在 Windows + Docker Desktop Linux 完成，宿主 Linux/macOS、本轮日常 Edge 原生扩展未复验。下一步优先降低比较调用成本、完善可审查的传输续授权与采用后监测，继续使用固定反例；不通过降低 Gate 宣称成功。
+
+工作树位置已核对有效，远端学术 main 未变。无需合并到主工作目录即可启动当前分支；现有主目录仍保留自己的产品分支，未切换或覆盖个人运行状态。
+
+<!-- AXIS_M5_CURRENT_END -->
+
 <!-- AXIS_M4_FIX_CURRENT_START -->
 # Axis-Evo M4 Fix — 2026-11-15
 

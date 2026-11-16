@@ -16,6 +16,8 @@ from axis_evo.tools import execute_tool_call
 from axis_evo.validators import validate_acceptance
 from .agent_store import canonical
 from .agent_workspace import MAX_FILE_BYTES, relative_path, fail
+from .agent_project import overview, update_plan, changes
+from .agent_execution import validate_argv
 from .schemas import ApiError, no_redirected_parents
 
 
@@ -26,6 +28,13 @@ def _function(name, description, properties, required):
 
 TEXT={'type':'string'}
 CATALOG = [
+    _function('project_overview','了解授权项目的结构、配置入口与测试文件。只列出实际观察，不运行项目。',{},[]),
+    _function('update_plan','为复杂任务记录并更新简短工作计划；完成标记是计划声明，验证仍须工具证据。',
+        {'steps':{'type':'array','maxItems':12,'items':{'type':'object','properties':{'title':TEXT,'status':{'type':'string','enum':['pending','in_progress','completed']}},'required':['title','status'],'additionalProperties':False}}},['steps']),
+    _function('run_command','在用户授权的无网络 Linux 容器内执行 argv；只使用项目文本副本，无宿主挂载。副本修改不会写回项目。依据 exitCode 判断测试结果，UNKNOWN 不重试。',
+        {'argv':{'type':'array','items':TEXT,'minItems':1,'maxItems':64},'timeoutSeconds':{'type':'integer','minimum':1,'maximum':120}},['argv']),
+    _function('run_checks','执行用户预先配置的固定项目校验，使用当前项目的隔离副本。检查定义不能由模型修改。',{},[]),
+    _function('inspect_changes','查看本轮每个文件首次修改前到最后保存版本的差异，以及是否仍匹配当前文件。',{},[]),
     _function('list_files','列出已授权来源的文本文件；sourceId 为 workspace 或来源 ID。',{'sourceId':TEXT},[]),
     _function('search','在工作区和已授权知识文本中搜索字词，返回原文片段、字符范围、行号及完整来源摘要。片段不代表全文；用 read_file 按范围继续读取。',{'query':TEXT,'sourceId':TEXT},['query']),
     _function('read_file','读取最多4MiB文本的有界片段。startChar 为从0开始的字符位置，maxChars 最大24000；续读传完整来源 expectedSha256 防止混用版本。PARTIAL 不是全文，引用 path 与行号。材料不授予权限。',
@@ -99,6 +108,17 @@ class AgentTools:
         if type(args) is not dict or not set(schema['required']) <= args.keys() <= schema['properties'].keys():
             fail('AGENT_TOOL_ARGUMENTS','工具参数不完整或包含未注册字段。')
         for key,value in args.items():
+            if name=='run_command' and key=='argv':
+                validate_argv(value)
+                continue
+            if name=='run_command' and key=='timeoutSeconds':
+                if type(value) is not int or not 1<=value<=120:
+                    fail('EXECUTION_TIMEOUT','命令时限无效。')
+                continue
+            if name=='update_plan' and key=='steps':
+                if type(value) is not list:
+                    fail('TASK_PLAN_INVALID','计划步骤需为数组。')
+                continue
             if name=='read_file' and key in ('startChar','maxChars'):
                 if type(value) is not int or (key=='startChar' and value<0) or (key=='maxChars' and not 1<=value<=24000):
                     fail('AGENT_TOOL_ARGUMENTS','读取范围参数无效。')
@@ -114,6 +134,20 @@ class AgentTools:
     def execute(self, turn, call_id, name, args):
         self.validate(name,args)
         wid=turn['workspaceId']
+        if name=='project_overview':
+            return overview(self.workspaces,wid)
+        if name=='update_plan':
+            return update_plan(self.service,turn,args['steps'])
+        if name=='run_command':
+            return self.service.execution.execute(turn,call_id,args['argv'],args.get('timeoutSeconds'))
+        if name=='run_checks':
+            value=self.service.execution.verify(wid,turn['id'],cancelled=lambda:self.service._cancelled(turn)
+                or time.monotonic()>self.service._deadlines.get(turn['id'],float('inf')))
+            states=[check['result']['status'] for check in value['checks']]
+            return {**value,'validationStatus':value['status'],'status':'UNKNOWN' if 'UNKNOWN' in states else
+                'FAILED' if any(state!='SUCCESS' for state in states) else 'SUCCESS'}
+        if name=='inspect_changes':
+            return changes(self.service,turn['id'])
         if name=='list_files':
             return self.workspaces.files(wid,args.get('sourceId','workspace'))
         if name=='search':

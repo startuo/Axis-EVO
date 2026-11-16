@@ -15,7 +15,9 @@ MAX_READ_FILE_BYTES = 4 * 1024 * 1024
 MAX_SCAN_ENTRIES = 2000
 MAX_SEARCH_BYTES = 8 * 1024 * 1024
 TEXT_SUFFIXES = frozenset(('.md','.txt','.rst','.csv','.tsv','.json','.yaml','.yml','.toml',
-    '.py','.js','.mjs','.cjs','.ts','.tsx','.jsx','.html','.css','.scss','.c','.h','.cpp','.rs','.go','.java','.xml','.sql'))
+    '.py','.js','.mjs','.cjs','.ts','.tsx','.jsx','.html','.css','.scss','.c','.h','.cpp','.rs','.go','.java','.xml','.sql',
+    '.sh','.ps1','.bat','.cmd','.ini','.cfg','.lock','.vue','.svelte'))
+TEXT_NAMES = frozenset(('makefile','dockerfile','license','readme'))
 EXCLUDED = frozenset(('.git','.svn','.hg','.local','.axis-evo','.ssh','.aws','.azure','.gnupg','.config',
     'node_modules','__pycache__','.venv','venv','dist','build','.cache','appdata','windows','program files',
     'program files (x86)','$recycle.bin','system volume information'))
@@ -37,7 +39,8 @@ def relative_path(value):
     path = PurePosixPath(value)
     if path.is_absolute() or any(p in ('..','.') or p.startswith('.') or p.lower() in EXCLUDED for p in path.parts):
         fail('WORKSPACE_PATH_DENIED', '此路径不在可用的材料范围内。', 403)
-    if path.suffix.lower() not in TEXT_SUFFIXES or path.name.lower() in ('credentials.json','secrets.json'):
+    if (path.suffix.lower() not in TEXT_SUFFIXES and path.name.lower() not in TEXT_NAMES
+            or path.name.lower() in ('credentials.json','secrets.json')):
         fail('WORKSPACE_FILE_TYPE', '当前工具仅处理授权目录中的普通文本文件。', 403)
     return path.as_posix()
 
