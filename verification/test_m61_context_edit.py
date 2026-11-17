@@ -1,4 +1,7 @@
 """Deterministic regressions for public, synthetic tools and context records."""
+import hashlib
+import json
+
 import pytest
 
 from web_api.agent_context import bounded_context
@@ -59,6 +62,42 @@ def test_range_and_anchor_use_source_newlines():
     assert patch_text(original, {'old': 'beta', 'new': 'two\nthree'}) == 'alpha\r\ntwo\r\nthree\r\nalpha\r\n'
     with pytest.raises(ApiError, match='以换行结束'):
         patch_text(original, {'startLine': 1, 'endLine': 2, 'new': 'one'})
+
+
+def test_newest_execution_keeps_verdict_and_diagnostics_without_flooding_context():
+    raw = '\x1b[31mFAILED one.py::test_first\x1b[0m\n' + ('  ' + 'raw-test-line\n') * 2000 + 'E   ValueError: expected integer\n'
+    report = {'validationStatus':'FAILED', 'status':'SUCCESS', 'checks':[
+        {'name':'legacy', 'passed':False, 'result':{'exitCode':1, 'status':'SUCCESS', 'stdout':raw}}]}
+    history = [{'role':'user', 'content':'Use fixed validations.'}, *exchange('fixed','run_checks',report)]
+    messages, checkpoint = bounded_context(history, [])
+    output = json.loads(messages[-1]['content'])['data']
+    observed = output['checks'][0]['result']
+    assert output['validationStatus'] == 'FAILED' and not output['checks'][0]['passed']
+    assert observed['exitCode'] == 1 and 'FAILED one.py::test_first' in observed['stdout']
+    assert 'ValueError: expected integer' in observed['stdout']
+    assert observed['modelOutputProjection']['originalSha256'] == hashlib.sha256(raw.encode()).hexdigest()
+    assert len(observed['stdout'].encode('utf-8')) < 4900
+    assert checkpoint['sentBytes'] < 6500 and messages[0] == history[0]
+    assert json.loads(history[-1]['content'])['data']['checks'][0]['result']['stdout'] == raw
+    assert bounded_context(messages, [])[0] == messages
+
+
+def test_large_project_overview_keeps_paths_and_discloses_omissions():
+    project_paths = ['pyproject.toml', 'src/writer.py']
+    tests = [f'tests/fixtures/case_{n}/scenario_expected_output.toml' for n in range(200)]
+    report = {'totalFiles':202, 'truncated':False,
+              'files':[{'path':path, 'sha256':'b' * 64, 'sizeBytes':54} for path in tests + project_paths],
+              'projectFiles':project_paths[:1], 'testFiles':tests, 'nextStep':'Read the files.'}
+    history = [{'role':'user', 'content':'Follow the fixed test policy.'}, *exchange('project','project_overview',report)]
+    messages, checkpoint = bounded_context(history, [])
+    output = json.loads(messages[-1]['content'])['data']
+    assert checkpoint['sentBytes'] < 5200
+    assert output['totalFiles'] == 202 and output['projectFiles'] == project_paths[:1]
+    assert {item['path'] for item in output['files']} >= set(project_paths)
+    assert output['modelOverviewProjection']['originalListedFiles'] == 202
+    assert 'read_file' in output['modelOverviewProjection']['nextStep']
+    assert json.loads(history[-1]['content'])['data'] == report
+    assert _messages(messages) == messages
 
 
 def test_request_reservation_can_block_before_token_exhaustion():

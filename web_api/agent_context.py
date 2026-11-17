@@ -4,6 +4,7 @@ No model-generated summary can replace a user's constraints or execution facts.
 The append-only journal retains full messages; only the provider view is reduced.
 """
 import hashlib
+import re
 
 from .agent_store import canonical, digest
 from .schemas import ApiError, strict_json
@@ -12,6 +13,9 @@ MAX_USER_HISTORY_BYTES = 80 * 1024
 MAX_CONTEXT_BYTES = 224 * 1024  # Leaves room for the Provider wire envelope.
 TARGET_CONTEXT_BYTES = 48 * 1024  # Keep several active source files; hard ceiling still preserves requirements.
 ACTIVE_READ_LIMIT = 4
+MODEL_EXECUTION_OUTPUT_BYTES = 4800
+MODEL_PROJECT_OVERVIEW_BYTES = 4800
+_TERMINAL_COLOR = re.compile(r'\x1b\[[0-9;]*m')
 
 
 def _excerpt(text, limit=4000):
@@ -101,6 +105,81 @@ def _replace_duplicate_reads(messages):
     return removed
 
 
+def _execution_excerpt(result, limit):
+    text = result.get('stdout')
+    if not isinstance(text, str) or not text or 'modelOutputProjection' in result:
+        return result
+    original = text.encode('utf-8')
+    plain = _TERMINAL_COLOR.sub('', text).encode('utf-8')
+    if len(plain) <= limit and plain == original:
+        return result
+    short = len(plain) > limit
+    if short:
+        split = limit // 3
+        head = plain[:split].decode('utf-8', errors='ignore')
+        tail = plain[-(limit - split):].decode('utf-8', errors='ignore')
+        excerpt = head + '\n[... command output omitted; full execution receipt retained ...]\n' + tail
+    else:
+        excerpt = plain.decode('utf-8')
+    return {**result, 'stdout':excerpt, 'modelOutputProjection':{
+        'originalSha256':hashlib.sha256(original).hexdigest(), 'originalBytes':len(original),
+        'truncatedForModel':short, 'terminalColorsRemoved':plain != original}}
+
+
+def _overview_excerpt(data):
+    if 'modelOverviewProjection' in data or len(canonical(data).encode('utf-8')) <= MODEL_PROJECT_OVERVIEW_BYTES:
+        return data
+    files = data['files']
+    paths = sorted((item['path'] for item in files), key=lambda path: (path.count('/'), path))
+    def sample(values, limit):
+        selected = []
+        used = 0
+        for value in values:
+            length = len(canonical(value).encode('utf-8')) + 1
+            if used + length <= limit:
+                selected.append(value)
+                used += length
+        return selected
+
+    return {**data, 'files':[{'path':path} for path in sample(paths, 2600)],
+            'projectFiles':sample(data['projectFiles'], 600), 'testFiles':sample(data['testFiles'], 800),
+            'modelOverviewProjection':{'originalSha256':digest(data), 'originalListedFiles':len(files),
+                                      'nextStep':'Use list_files or search for other paths and read_file for source and hashes.'}}
+
+
+def _project_tool_outputs(messages):
+    """Keep actionable tool observations in the model view and full receipts in the journal."""
+    tools = {}
+    projected = []
+    for index, message in enumerate(messages):
+        if message['role'] == 'assistant':
+            tools.update((call['id'],call['function']['name']) for call in message.get('tool_calls',[]))
+        if message['role'] != 'tool':
+            continue
+        call_id = message['tool_call_id']
+        name = tools.get(call_id)
+        if name not in ('run_checks', 'run_command', 'project_overview'):
+            continue
+        result = strict_json(message['content'],512*1024)
+        data = result.get('data')
+        if not isinstance(data, dict):
+            continue
+        if name == 'project_overview':
+            output = _overview_excerpt(data) if isinstance(data.get('files'), list) else data
+        elif name == 'run_checks':
+            checks = data.get('checks', [])
+            if not checks:
+                continue
+            limit = MODEL_EXECUTION_OUTPUT_BYTES // len(checks)
+            output = {**data, 'checks':[{**check, 'result':_execution_excerpt(check['result'], limit)} for check in checks]}
+        else:
+            output = _execution_excerpt(data, MODEL_EXECUTION_OUTPUT_BYTES)
+        if output != data:
+            messages[index] = {**message, 'content':canonical({**result, 'data':output})}
+            projected.append(call_id)
+    return projected
+
+
 def bounded_context(messages, tools):
     """Compress completed tool exchanges; preserve the latest result and goals.
 
@@ -112,7 +191,8 @@ def bounded_context(messages, tools):
 
     original_size = size(messages)
     result = list(messages)
-    compacted = _replace_duplicate_reads(result)
+    compacted = _project_tool_outputs(result)
+    compacted.extend(_replace_duplicate_reads(result))
     while size(result) > TARGET_CONTEXT_BYTES or len(result) > 128:
         groups = []
         for start, message in enumerate(result):
