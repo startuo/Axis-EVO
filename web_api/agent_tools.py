@@ -50,8 +50,10 @@ CATALOG = [
          'maxChars':{'type':'integer','minimum':1,'maximum':24000},'expectedSha256':TEXT},['path']),
     _function('write_file','写入工作区文本。新文件 expectedSha256 为 null；覆盖必须先读取并传原字节 SHA256。旧内容自动保留。',
         {'path':TEXT,'content':TEXT,'expectedSha256':{'type':['string','null']}},['path','content','expectedSha256']),
-    _function('patch_file','根据已读取的原摘要，把唯一匹配 old 替换成 new，保留原版本并验证实际字节。',
-        {'path':TEXT,'old':TEXT,'new':TEXT,'expectedSha256':TEXT},['path','old','new','expectedSha256']),
+    _function('patch_file','使用读取所得 SHA-256 编辑文件。传唯一匹配的 old，或传基于同一 SHA 的 startLine/endLine（从1开始、结束行不含，起止相等为插入）。new 为空表示删除。',
+        {'path':TEXT,'old':TEXT,'new':TEXT,'expectedSha256':TEXT,
+         'startLine':{'type':'integer','minimum':1},'endLine':{'type':'integer','minimum':1}},
+        ['path','new','expectedSha256']),
     _function('find_skills','按任务主动发现授权 Skill 库中的 SKILL.md 和已导入版本。',{'query':TEXT},[]),
     _function('use_skill','读取并固定 Skill。已导入项仅传 skillId；discovered 项仅传 sourceId 和 path。不能把路径放进 skillId。Skill 不授予权限。',
         {'skillId':{'type':'string','description':'已导入项返回的 skillId，不是文件路径'},'sourceId':TEXT,'path':TEXT},[]),
@@ -96,6 +98,33 @@ class CheckedWrite:
         return ToolResult('SUCCESS','Text written',(time.perf_counter()-start)*1000,{})
 
 
+def patch_text(text, args):
+    new = args['new']
+    # Convert a model's LF to the source convention only for uniform files.
+    without_crlf = text.replace('\r\n', '')
+    uniform_crlf = '\r\n' in text and '\r' not in without_crlf and '\n' not in without_crlf
+    if uniform_crlf:
+        new = new.replace('\r\n', '\n').replace('\n', '\r\n')
+    if 'old' in args:
+        old = args['old']
+        if uniform_crlf:
+            old = old.replace('\r\n', '\n').replace('\n', '\r\n')
+        matches = text.count(old) if old else 0
+        if matches != 1:
+            fail('PATCH_AMBIGUOUS', f'原文匹配 {matches} 处。用相同摘要下已观察的行范围，或选择唯一原文片段。', 409)
+        return text.replace(old, new, 1)
+    offsets = [0, *(match.end() for match in re.finditer('\n', text))]
+    if offsets[-1] != len(text):
+        offsets.append(len(text))
+    start_line, end_line = args['startLine'], args['endLine']
+    if not 1 <= start_line <= end_line <= len(offsets):
+        fail('PATCH_RANGE', f'此版本可用行边界为 1 至 {len(offsets)}，结束行不含。', 409)
+    start, end = offsets[start_line - 1], offsets[end_line - 1]
+    if new and end < len(text) and not new.endswith('\n'):
+        fail('PATCH_RANGE', '保留后续行时，非空替换文本必须以换行结束。', 409)
+    return text[:start] + new + text[end:]
+
+
 class AgentTools:
     def __init__(self, service):
         self.service=service
@@ -115,6 +144,10 @@ class AgentTools:
         schema=item['parameters']
         if type(args) is not dict or not set(schema['required']) <= args.keys() <= schema['properties'].keys():
             fail('AGENT_TOOL_ARGUMENTS','工具参数不完整或包含未注册字段。')
+        if name == 'patch_file':
+            selectors = args.keys() & {'old','startLine','endLine'}
+            if selectors not in ({'old'}, {'startLine','endLine'}):
+                fail('AGENT_TOOL_ARGUMENTS','传 old 或同时传 startLine/endLine。')
         for key,value in args.items():
             if name=='run_command' and key=='argv':
                 validate_argv(value)
@@ -130,6 +163,10 @@ class AgentTools:
             if name=='read_file' and key in ('startChar','maxChars'):
                 if type(value) is not int or (key=='startChar' and value<0) or (key=='maxChars' and not 1<=value<=24000):
                     fail('AGENT_TOOL_ARGUMENTS','读取范围参数无效。')
+                continue
+            if name=='patch_file' and key in ('startLine','endLine'):
+                if type(value) is not int or value < 1:
+                    fail('AGENT_TOOL_ARGUMENTS','行边界须为从1开始的整数。')
                 continue
             if key=='expectedSha256' and name=='write_file' and value is None:
                 continue
@@ -257,20 +294,10 @@ class AgentTools:
         elif expected is not None:
             fail('FILE_CHANGED','预期文件已经不存在，请重新观察。',409)
         if name=='patch_file':
-            old,new=args['old'],args['new']
             text=material['content']
-            if old and text.count(old)!=1:
-                # Models commonly spell CRLF excerpts with LF. The whole-file
-                # digest remains mandatory; accept only a unique newline-equivalent
-                # match in a file with one consistent newline convention.
-                unix=text.replace('\r\n','\n')
-                if '\r' not in unix and ('\r\n' not in text or '\n' not in text.replace('\r\n','')):
-                    newline='\r\n' if '\r\n' in text else '\n'
-                    old=old.replace('\r\n','\n').replace('\n',newline)
-                    new=new.replace('\r\n','\n').replace('\n',newline)
-            if not old or text.count(old)!=1:
-                fail('PATCH_AMBIGUOUS','原文必须在当前文件中唯一匹配。',409)
-            content=text.replace(old,new,1)
+            content=patch_text(text,args)
+            if material['sizeBytes']==len(text.encode('utf-8'))+3:
+                content='\ufeff'+content
         else:
             content=args['content']
         if len(content.encode('utf-8'))>MAX_FILE_BYTES:

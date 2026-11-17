@@ -81,7 +81,7 @@ def tool_incidents(task):
             continue
         target=calls.get(row.get('callId'))
         recovered=(target is not None and row.get('status')=='REJECTED'
-            and row.get('code') in ('AGENT_TOOL_ARGUMENTS','EXECUTION_TIMEOUT','PATCH_AMBIGUOUS')
+            and row.get('code') in ('AGENT_TOOL_ARGUMENTS','EXECUTION_TIMEOUT','PATCH_AMBIGUOUS','PATCH_RANGE')
             and any(later['payload'].get('status')=='SUCCESS' and calls.get(later['payload'].get('callId'))==target
                 for later in results[index+1:]))
         incidents.append({'id':event['id'],'status':row.get('status'),'code':row.get('code'),

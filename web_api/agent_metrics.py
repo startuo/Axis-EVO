@@ -96,10 +96,24 @@ class ModelBudget:
         reserved_tokens = reserved_input + MAX_OUTPUT_TOKENS
         reserved_cost = (reserved_input * self.input_rate + MAX_OUTPUT_TOKENS * self.output_rate) / 1_000_000
         with self._lock:
-            if (self.uncertain or self.requests >= self.limits['requests']
-                    or self.tokens + reserved_tokens > self.limits['tokens']
-                    or self.cost + reserved_cost > self.limits['costCny']):
-                raise PlanningTransportError('authorized_acceptance_budget')
+            reason = None
+            if self.uncertain:
+                reason = 'UNCONFIRMED_PRIOR_USAGE'
+            elif self.requests >= self.limits['requests']:
+                reason = 'REQUEST_LIMIT_REACHED'
+            elif self.tokens >= self.limits['tokens']:
+                reason = 'TOKEN_LIMIT_REACHED'
+            elif self.cost >= self.limits['costCny']:
+                reason = 'COST_LIMIT_REACHED'
+            elif self.tokens + reserved_tokens > self.limits['tokens']:
+                reason = 'TOKEN_RESERVATION_EXCEEDS_REMAINING'
+            elif self.cost + reserved_cost > self.limits['costCny']:
+                reason = 'COST_RESERVATION_EXCEEDS_REMAINING'
+            if reason is not None:
+                error = PlanningTransportError('authorized_acceptance_budget')
+                error.budget_decision = {'reason':reason, 'reservedTokens':reserved_tokens,
+                    'remainingTokens':self.remaining_tokens(), 'remainingRequests':self.remaining_requests()}
+                raise error
             self.requests += 1
             number = self.requests
             self.tokens += reserved_tokens
