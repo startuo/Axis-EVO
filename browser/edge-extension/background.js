@@ -28,15 +28,16 @@ async function metadata(tabId) {
   const url=safeUrl(tab.url);
   if(!url||tab.incognito||/^(?:https?:\/\/127\.0\.0\.1:(?:5173|8765|8767))(?:\/|$)/.test(url)) throw failure('EDGE_PROTECTED_PAGE');
   // The browser enforces optional-site or activeTab permissions at injection.
-  let injected;
-  try {injected=await boundedDocumentRead(()=>chrome.scripting.executeScript({target:{tabId},files:['vendor/content.js']}));}
-  catch(error) {throw failure(injectionCode(error));}
   const state=await boundedDocumentRead(()=>chrome.scripting.executeScript({target:{tabId},func:()=>{
-    if(document.title.includes('Axis-Evo')&&document.querySelector('[aria-label="任务输入区"]'))return {protected:true};
+    if(document.querySelector('meta[name="axis-workbench"][content="local"]')||
+      document.title.includes('Axis-Evo')&&document.querySelector('[aria-label="任务输入区"]'))return {protected:true};
     window.__axisEdgeDocumentId??=crypto.randomUUID();
     return {documentId:window.__axisEdgeDocumentId,href:location.href};
   }}));
   if(state[0]?.result?.protected)throw failure('EDGE_PROTECTED_PAGE');
+  let injected;
+  try {injected=await boundedDocumentRead(()=>chrome.scripting.executeScript({target:{tabId},files:['vendor/content.js']}));}
+  catch(error) {throw failure(injectionCode(error));}
   const result=state[0]?.result;
   if(!result||!injected.length)throw failure('EDGE_DOCUMENT_UNAVAILABLE');
   return {tabId,windowId:tab.windowId,url,title:scrub(tab.title).slice(0,200),
