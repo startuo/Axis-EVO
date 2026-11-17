@@ -50,7 +50,7 @@ CATALOG = [
          'maxChars':{'type':'integer','minimum':1,'maximum':24000},'expectedSha256':TEXT},['path']),
     _function('write_file','写入工作区文本。新文件 expectedSha256 为 null；覆盖必须先读取并传原字节 SHA256。旧内容自动保留。',
         {'path':TEXT,'content':TEXT,'expectedSha256':{'type':['string','null']}},['path','content','expectedSha256']),
-    _function('patch_file','使用读取所得 SHA-256 编辑文件。传唯一匹配的 old，或传基于同一 SHA 的 startLine/endLine（从1开始、结束行不含，起止相等为插入）。new 为空表示删除。',
+    _function('patch_file','使用读取所得 SHA-256 编辑最小连续片段。传唯一匹配的 old，或只传基于同一 SHA 的 startLine/endLine（从1开始、结束行不含，起止相等为插入）。new 为空表示删除。成功后下次编辑使用新摘要。',
         {'path':TEXT,'old':TEXT,'new':TEXT,'expectedSha256':TEXT,
          'startLine':{'type':'integer','minimum':1},'endLine':{'type':'integer','minimum':1}},
         ['path','new','expectedSha256']),
@@ -147,7 +147,7 @@ class AgentTools:
         if name == 'patch_file':
             selectors = args.keys() & {'old','startLine','endLine'}
             if selectors not in ({'old'}, {'startLine','endLine'}):
-                fail('AGENT_TOOL_ARGUMENTS','传 old 或同时传 startLine/endLine。')
+                fail('AGENT_TOOL_ARGUMENTS','两种定位方式互斥。只传 old，或去掉 old 并同时传 startLine 和 endLine。')
         for key,value in args.items():
             if name=='run_command' and key=='argv':
                 validate_argv(value)

@@ -1,14 +1,17 @@
 """Deterministic regressions for public, synthetic tools and context records."""
 import hashlib
 import json
+from threading import RLock
+from types import SimpleNamespace
 
 import pytest
 
 from web_api.agent_context import bounded_context
 from web_api.agent_metrics import ModelBudget
 from web_api.agent_provider import _messages
+from web_api.agent_service import AgentService
 from web_api.agent_store import canonical
-from web_api.agent_tools import patch_text
+from web_api.agent_tools import AgentTools, patch_text
 from web_api.schemas import ApiError
 
 
@@ -80,6 +83,42 @@ def test_newest_execution_keeps_verdict_and_diagnostics_without_flooding_context
     assert checkpoint['sentBytes'] < 6500 and messages[0] == history[0]
     assert json.loads(history[-1]['content'])['data']['checks'][0]['result']['stdout'] == raw
     assert bounded_context(messages, [])[0] == messages
+
+
+def test_new_read_does_not_erase_latest_fixed_check_failure():
+    check = {'name':'acceptance', 'passed':False,
+             'result':{'exitCode':1, 'stdout':'raw trace detail\n' * 200 + 'FAILED verify_insertion_order\n'}}
+    report = {'validationStatus':'FAILED', 'checks':[check], 'snapshotSha256':'c' * 64}
+    original = [{'role':'user', 'content':'Run fixed checks after changing source.'},
+                *exchange('old-listing','list_files',{'files':[{'path':f'tests/file{i}.py','sha256':'b'*64} for i in range(500)]}),
+                *exchange('fixed','run_checks',report),
+                *exchange('source','read_file',{'sourceId':'workspace','path':'writer.py','content':'code\n'*300,
+                                               'sha256':'a'*64,'startChar':0,'endChar':1500})]
+    messages, checkpoint = bounded_context(original, [])
+    assert checkpoint['sentBytes'] < 10000 and messages[0] == original[0]
+    check_message = next(m for m in messages if m.get('tool_call_id') == 'fixed')
+    current = json.loads(check_message['content'])['data']
+    assert current['snapshotSha256'] == 'c' * 64
+    assert current['validationStatus'] == 'FAILED' and not current['checks'][0]['passed']
+    assert 'FAILED verify_insertion_order' in current['checks'][0]['result']['stdout']
+    assert _messages(messages) == messages
+
+
+def test_patch_selector_rejection_explains_recovery_before_write_admission():
+    service = object.__new__(AgentService)
+    service._lock = RLock()
+    service._cancelled = lambda turn: False
+    events = []
+    service.store = SimpleNamespace(append=lambda *args: events.append(args))
+    service.workspaces = SimpleNamespace(get=lambda wid: {'revision':1})
+    service.tools = AgentTools(service)
+    result = service._call({'workspaceId':'work', 'id':'turn', 'payload':{'workspaceRevision':1}},
+                           'patch','patch_file',{'path':'writer.py','old':'a','new':'b',
+                                                 'expectedSha256':'a'*64,'startLine':1,'endLine':2})
+    assert result['status'] == 'REJECTED' and result['code'] == 'AGENT_TOOL_ARGUMENTS'
+    assert '互斥' in result['hint'] and 'startLine 和 endLine' in result['hint']
+    assert len(events) == 1 and events[0][0] == 'tool_result'
+    assert events[0][1]['intentId'] is None and events[0][1]['executionId'] is None
 
 
 def test_large_project_overview_keeps_paths_and_discloses_omissions():

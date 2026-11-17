@@ -350,17 +350,17 @@ class AgentService:
                 catalog=self.tools.catalog()
                 if turn['payload'].get('evaluation'):
                     catalog=[t for t in catalog if t['function']['name'] not in ('find_skills','use_skill','browser_read','browser_snapshot')]
-                messages,checkpoint=bounded_context(messages,catalog)
+                provider_messages,checkpoint=bounded_context(messages,catalog)
                 if checkpoint:
                     self.store.append('context_checkpoint',{'round':round_number+1,**checkpoint},wid,tid)
-                request={'messages':messages,'tools':catalog}
+                request={'messages':provider_messages,'tools':catalog}
                 self.store.append('model_request',{'round':round_number+1,
                     'profile':{k:turn['payload']['profile'][k] for k in ('id','revision','modelId','configSha256')},
                     'contextBytes':len(canonical(request).encode('utf-8')),
                     'contextSha256':digest(request)},wid,tid)
                 request_start=time.monotonic()
                 try:
-                    message=self._completion(self.runtime.providers,turn['payload']['profile'],messages,catalog,lambda:self._cancelled(turn) or time.monotonic()>deadline)
+                    message=self._completion(self.runtime.providers,turn['payload']['profile'],provider_messages,catalog,lambda:self._cancelled(turn) or time.monotonic()>deadline)
                 except PlanningTransportError as error:
                     if error.category=='authorized_acceptance_budget':
                         decision=getattr(error,'budget_decision',{'reason':'HOST_BUDGET'})
@@ -442,7 +442,10 @@ class AgentService:
                         target_keys.append(os.path.normcase(str(resolver.resolve(path))))
                     target_key=target_keys[0]
             except ApiError as error:
-                return self._result(turn,call_id,None,{'status':'REJECTED','code':error.code})
+                result={'status':'REJECTED','code':error.code}
+                if error.code=='AGENT_TOOL_ARGUMENTS':
+                    result['hint']=error.message
+                return self._result(turn,call_id,None,result)
             except (OSError,ValueError):
                 return self._result(turn,call_id,None,{'status':'REJECTED','code':'WORKSPACE_PATH_DENIED'})
             # The physical target is fenced across aliases, overlapping workspaces
