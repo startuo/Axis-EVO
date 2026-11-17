@@ -8,7 +8,9 @@ Axis-Evo 是一个 local-first 的通用 Agent Workbench，支持可核验执行
 
 项目将模型规划、调用方审批、工具执行和独立验收分开，通过 SQLite 持久化执行事实，将任务、计划、Skill 版本及执行结果关联起来，并支持只读审查、可核验检查点、受控恢复和证据门控的技能演化。
 
-当前版本 **0.1.0 Preview**。M5 继续使用 **Chat / Work**：选择工作区后自然描述目标，Agent 在预先授权的目录内调用工具、发现 Skill、读取知识、保存文档并持续修订。可为项目授权无网络 Linux 容器命令和固定测试，查看文件差异并继续任务。任务反馈可触发候选修订、实际对照、历史反例检查与有证据的采用/保留决定。启动与能力边界见 [Agent-Native Workspace](docs/AGENT_WORKSPACE.md)，验证见 [测试结果](docs/TEST_RESULTS.md)。
+当前版本 **0.1.0 Preview**。M6 继续使用 **Chat / Work**：选择工作区后自然描述目标，Agent 在预先授权的目录内调用工具、发现 Skill、读取知识、保存文档并持续修订。可为项目授权无网络 Linux 容器命令和固定测试，查看文件差异并继续任务。任务反馈可触发候选修订、实际对照、历史反例检查与有证据的采用/保留决定。启动与能力边界见 [Agent-Native Workspace](docs/AGENT_WORKSPACE.md)，验证见 [测试结果](docs/TEST_RESULTS.md)。
+
+M6 增加受控文件生命周期、只读 Git 观察、固定依赖镜像准备、用量记录、比较前成本预检和严格身份绑定的原版证据复用。真实公开仓库任务未完成，真实 Skill 诊断对照未显示改善；能力判断与限制见 [Harness 工程基线](docs/HARNESS_ENGINEERING.md)。设置中的「毕业设计只读展示」独立呈现公开冻结研究，学术引用为 `academic/thesis-freeze-2026-11-02`，正式产品主线统一为 `main`。
 
 原工程工作台保留逐轮 Plan 审批、独立 Worker、研究评估及证据审查入口。不确定执行结果保留为 UNKNOWN，产品升级不改写正式研究实验事实。旧运行与数据维护见 [运行约定](docs/RELEASE_OPERATIONS.md)，研究演化见 [多代评估](docs/MULTIGENERATION_CAMPAIGNS.md)。
 

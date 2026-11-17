@@ -1,3 +1,60 @@
+<!-- AXIS_M6_CURRENT_START -->
+# Axis-Evo M6 — 2026-11-17
+
+产品保持 **0.1.0 Preview**，从 main/M5 `d5ff1ff35b939142865f3c8a63d06ea85675a3c1` 开发，验证后快进合并 main。学术冻结改用已推送的注释标签 `academic/thesis-freeze-2026-11-02`，精确指向 `12c789b187a6bf8332b8d5222d00cc0702d4bdc8`。`src/axis_evo` 与旧 SQL 无修改；以下历史章节原样保留，其“当时 main”表述不是当前分支状态。
+
+**工程实现可交付；真实公开代码任务未完成，真实 Skill 改善未证明。** 完整架构判断、固定参考实现链接及限制见 [Harness 工程基线](HARNESS_ENGINEERING.md)。没有用确定性模型替身、Codex 参考实现或源码问答替代 Axis 自主代码成功。
+
+## 实现与验证
+
+| 范围 | 实际结果 |
+| --- | --- |
+| Git 治理 | 三个有效物理工作树；M5 完整历史安全快进 main 并推送；学术标签核对；删除无在用工作树且已合并的 M3/M4/M4 Fix 本地及远端分支。保留 M5 工作树/分支和各目录未追踪资料；无 force push、无私有资料删除 |
+| 文件与 Git | 增加单层目录创建、单文本移动/删除及保留原件/净差异；双方 UNKNOWN 路径围栏、固定验证路径、只读策略实际验证。只读 Git 状态/8条历史/单文件差异；fsmonitor 不执行，index 字节未变。只支持独立 `.git` 仓库，不是完整 Git 写工作流 |
+| 依赖环境 | 实际构建 Python 锁定依赖镜像并保存完整 ID/锁文件 SHA/安装清单；准备阶段显式联网，Agent 容器继续无网络。`anyascii 0.3.3`、`text-unidecode 1.3`、`pytest 9.2.0` 等用于公开项目原测试 |
+| 后端关联回归 | 一次全集 **168 passed / 11 failed / 338.18s**，共179项。10项失败来自跨日 Docker daemon 未运行；1项发现参考缓存未绑定文档检查。修复缓存键后 **6 passed / 73.33s**；恢复引擎后 Docker/项目/演化关联集 **27 passed / 71.21s**。179项覆盖经这些分组复核无剩余失败，**不是一次179全绿**；重叠通过项不累加 |
+| 成本与缓存 | 缺检查/缺完整用量/预算不足在生成前停止；共享请求/Token/费用预算、跨进程人工续跑记账、未知耗用停止。确定性HTTP模型+实际文件/Core中，重复同条件周期从9次请求降至5；篡改原产物失效恢复9；变更检查保留历史回归阻断。这个44.4%是固定用例，不是实测生产平均收益 |
+| 采用后监测 | 固定文档要求、相同冻结输入/对话/Provider/Harness/执行策略时 AUTO 自动回退通过；输入变化只记退化信号；不把字面条件监测称为长期语义/代码质量监控 |
+| 前端 | **33 files / 304 passed / 21.94s**；TypeScript、ESLint、生产构建通过。主JS **421.89 kB / gzip 134.41 kB**；研究页按需加载，Markdown继续按需加载 |
+| 真实浏览器 | Chromium + 实际HTTP/Core/Docker，本地确定性模型7次：工作区/执行授权→交付→固定检查→差异→预览/下载字节→反馈→继续草稿不重放。Chat/Work/设置/研究页390px无整体横溢出，S0/S1键盘焦点正确，研究页无新增模型调用，console/pageerror为空。非实机手机/日常Edge扩展验收 |
+| 研究解耦 | 独立 `#/research-demo` 静态只读页；公开 S0/S1/执行/UNKNOWN/原评价边界。1次真实文件Dev、26次文件模拟Trial、5次超时分别呈现；不访问私有材料或运行数据库、不改历史结论 |
+
+普通 CPython 3.12.10 / pytest 9.2；Node24.14 / npm11.9；Docker Linux29.4。基础镜像 `sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b`；依赖镜像 `sha256:fdc2012c1d62a07cb99fa98f11a9520a255dafb4512bc2b232b995bfc05302f2`。隔离依赖可信 daemon/镜像/内核，不是完整宿主防御。
+
+## 真实模型与产物
+
+用户授权同一累计上限：40次请求、200,000输入/输出Token、估算¥20，任一触发停止、无自动重试。沿用既有DeepSeek配置，仅公开代码和隔离材料；未访问私人知识库或真实账户。最终 **26次实际派发 / 187,535 Token / 估算¥0.617406**，所有已派发响应均有Provider usage；价格按当时官方峰值与保守10CNY/USD、无缓存优惠估算，非账单。其余授权额度未继续消耗。拒绝派发不算已调用；首次日志保留旧attempt口径，最终以共享预算journal的intent/result核算。
+
+| 真实运行 | 结果与边界 |
+| --- | --- |
+| python-slugify CLI新增逐行模式 | 固定公开提交 `35aca63fc2672cba2c739ff6dff685a4f26a4f9a`，原项目133 passed/3 skipped/139 subtests；新增8项初始6 failed/2 passed。首次11请求/128,324Token，CRLF替换被拒后预算拦截；修复后显式续跑6请求/38,671Token，反复读取仍无源码修改。均FAILED，测试字节未改，不计完成 |
+| 缩小为真实源码审查 | 3请求/12,786Token，保存report.md但最终收尾派发被预算预留拒绝。文档有错误行号/参数数据流/换行假设，任务仍FAILED，不能把有文件说成合格交付 |
+| 反馈驱动Skill诊断 | 人工工程审查上述实际报告，固定三个源码事实问题，真实DeepSeek生成候选；同源码/问题/配置、独立上下文。完整可复核轮3请求/3,867Token，原版3/3、候选3/3；回答分别1,626/1,746Token，候选多7.4%，无收益、不采用。未走完整Agent工具评价，不是自主晋升或通用语义质量证明 |
+| 首次诊断记录限制 | 另3请求/3,887Token；脚本误将候选指令文件覆盖为候选回答，故不作为可复核比较结论。费用仍计入总量。新一轮分开保留指令、参考输出、候选输出和固定检查，不重写旧日志 |
+| 独立Codex参考修复 | 相同初始公开源码/依赖/固定检查，增加CLI选项与README，保留legacy和全部测试；**133 passed、3 skipped、139 subtests + 新增8 passed**。首次暴露Namespace默认形状的2个subtest失败，改用SUPPRESS保留兼容后通过。由监管Codex完成，非Axis自主产物，非同模型Harness胜负 |
+
+第一次和续跑没有重放 UNKNOWN；首次没有成功文件写入。后续源码问答只消费公开冻结材料，候选和对照为单次诊断开发案例，无第三方Judge、无交叉顺序和Holdout。提供候选内容与未采用决定，不包装成自主演化成功。
+
+早期实现还记录了依赖镜像的本机SHA `FROM` 解析失败，改为随机本机临时tag并固定结果ID；旧“无检查也花2次生成/审阅”测试期望改为零次，原失败保留，这验证的是新增预检行为而非放松Gate。上下文先试24KiB后改48KiB；最终目标没有新的真实代码完成证据。所有早期失败在审查包保留。
+
+## 复核与交付范围
+
+```powershell
+$env:PYTHONUTF8='1'
+$env:PYTHONPATH=(Get-Location).Path+';'+(Join-Path (Get-Location) 'src')
+$env:M5_DOCKER_IMAGE='sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b'
+python -m pytest web_api/tests/test_agent_provider.py web_api/tests/test_agent_workspace_runtime.py web_api/tests/test_agent_evolution.py web_api/tests/test_agent_authority_revocation.py web_api/tests/test_m4_runtime_review.py web_api/tests/test_m4_fix_interruption.py web_api/tests/test_m4_fix_context.py web_api/tests/test_m4_fix_evaluation.py web_api/tests/test_m5_execution.py web_api/tests/test_m5_project.py web_api/tests/test_m5_evolution.py web_api/tests/test_m6_engineering.py web_api/tests/test_m6_evolution.py tests/test_axis_next_browser.py -q --tb=short
+npm --prefix web test
+npm --prefix web run lint
+npm --prefix web run build
+```
+
+测试/fixture不在Git中，使用审查ZIP。包包含完整提交源码、文档、web/dist、关联测试、公开项目输入/参考补丁、真实模型事件/预算/Skill候选和界面截图；不含依赖缓存、运行数据库、凭据或私有研究。对应提交、逐文件SHA、CRC、解包启动/静态资产/重启验证以包内MANIFEST.json为准。
+
+尚未完成：真实Axis完整代码任务成功、真实自动Skill晋升、通用语义评价、完整Git写工作流、关联worktree Git授权、持久终端/联网依赖工具、多Agent编排、长期质量监控、宿主UI全局持久计费配置。Windows+Docker Desktop已测，Linux/macOS宿主未测；源码对比分析不能替代跨Harness同条件基准。保留Python架构，下一步以真实任务完成率与合格产物成本验证其价值。
+
+<!-- AXIS_M6_CURRENT_END -->
+
 <!-- AXIS_M5_CURRENT_START -->
 # Axis-Evo M5 — 2026-11-16
 

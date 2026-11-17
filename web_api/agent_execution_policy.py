@@ -22,7 +22,9 @@ class AgentExecution:
     def is_protected(self, wid, path):
         import os
         policy=self.policy(wid)
-        return policy['enabled'] and os.path.normcase(path) in [os.path.normcase(p) for p in policy.get('protectedPaths',[])]
+        key=os.path.normcase(path).replace('\\','/')
+        return policy['enabled'] and any(key==p or p.startswith(key+'/') for p in
+            [os.path.normcase(p).replace('\\','/') for p in policy.get('protectedPaths',[])])
 
     def configure(self, wid, body):
         self.service.workspaces.get(wid)

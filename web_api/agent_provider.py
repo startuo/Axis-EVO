@@ -20,6 +20,7 @@ from axis_evo.planning_adapter import (
 from .local_gateway import LocalGatewayPlanningAdapter
 from .provider_network import RoutedPlanningAdapter
 from .provider_store import _RestrictedAdapter, _configured, _public_addresses
+from .agent_metrics import MAX_OUTPUT_TOKENS, usage
 
 
 MAX_REQUEST_BYTES = 256 * 1024
@@ -178,7 +179,7 @@ class AgentProvider:
         if type(adapter) is not _RestrictedAdapter:
             raise PlanningTransportError('endpoint_policy')
         delegate = adapter.delegate
-        wire = {'model': self.model_id, 'stream': False, 'n': 1, 'messages': history}
+        wire = {'model': self.model_id, 'stream': False, 'n': 1, 'messages': history, 'max_tokens': MAX_OUTPUT_TOKENS}
         if tools:
             wire['tools'] = deepcopy(tools)
         # Use the documented non-thinking route without mutating the endpoint
@@ -202,7 +203,11 @@ class AgentProvider:
         # Check the entire envelope, including reasoning and provider metadata,
         # before returning or persisting any part of it.
         self.providers.check_text(canonical_json_bytes(envelope).decode('utf-8'))
-        return _assistant(envelope, names)
+        message = _assistant(envelope, names)
+        observed = usage(envelope)
+        if observed is not None:
+            message['_usage'] = observed
+        return message
 
     @staticmethod
     def _https(delegate, wire):

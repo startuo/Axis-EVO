@@ -27,11 +27,12 @@ from axis_evo.skill_storage import initialize_skill_schema
 from axis_evo.storage import connect_database
 
 from .agent_provider_worker import complete_isolated
-from .agent_experience import diagnose, cost, tool_incidents
+from .agent_experience import diagnose, cost, tool_incidents, select_cases
 from .agent_skill_gate import (POLICY_ID, SUCCESS, TERMINAL, assess_comparison,
     task_summary, validate_checks)
 from .agent_store import digest, identity
 from .agent_workspace import root_identity
+from .agent_metrics import take_usage
 from .schemas import ApiError, no_redirected_parents, strict_json
 
 
@@ -64,7 +65,8 @@ def _tool_failures(task):
 
 class AgentEvolution:
     def __init__(self, store, providers, data_dir, task_reader, *, evaluation_runner=None,
-                 provider_factory=None, authority_reader=None, authority_lock=None, experience_capture=None):
+                 provider_factory=None, authority_reader=None, authority_lock=None, experience_capture=None,
+                 completion=None, remaining_request_budget=None, remaining_token_budget=None):
         self.store, self.providers = store, providers
         self.data_dir = Path(data_dir).absolute()
         self.database = self.data_dir / 'agent-skills.sqlite3'
@@ -73,6 +75,9 @@ class AgentEvolution:
         self.task_reader = task_reader
         self.evaluation_runner = evaluation_runner
         self.experience_capture = experience_capture
+        self.completion = completion
+        self.remaining_request_budget = remaining_request_budget
+        self.remaining_token_budget = remaining_token_budget
         self._provider_factory = provider_factory
         self._authority_reader = authority_reader
         self._authority_lock = authority_lock or threading.RLock()
@@ -279,11 +284,13 @@ class AgentEvolution:
         self._authority(workspace_id, card['source']['sourceId'])
         return card
 
-    def rollback(self, workspace_id, body):
+    def rollback(self, workspace_id, body, *, automatic=False):
         if type(body) is not dict or body.keys()!={'skillId','version','reason'} or type(body['version']) is not int:
             raise ApiError('AGENT_ROLLBACK_INPUT','回退需要 Skill、版本与原因。')
         _text(body['reason'],1024)
         with self._authority_lock,self._lock:
+            if automatic and self.get_policy(workspace_id)['mode']!='AUTO':
+                raise ApiError('AGENT_EVOLUTION_POLICY_CHANGED','自动回退策略已撤销。',409)
             base=self._current_import(workspace_id,body['skillId'])
             allowed={base['payload']['version']}|{r['payload']['version'] for r in self.store.iter_records('skill_adoption',workspace_id=workspace_id)
                 if r['payload']['skillId']==body['skillId'] and r['payload']['importId']==base['id']}
@@ -292,7 +299,7 @@ class AgentEvolution:
             previous=self.use_skill(workspace_id,body['skillId'])
             target=self.use_skill(workspace_id,body['skillId'],body['version'])
             self._append('skill_rollback',{**body,'previousVersion':previous['version'],'cardSha256':target['cardSha256'],
-                'importId':base['id'],'authority':'EXPLICIT_USER_ACTION','scope':'FUTURE_TASKS_ONLY'},workspace_id)
+                'importId':base['id'],'authority':'AUTO_FIXED_CHECK_MONITOR' if automatic else 'EXPLICIT_USER_ACTION','scope':'FUTURE_TASKS_ONLY'},workspace_id)
             return target
 
     def get_policy(self, workspace_id):
@@ -311,7 +318,7 @@ class AgentEvolution:
                 if type(revision) is not int or revision < 1:
                     raise ApiError('AGENT_EVOLUTION_POLICY', '模型配置版本无效。')
                 self.providers.get(profile_id, revision)
-        with self._lock:
+        with self._authority_lock, self._lock:
             record = self._append('evolution_policy', dict(body), workspace_id)
         return {**record['payload'], 'id': record['id'], 'gatePolicyId': POLICY_ID}
 
@@ -471,12 +478,14 @@ class AgentEvolution:
         self._append('evolution_model_intent', {'phase': phase, 'provider': _profile_identity(profile),
             'requestSha256': digest(messages)}, workspace_id, cycle_id, record_id=attempt)
         if self._provider_factory is None:
-            response = complete_isolated(self.providers, profile, messages, [],
+            response = (self.completion or complete_isolated)(self.providers, profile, messages, [],
                 lambda: self.cycle_cancelled(cycle_id))
         else:
             # Private deterministic test seam; production always uses a bounded
             # credential-scoped worker with cancellation and no network retries.
             response = self._provider_factory(self.providers, profile, attempt).complete(messages, [])
+        response, observed = take_usage(response)
+        self._append('evolution_model_usage', {'phase': phase, 'usage': observed}, workspace_id, cycle_id)
         self.assert_cycle_current(workspace_id, cycle_id)
         if response.get('tool_calls') or type(response.get('content')) is not str:
             raise ApiError('AGENT_EVOLUTION_RESPONSE', '演化模型响应不符合协议。', 409)
@@ -594,6 +603,37 @@ class AgentEvolution:
                 self._finish(workspace_id, cycle_id, 'OBSERVING', ['REVISION_PROVIDER_NOT_CONFIGURED'])
                 return
             profile = self.providers.get(policy['revisionProfileId'], policy['revisionProfileRevision'])
+            execution=self.store.records('execution_policy',workspace_id=workspace_id,limit=1)
+            execution_checks=bool(execution and execution[0]['payload']['enabled'] and execution[0]['payload']['checks'])
+            if not feedback['payload']['checks'] and not execution_checks:
+                self._finish(workspace_id,cycle_id,'OBSERVING',['NO_EXPLICIT_USER_CHECKS'],actualValidation='NOT_RUN')
+                return
+            unavailable=self.store.records('experience_unavailable',workspace_id=workspace_id,parent_id=feedback['id'],limit=1)
+            if unavailable:
+                self._finish(workspace_id,cycle_id,'STOPPED',[unavailable[0]['payload']['code']],actualValidation='NOT_RUN')
+                return
+            selected_cases=select_cases(self.store,workspace_id,skill_id,feedback['id'],execution_checks)
+            estimated=1+int(policy['reviewerProfileId'] is not None)+2*max(2,cost(source)['modelRequests'])
+            estimated+=sum(2*max(2,cost(self._task(workspace_id,self.store.get(c['parentId'],'agent_feedback')['parentId']))['modelRequests']) for c in selected_cases)
+            available=min(64,self.remaining_request_budget()) if self.remaining_request_budget else 64
+            observed_usage=cost(source)['usage']
+            estimated_tokens=(8192+2*observed_usage['totalTokens']) if observed_usage['usageComplete'] else None
+            for case in selected_cases:
+                case_task=self._task(workspace_id,self.store.get(case['parentId'],'agent_feedback')['parentId'])
+                case_usage=cost(case_task)['usage']
+                if estimated_tokens is not None and case_usage['usageComplete']:
+                    estimated_tokens+=2*case_usage['totalTokens']
+                else:
+                    estimated_tokens=None
+            available_tokens=self.remaining_token_budget() if self.remaining_token_budget else None
+            self._append('evolution_preflight',{'estimatedModelRequests':estimated,'availableModelRequests':available,
+                'estimatedTokens':estimated_tokens,'availableTokens':available_tokens,
+                'selectedCaseIds':[c['id'] for c in selected_cases],'basis':'PRIOR_TASK_REQUEST_COUNTS_CONSERVATIVE_NO_CACHE_DISCOUNT',
+                'estimateIsGuarantee':False},workspace_id,cycle_id)
+            if estimated>available or (available_tokens is not None and
+                    (estimated_tokens is None or estimated_tokens>available_tokens)):
+                self._finish(workspace_id,cycle_id,'STOPPED',['EVALUATION_COST_PREFLIGHT'],actualValidation='NOT_RUN')
+                return
             draft = self._generate(workspace_id, cycle_id, feedback, source, card, profile)
             self._policy_current(workspace_id, policy)
             self._append('skill_candidate_intent', {'referenceSkill': reference,
@@ -645,9 +685,7 @@ class AgentEvolution:
             # Retain up to two previous fixed cases for this Skill. A missing or
             # changed case is not silently counted as a pass.
             regressions=[]
-            for case in reversed(self.store.records('task_experience',workspace_id=workspace_id,limit=200)):
-                if case['parentId']==feedback['id']:
-                    continue
+            for case in selected_cases if gate['eligible'] else []:
                 prior=self.store.get(case['parentId'],'agent_feedback')
                 if prior['payload']['skillId']!=skill_id or not prior['payload']['checks'] and not execution_checks:
                     continue
@@ -662,7 +700,9 @@ class AgentEvolution:
                 if len(regressions)>=2:
                     break
             gate['regressionCases']=regressions
-            gate['regressionSelection']={'maximumCases':2,'mode':'RECENT_COMPATIBLE_FEEDBACK_CASES','historyExhaustive':False}
+            gate['regressionSelection']={'maximumCases':2,'mode':'DEDUPLICATED_COUNTEREXAMPLE_AND_SUCCESS',
+                'selectedCaseIds':[c['id'] for c in selected_cases],'historyExhaustive':False,
+                'skippedAfterPrimaryFailure':bool(selected_cases and not regressions)}
             gate['eligible']=not gate['reasons']
             gate['manifestSha256']=digest({k:v for k,v in gate.items() if k not in ('eligible','manifestSha256')})
             gate_record = self._append('evolution_gate', gate, workspace_id, cycle_id,
@@ -713,8 +753,20 @@ class AgentEvolution:
         tasks = []
         for key, role in (('referenceTurnId', 'REFERENCE'), ('candidateTurnId', 'CANDIDATE')):
             task = self.task_reader(result[key])
+            reused=False
+            if role=='REFERENCE':
+                for receipt in self.store.records('reference_reuse',workspace_id=workspace_id,parent_id=cycle_id,limit=100):
+                    p=receipt['payload']
+                    if p['turnId']==task.get('id') and p['sourceTurnId']==source['id']:
+                        cache=self._owned(p['cacheId'],workspace_id,'reference_cache')
+                        from .agent_evaluation_cache import evidence
+                        # The service reader is bound to the owning AgentService.
+                        owner=getattr(self.task_reader,'__self__',None)
+                        reused=bool(owner and cache['payload']['fingerprint']==p['fingerprint']
+                            and cache['payload']['turnId']==task['id']
+                            and evidence(owner,task['id'])==cache['payload']['evidence'])
             if (task.get('id') != result[key] or task.get('workspaceId') == workspace_id
-                    or task.get('evaluation') != {'cycleId': cycle_id, 'role': role, 'sourceTurnId': source['id']}):
+                    or not reused and task.get('evaluation') != {'cycleId': cycle_id, 'role': role, 'sourceTurnId': source['id']}):
                 raise ApiError('AGENT_EVALUATION_SCOPE', '独立执行证据的隔离来源无法核对。', 409)
             tasks.append(task)
         if (tasks[0].get('workspaceId') == tasks[1].get('workspaceId')

@@ -18,6 +18,8 @@ from .agent_store import canonical
 from .agent_workspace import MAX_FILE_BYTES, relative_path, fail
 from .agent_project import overview, update_plan, changes
 from .agent_execution import validate_argv
+from .agent_fileops import MUTATIONS, paths as mutation_paths, execute as file_operation
+from .agent_git import observe as git_observe
 from .schemas import ApiError, no_redirected_parents
 
 
@@ -28,6 +30,12 @@ def _function(name, description, properties, required):
 
 TEXT={'type':'string'}
 CATALOG = [
+    _function('create_directory','在授权工作区创建一个普通目录，父目录必须存在。不递归创建。',{'path':TEXT},['path']),
+    _function('move_file','移动单个已读取文本文件，不覆盖目标；保留原件和操作事实。部分完成为 UNKNOWN，不重试。',{'path':TEXT,'destination':TEXT,'expectedSha256':TEXT},['path','destination','expectedSha256']),
+    _function('delete_file','删除单个已读取文本文件，原字节保留在任务证据中。不删除目录。',{'path':TEXT,'expectedSha256':TEXT},['path','expectedSha256']),
+    _function('git_status','只读观察授权独立 Git 仓库的分支和文件状态，不暂存、不推送。',{},[]),
+    _function('git_log','读取授权独立 Git 仓库最近8条提交摘要。',{},[]),
+    _function('git_diff','观察单个授权文本相对 HEAD 的未提交差异，不执行 external diff 或 textconv。',{'path':TEXT},['path']),
     _function('project_overview','了解授权项目的结构、配置入口与测试文件。只列出实际观察，不运行项目。',{},[]),
     _function('update_plan','为复杂任务记录并更新简短工作计划；完成标记是计划声明，验证仍须工具证据。',
         {'steps':{'type':'array','maxItems':12,'items':{'type':'object','properties':{'title':TEXT,'status':{'type':'string','enum':['pending','in_progress','completed']}},'required':['title','status'],'additionalProperties':False}}},['steps']),
@@ -98,7 +106,7 @@ class AgentTools:
 
     def describe(self):
         return [{'name':t['function']['name'],'description':t['function']['description'],
-                 'mutating':t['function']['name'] in ('write_file','patch_file'),'available':True} for t in CATALOG]
+                 'mutating':t['function']['name'] in MUTATIONS,'available':True} for t in CATALOG]
 
     def validate(self, name, args):
         item=next((t['function'] for t in CATALOG if t['function']['name']==name),None)
@@ -134,6 +142,10 @@ class AgentTools:
     def execute(self, turn, call_id, name, args):
         self.validate(name,args)
         wid=turn['workspaceId']
+        if name in ('create_directory','move_file','delete_file'):
+            return file_operation(self.service,turn,call_id,name,args)
+        if name in ('git_status','git_log','git_diff'):
+            return git_observe(self.service,turn,name,args)
         if name=='project_overview':
             return overview(self.workspaces,wid)
         if name=='update_plan':
@@ -245,9 +257,20 @@ class AgentTools:
         elif expected is not None:
             fail('FILE_CHANGED','预期文件已经不存在，请重新观察。',409)
         if name=='patch_file':
-            if not args['old'] or material['content'].count(args['old'])!=1:
+            old,new=args['old'],args['new']
+            text=material['content']
+            if old and text.count(old)!=1:
+                # Models commonly spell CRLF excerpts with LF. The whole-file
+                # digest remains mandatory; accept only a unique newline-equivalent
+                # match in a file with one consistent newline convention.
+                unix=text.replace('\r\n','\n')
+                if '\r' not in unix and ('\r\n' not in text or '\n' not in text.replace('\r\n','')):
+                    newline='\r\n' if '\r\n' in text else '\n'
+                    old=old.replace('\r\n','\n').replace('\n',newline)
+                    new=new.replace('\r\n','\n').replace('\n',newline)
+            if not old or text.count(old)!=1:
                 fail('PATCH_AMBIGUOUS','原文必须在当前文件中唯一匹配。',409)
-            content=material['content'].replace(args['old'],args['new'],1)
+            content=text.replace(old,new,1)
         else:
             content=args['content']
         if len(content.encode('utf-8'))>MAX_FILE_BYTES:

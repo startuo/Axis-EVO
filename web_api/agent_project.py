@@ -7,7 +7,7 @@ import tarfile
 
 from .agent_store import digest
 from .agent_workspace import fail
-from .schemas import no_redirected_parents
+from .schemas import ApiError, no_redirected_parents
 
 MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
 
@@ -34,7 +34,7 @@ def snapshot(workspaces, wid):
             tar.addfile(entry, io.BytesIO(raw))
             files.append({'path':item['path'], 'sha256':material['sha256'], 'sizeBytes':len(raw)})
     manifest = {'files':files, 'bytes':total, 'scope':'AUTHORIZED_TEXT_FILES_ONLY',
-        'excluded':'Hidden files, credentials, links, binaries, dependencies and build outputs are not copied.'}
+        'excluded':'Only curated public dotfiles are included. Credentials, links, binaries, dependencies and build outputs are not copied.'}
     return {'manifest':manifest, 'sha256':digest(manifest), 'archive':archive.getvalue()}
 
 
@@ -88,28 +88,51 @@ def update_plan(service, turn, steps):
 def changes(service, tid):
     turn = service.store.get(tid, 'turn')
     grouped = {}
-    for row in service.store.iter_records('artifact', parent_id=tid):
-        grouped.setdefault(row['payload']['path'], []).append(row)
+    directories=[]
+    from .agent_fileops import retained
+    for row in service.store.iter_records(parent_id=tid):
+        payload=row['payload']
+        if row['kind']=='artifact':
+            old=None
+            if payload['previousSha256'] is not None:
+                directory=Path(payload['directory'])
+                if not directory.is_relative_to(service.store.directory/'agent-files'):
+                    fail('ARTIFACT_INTEGRITY','变更前版本身份无效。',409)
+                no_redirected_parents(directory/'before.bin')
+                with (directory/'before.bin').open('rb') as stream:
+                    old=stream.read(128*1024+1)
+                if hashlib.sha256(old).hexdigest()!=payload['previousSha256']:
+                    fail('ARTIFACT_INTEGRITY','变更前版本摘要不匹配。',409)
+            current=service.artifact(row)
+            grouped.setdefault(payload['path'],[]).append((old,current['content'].encode('utf-8')))
+        elif row['kind']=='file_operation':
+            if payload['operation']=='create_directory':
+                directories.extend(payload['paths'])
+                continue
+            raw=retained(service,payload)
+            for change in payload['changes']:
+                grouped.setdefault(change['path'],[]).append((raw if change['beforeSha256'] else None,
+                    raw if change['afterSha256'] else None))
     results, total = [], 0
     for path, rows in grouped.items():
-        first, last = rows[0]['payload'], rows[-1]
-        old = b''
-        if first['previousSha256'] is not None:
-            directory = Path(first['directory'])
-            if not directory.is_relative_to(service.store.directory/'agent-files'):
-                fail('ARTIFACT_INTEGRITY', '变更前版本身份无效。', 409)
-            no_redirected_parents(directory/'before.bin')
-            with (directory/'before.bin').open('rb') as stream:
-                old = stream.read(128 * 1024 + 1)
-            if hashlib.sha256(old).hexdigest()!=first['previousSha256']:
-                fail('ARTIFACT_INTEGRITY', '变更前版本摘要不匹配。', 409)
-        current = service.artifact(last)
-        diff = ''.join(difflib.unified_diff(old.decode('utf-8').splitlines(True),
-            current['content'].splitlines(True), fromfile='before/'+path, tofile='after/'+path))
+        old,after=rows[0][0],rows[-1][1]
+        before_sha=hashlib.sha256(old).hexdigest() if old is not None else None
+        after_sha=hashlib.sha256(after).hexdigest() if after is not None else None
+        try:
+            if after is None:
+                resolver=service.workspaces.resolver(turn['workspaceId'])
+                no_redirected_parents(resolver.root/path)
+                matches=not resolver.resolve(path).exists()
+            else:
+                matches=service.workspaces.read(turn['workspaceId'],'workspace',path)['sha256']==after_sha
+        except (OSError,ValueError,ApiError):
+            matches=False
+        diff = ''.join(difflib.unified_diff((old or b'').decode('utf-8-sig').splitlines(True),
+            (after or b'').decode('utf-8-sig').splitlines(True), fromfile='before/'+path, tofile='after/'+path))
         total += len(diff.encode('utf-8'))
         if total > 192 * 1024:
             fail('PROJECT_DIFF_LIMIT', '差异超过显示上限，请分别查看交付版本。', 409)
-        results.append({'path':path, 'beforeSha256':first['previousSha256'],
-            'afterSha256':current['sha256'], 'matchesCurrentFile':current['verified'], 'diff':diff})
+        results.append({'path':path, 'beforeSha256':before_sha,
+            'afterSha256':after_sha, 'matchesCurrentFile':matches, 'diff':diff})
     return {'turnId':tid, 'workspaceId':turn['workspaceId'], 'files':results,
-        'basis':'FIRST_RETAINED_BEFORE_TO_LAST_VERIFIED_AFTER', 'atomic':False}
+        'directoriesCreated':directories,'basis':'FIRST_RETAINED_BEFORE_TO_LAST_VERIFIED_AFTER', 'atomic':False}

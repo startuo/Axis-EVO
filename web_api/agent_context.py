@@ -11,6 +11,7 @@ from .schemas import ApiError, strict_json
 
 MAX_USER_HISTORY_BYTES = 80 * 1024
 MAX_CONTEXT_BYTES = 224 * 1024  # Leaves room for the Provider wire envelope.
+TARGET_CONTEXT_BYTES = 48 * 1024  # Keep several active source files; hard ceiling still preserves requirements.
 
 
 def _excerpt(text, limit=4000):
@@ -79,12 +80,12 @@ def bounded_context(messages, tools):
         return len(canonical({'messages':value,'tools':tools}).encode('utf-8'))
 
     original_size = size(messages)
-    if original_size <= MAX_CONTEXT_BYTES:
+    if original_size <= TARGET_CONTEXT_BYTES:
         return messages, None
     original_hash = digest(messages)
     result = deepcopy(messages)
     compacted = []
-    while size(result) > MAX_CONTEXT_BYTES:
+    while size(result) > TARGET_CONTEXT_BYTES:
         groups = []
         for start, message in enumerate(result):
             calls = message.get('tool_calls') if message['role']=='assistant' else None
@@ -142,6 +143,8 @@ def bounded_context(messages, tools):
                 changed = True
                 break
         if not changed:
+            if size(result) <= MAX_CONTEXT_BYTES:
+                break  # Never discard required goals/Skills to satisfy a soft cost target.
             raise ApiError('AGENT_CONTEXT_LIMIT',
                 '必要要求、Skill 与最近工具结果无法在上下文预算内保留；本轮已停止，执行事实保留。请缩小材料范围。', 409)
     return result, {'originalMessagesSha256':original_hash,'originalBytes':original_size,

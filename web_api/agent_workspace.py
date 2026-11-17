@@ -17,7 +17,8 @@ MAX_SEARCH_BYTES = 8 * 1024 * 1024
 TEXT_SUFFIXES = frozenset(('.md','.txt','.rst','.csv','.tsv','.json','.yaml','.yml','.toml',
     '.py','.js','.mjs','.cjs','.ts','.tsx','.jsx','.html','.css','.scss','.c','.h','.cpp','.rs','.go','.java','.xml','.sql',
     '.sh','.ps1','.bat','.cmd','.ini','.cfg','.lock','.vue','.svelte'))
-TEXT_NAMES = frozenset(('makefile','dockerfile','license','readme'))
+TEXT_NAMES = frozenset(('makefile','dockerfile','license','readme','py.typed'))
+PUBLIC_DOTFILES = frozenset(('.gitignore','.gitattributes','.editorconfig','.prettierrc','.prettierrc.json','.eslintrc.json'))
 EXCLUDED = frozenset(('.git','.svn','.hg','.local','.axis-evo','.ssh','.aws','.azure','.gnupg','.config',
     'node_modules','__pycache__','.venv','venv','dist','build','.cache','appdata','windows','program files',
     'program files (x86)','$recycle.bin','system volume information'))
@@ -37,9 +38,10 @@ def relative_path(value):
     if type(value) is not str or not value or len(value) > 512 or '\\' in value or ':' in value or '\x00' in value:
         fail('WORKSPACE_PATH_DENIED', '工具需要工作区内的相对路径。', 403)
     path = PurePosixPath(value)
-    if path.is_absolute() or any(p in ('..','.') or p.startswith('.') or p.lower() in EXCLUDED for p in path.parts):
+    if path.is_absolute() or any(p in ('..','.') or p.startswith('.') and not (i==len(path.parts)-1 and p in PUBLIC_DOTFILES)
+            or p.lower() in EXCLUDED for i,p in enumerate(path.parts)):
         fail('WORKSPACE_PATH_DENIED', '此路径不在可用的材料范围内。', 403)
-    if (path.suffix.lower() not in TEXT_SUFFIXES and path.name.lower() not in TEXT_NAMES
+    if (path.suffix.lower() not in TEXT_SUFFIXES and path.name.lower() not in TEXT_NAMES and path.name not in PUBLIC_DOTFILES
             or path.name.lower() in ('credentials.json','secrets.json')):
         fail('WORKSPACE_FILE_TYPE', '当前工具仅处理授权目录中的普通文本文件。', 403)
     return path.as_posix()
@@ -199,7 +201,7 @@ class AgentWorkspaces:
                     if visited>MAX_SCAN_ENTRIES or time.monotonic()>deadline:
                         truncated=True
                         break
-                    if entry.name.startswith('.') or entry.name.lower() in EXCLUDED:
+                    if entry.name.startswith('.') and entry.name not in PUBLIC_DOTFILES or entry.name.lower() in EXCLUDED:
                         continue
                     # Windows scandir's cached stat reports st_nlink=0. Use an
                     # actual lstat before enforcing the no-hardlinks boundary.

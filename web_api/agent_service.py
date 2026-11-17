@@ -21,6 +21,8 @@ from .agent_evolution import AgentEvolution
 from .agent_provider_worker import complete_isolated
 from .agent_context import conversation_history, bounded_context
 from .agent_execution_policy import AgentExecution
+from .agent_metrics import take_usage, summarize
+from .agent_fileops import MUTATIONS, paths as mutation_paths
 from .schemas import ApiError, strict_json, no_redirected_parents
 
 MAX_ROUNDS=32
@@ -70,7 +72,9 @@ class AgentService:
         self._completion=completion or complete_isolated
         self.evolution=AgentEvolution(self.store,runtime.providers,runtime.config.data_dir,self.turn,
             evaluation_runner=self.evaluate_candidate,authority_reader=self.workspaces.source,authority_lock=self._lock,
-            experience_capture=self.capture_experience)
+            experience_capture=self.capture_experience, completion=completion,
+            remaining_request_budget=getattr(completion, 'remaining_requests', None),
+            remaining_token_budget=getattr(completion, 'remaining_tokens', None))
         self.tools=AgentTools(self)
         self.execution=AgentExecution(self)
         # Startup never replays a tool or reissues a model request.
@@ -115,6 +119,13 @@ class AgentService:
             self.store.append('terminal',payload,turn['workspaceId'],turn['id'],identity='terminal_'+turn['id'])
         except sqlite3.IntegrityError:
             pass  # A terminal fact wins; late workers cannot rewrite it.
+        if status=='COMPLETED' and not turn['payload'].get('evaluation'):
+            from .agent_monitor import monitor
+            try:
+                with self._lock:
+                    monitor(self,self.turn(turn['id']))
+            except Exception:
+                self.store.append('monitor_unavailable',{'status':'UNCONFIRMED'},turn['workspaceId'],turn['id'])
 
     def _unknown_write(self,turn):
         receipts={row['payload'].get('intentId'):row['payload'] for row in
@@ -131,7 +142,7 @@ class AgentService:
         """
         intents=[row for row in self.store.iter_records('tool_intent',parent_id=turn['id'])
             if row['payload'].get('callId')==call_id]
-        if len(intents)!=1 or adapter not in ('core','edge','container'):
+        if len(intents)!=1 or adapter not in ('core','edge','container','filesystem'):
             fail('AGENT_EXECUTION_IDENTITY','工具执行身份无法核对。',409)
         intent=intents[0]
         return self.store.append('tool_execution',{'intentId':intent['id'],'callId':call_id,
@@ -196,7 +207,7 @@ class AgentService:
             'completionBasis':terminal.get('completionBasis'),
             'evaluation':row['payload'].get('evaluation'),
             'skillUses':[e['payload'] for e in events if e['kind']=='skill_use'],
-            'events':events,'artifacts':[self.artifact(e) for e in events if e['kind']=='artifact'],
+            'events':events,'usage':summarize(events),'artifacts':[self.artifact(e) for e in events if e['kind']=='artifact'],
             'feedback':[{'id':f['id'],'rating':'positive' if f['payload']['evaluation']=='MET_EXPECTATIONS' else 'negative',
                 'comment':f['payload']['comment'],'evidence':f['payload']} for f in self.store.records('agent_feedback',workspace_id=row['workspaceId'],parent_id=tid)]}
 
@@ -343,7 +354,16 @@ class AgentService:
                 messages,checkpoint=bounded_context(messages,catalog)
                 if checkpoint:
                     self.store.append('context_checkpoint',{'round':round_number+1,**checkpoint},wid,tid)
-                message=self._completion(self.runtime.providers,turn['payload']['profile'],messages,catalog,lambda:self._cancelled(turn) or time.monotonic()>deadline)
+                request_start=time.monotonic()
+                try:
+                    message=self._completion(self.runtime.providers,turn['payload']['profile'],messages,catalog,lambda:self._cancelled(turn) or time.monotonic()>deadline)
+                except PlanningTransportError as error:
+                    if error.category=='authorized_acceptance_budget':
+                        self.store.append('model_not_dispatched',{'round':round_number+1,'reason':'HOST_BUDGET'},wid,tid)
+                    raise
+                message,observed=take_usage(message)
+                self.store.append('model_usage',{'round':round_number+1,'usage':observed,
+                    'durationMs':round((time.monotonic()-request_start)*1000,2)},wid,tid)
                 if self._cancelled(turn):
                     self._finish_cancelled(turn)
                     return
@@ -395,7 +415,7 @@ class AgentService:
 
     def _call(self,turn,call_id,name,args):
         tid,wid=turn['id'],turn['workspaceId']
-        mutating=name in ('write_file','patch_file')
+        mutating=name in MUTATIONS
         fingerprint=digest({'tool':name,'arguments':args})
         with self._lock:
             if self._cancelled(turn):
@@ -403,17 +423,19 @@ class AgentService:
             if self.workspaces.get(wid)['revision']!=turn['payload']['workspaceRevision']:
                 fail('WORKSPACE_POLICY_CHANGED','工作区授权已改变，本轮已停止。',409)
             target_key=None
+            target_keys=[]
             try:
                 self.tools.validate(name,args)
                 if turn['payload'].get('evaluation') and name in ('find_skills','use_skill','browser_read','browser_snapshot'):
                     fail('EVALUATION_TOOL_DENIED','隔离评价只使用固定 Skill 和已捕获材料。',403)
                 if mutating:
-                    path=relative_path(args['path'])
-                    if self.execution.is_protected(wid,path):
-                        fail('VERIFICATION_FILE_PROTECTED','此文件已被用户固定为验证依据，Agent不能修改。',403)
                     resolver=self.workspaces.resolver(wid,write=True)
-                    no_redirected_parents(resolver.root/path)
-                    target_key=os.path.normcase(str(resolver.resolve(path)))
+                    for path in mutation_paths(name,args):
+                        if self.execution.is_protected(wid,path):
+                            fail('VERIFICATION_FILE_PROTECTED','此路径已被用户固定为验证依据，Agent不能修改。',403)
+                        no_redirected_parents(resolver.root/path)
+                        target_keys.append(os.path.normcase(str(resolver.resolve(path))))
+                    target_key=target_keys[0]
             except ApiError as error:
                 return self._result(turn,call_id,None,{'status':'REJECTED','code':error.code})
             except (OSError,ValueError):
@@ -430,7 +452,8 @@ class AgentService:
                     if old_key is None:  # Earlier M4 journals retain their protection.
                         old_root=Path(self.store.get(old['workspaceId'],'workspace')['payload']['path'])
                         old_key=os.path.normcase(str((old_root/relative_path(payload['path'])).resolve()))
-                    if old_key!=target_key:
+                    old_keys=payload.get('canonicalPaths') or [old_key]
+                    if not any(a==b or a.startswith(b+os.sep) or b.startswith(a+os.sep) for a in target_keys for b in old_keys):
                         continue
                     if old['parentId'] not in receipt_cache:
                         receipt_cache[old['parentId']]={r['payload'].get('intentId'):r for r in
@@ -439,13 +462,16 @@ class AgentService:
                     if receipt is None or receipt['payload']['status']=='UNKNOWN':
                         return self._result(turn,call_id,None,{'status':'REJECTED','code':'PREVIOUS_OUTCOME_UNKNOWN'})
                     if payload.get('fingerprint')==fingerprint and receipt['payload']['status']=='SUCCESS' and old['parentId']==tid:
+                        if name not in ('write_file','patch_file'):
+                            return self._result(turn,call_id,None,{'status':'REJECTED','code':'OPERATION_ALREADY_RECORDED'})
                         prior_data=receipt['payload'].get('data') or {}
                         current=self.workspaces.read(wid,'workspace',args['path'])
                         if current['sha256']!=prior_data.get('sha256'):
                             return self._result(turn,call_id,None,{'status':'REJECTED','code':'FILE_CHANGED'})
                         return self._result(turn,call_id,None,{'status':'SUCCESS','reusedResult':receipt['id'],'data':receipt['payload'].get('data')})
             intent=self.store.append('tool_intent',{'callId':call_id,'tool':name,'arguments':args,'fingerprint':fingerprint,
-                'mutating':mutating,'path':args.get('path'),'canonicalPath':target_key,'authorityRevision':turn['payload']['workspaceRevision']},wid,tid)
+                'mutating':mutating,'path':args.get('path'),'canonicalPath':target_key,'canonicalPaths':target_keys,
+                'authorityRevision':turn['payload']['workspaceRevision']},wid,tid)
             if mutating:
                 # Keep admission and a file effect serialized with authority
                 # changes; bounded reads/Edge waits need not own that lock.
@@ -454,6 +480,7 @@ class AgentService:
 
     def _execute_call(self,turn,call_id,name,args,intent):
         mutating=intent['payload']['mutating']
+        started=time.monotonic()
         try:
             data=self.tools.execute(turn,call_id,name,args)
             self.runtime.providers.check_text(canonical(data))
@@ -469,6 +496,7 @@ class AgentService:
             result={'status':'UNKNOWN' if mutating else 'FAILED','code':'TOOL_IO_UNCONFIRMED' if mutating else 'MATERIAL_UNAVAILABLE'}
         except Exception:
             result={'status':'UNKNOWN','code':'TOOL_OUTCOME_UNKNOWN'}
+        result['hostDurationMs']=round((time.monotonic()-started)*1000,2)
         return self._result(turn,call_id,intent['id'],result)
 
     def _result(self,turn,call_id,intent_id,result):

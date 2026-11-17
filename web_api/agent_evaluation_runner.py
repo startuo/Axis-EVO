@@ -28,6 +28,9 @@ def capture_inputs(service, workspace_id, source_turn_id, check_current=lambda:N
     if source['workspaceId']!=workspace['id']:
         raise ApiError('EVALUATION_SCOPE','原任务与工作区不一致。',409)
     source_events=list(service.store.iter_records(parent_id=source['id']))
+    if any(e['kind']=='file_operation' and e['payload']['operation'] in ('move_file','delete_file') for e in source_events):
+        raise ApiError('EVALUATION_FILE_LIFECYCLE_UNAVAILABLE',
+            '原任务包含文件移动或删除，当前演化比较未实现其完整重建；保留证据。',409)
     if any(event['kind']=='tool_intent' and event['payload'].get('tool') in
             ('browser_read','browser_snapshot') for event in source_events):
         # The evaluator deliberately has no live browser capability. Until a
@@ -107,6 +110,7 @@ def capture_inputs(service, workspace_id, source_turn_id, check_current=lambda:N
 
 
 def evaluate_candidate(service, request):
+    from .agent_evaluation_cache import fingerprint, lookup, remember, harness_identity
     check_current=lambda: service.evolution.assert_cycle_current(request['workspaceId'],request['cycleId'])
     check_current()
     workspace=service.workspaces.get(request['workspaceId'])
@@ -118,11 +122,22 @@ def evaluate_candidate(service, request):
     execution=service.execution.policy(workspace['id'])
     snapshot_manifest=[{k:v for k,v in m.items() if k!='data'} for m in materials]
     service.store.append('evaluation_snapshot',{'cycleId':request['cycleId'],'inputs':snapshot_manifest,
+        'harnessSha256':harness_identity(),
         'manifestSha256':digest(snapshot_manifest),'contextSha256':digest(history),
         'scope':'ISOLATED_DEVELOPMENT_REPLAY'},workspace['id'],request['cycleId'])
     result={}
+    cache_key=fingerprint(service,request,materials,sources,history,execution,workspace)
     for role,skill,key in (('REFERENCE',request['referenceSkill'],'referenceTurnId'),('CANDIDATE',request['candidateSkill'],'candidateTurnId')):
         check_current()
+        if role=='REFERENCE':
+            cached=lookup(service,workspace['id'],cache_key)
+            if cached:
+                result[key]=cached['payload']['turnId']
+                service.store.append('reference_reuse',{'cacheId':cached['id'],'turnId':result[key],
+                    'sourceTurnId':source['id'],'fingerprint':cache_key,
+                    'savedModelRequests':cached['payload']['evidence']['cost']['modelRequests'],
+                    'basis':'EXACT_FROZEN_CONDITIONS_AND_REVERIFIED_OUTPUT_BYTES'},workspace['id'],request['cycleId'])
+                continue
         directory=service.store.directory/'agent-evaluations'/('eval_'+uuid4().hex)
         no_redirected_parents(directory)
         root=directory/'workspace'
@@ -157,4 +172,6 @@ def evaluate_candidate(service, request):
             verification=service.execution.verify(wid,result[key],cancelled=lambda:service.evolution.cycle_cancelled(request['cycleId']))
             service.store.append('evaluation_verification',verification,wid,result[key])
             check_current()
+        if role=='REFERENCE':
+            remember(service,workspace['id'],request['cycleId'],cache_key,result[key])
     return result

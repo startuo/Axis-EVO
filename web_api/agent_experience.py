@@ -114,9 +114,43 @@ def diagnose(task, feedback):
 
 
 def cost(task):
+    from .agent_metrics import summarize
     events=task.get('events',[])
     return {'modelRequests':sum(e['kind']=='model_request' for e in events),
+        'usage':summarize(events),
         'toolCalls':sum(e['kind']=='tool_intent' for e in events),
         'commandDurationMs':sum((e['payload'].get('data') or {}).get('durationMs',0)
             for e in events if e['kind']=='tool_result')+sum(e['payload']['result'].get('durationMs',0)
                 for e in events if e['kind']=='verification_result')}
+
+
+def select_cases(store, workspace_id, skill_id, feedback_id, execution_checks):
+    """At most one distinct counterexample and one distinct success, then fill."""
+    cases=[]
+    seen=set()
+    current=store.get(feedback_id,'agent_feedback')
+    for case in reversed(store.records('task_experience',workspace_id=workspace_id,limit=200)):
+        if case['parentId']==feedback_id:
+            continue
+        feedback=store.get(case['parentId'],'agent_feedback')
+        p=feedback['payload']
+        if feedback['parentId']==current['parentId'] and p['checks']==current['payload']['checks']:
+            continue
+        if p['skillId']!=skill_id or not p['checks'] and not execution_checks:
+            continue
+        source=store.get(case['payload']['sourceTurnId'],'turn')
+        key=digest({'files':[{k:f[k] for k in ('sourceId','path','sha256')} for f in case['payload']['files']],
+            'history':case['payload']['history'],'prompt':source['payload']['prompt'],
+            'checks':p['checks'],'profile':source['payload']['profile']})
+        if key in seen:
+            continue
+        seen.add(key)
+        cases.append((p['evaluation'],case))
+    selected=[]
+    for category in ('NEEDS_IMPROVEMENT','MET_EXPECTATIONS'):
+        found=next((case for label,case in cases if label==category),None)
+        if found: selected.append(found)
+    for _,case in cases:
+        if len(selected)>=2: break
+        if case not in selected: selected.append(case)
+    return selected[:2]
