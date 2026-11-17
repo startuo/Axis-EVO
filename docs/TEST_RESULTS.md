@@ -33,7 +33,11 @@
 - 记录链路复跑 `python-slugify`，7 次实际派发，66,015 Token，437.84 秒。第三轮已成功写入 CLI，最终改动 CLI 和 README。宿主独立复核原有测试 2 failed、133 passed、3 skipped、137 subtests passed，新增 1/8。模型回合终态 `COMPLETED`，工程验收失败。
 - Tomli-W 首轮派发 3 次，2 次返回用量，共确认 16,050 Token，第三次 `PROVIDER_TIMEOUT`，用量未确认，276.8 秒。无写入，宿主复核原测试 269 passed、2 xfailed，新增 1/4。
 - 最终工具投影策略下，默认推理设置复跑 `python-slugify`。第三轮生成的锚点补丁因 `PATCH_AMBIGUOUS` 被拒绝，第四轮超时，文件未变。4 次实际派发，3 次返回用量，共确认 21,337 Token，376.7 秒，新增仍为 2/8。该次共用预算在用量不全时拒绝派发 Tomli-W 请求。
+- 同一 Qwen 权重以关闭思考、`temperature=0.3`、`seed=61` 在回环网关复跑 Tomli-W。只变更模型采样设置，冻结任务与工具权限不变。13 次派发，702.23 秒。Runtime 计入 12 次有效响应的 139,726 Token。第 13 次 HTTP 200，捕获响应另报告 16,384 Token，并返回 `finish_reason: length`。Runtime 以 `PROVIDER_ASSISTANT_CONTENT` 拒绝截断文本，未执行提议中的操作。此前已经写入 `src/tomli_w/_writer.py` 和 `README.md`。宿主验证 269 passed、2 xfailed，新增 3/4，剩余内联映射排序用例失败。该结果为部分进展，未通过工程验收。
+- 同一关闭思考的设置复跑 `python-slugify`，4 次派发，236.11 秒。3 次有效响应共 13,873 Token，第 4 次超时，用量未确认。没有写入，原项目回归通过，新增仍为 2/8。
 - 当前 Windows 安装包 SHA-256 `4db217a75483464c4a629bdf280995a90b5b40928307d18d9e1175fbf1780d04`。再次验收已安装版配置、任务历史与测试凭据保留，以及包内 Python worker 的确定性工具编辑。通过 Win32 从 Setup 和启动器提取 32、48、256 像素图标，三种尺寸均与用户提供的 Axis 亮图生成的图标资源一致。原 PNG SHA-256 为 `bffd60400b400f30dc69cea3bf6b5072ff95af6df01fc20788558c97c0a8b6b8`。
+
+本地模型共实际派发 33 次，Runtime 记录 28 次有效响应、260,232 Token。另有 1 次截断响应由协议捕获记录 16,384 Token，剩余 4 次用量未确认。两项真实任务均未通过完整固定验收。M6.1 功能与 Windows 安装包已验证并保留在 `feature/m61-windows-preview`，`main` 未合并。现有 Python Harness 支持冻结输入、实际编辑、隔离复核和可追溯回执，投影修复可局部实现。真实任务完成率、同条件端到端成本及新 Skill 的改进仍需进一步证据。
 
 <!-- AXIS_M61_CURRENT_END -->
 
