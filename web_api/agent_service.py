@@ -383,7 +383,11 @@ class AgentService:
                     self._finish(turn,'LIMIT_REACHED','TURN_DEADLINE')
                     return
                 self.runtime.providers.check_text(canonical(message))
-                self.store.append('assistant',{'message':message,'trust':'MODEL_OUTPUT'},wid,tid)
+                recorded={k:v for k,v in message.items() if k!='reasoning'}
+                evidence={'message':recorded,'trust':'MODEL_OUTPUT'}
+                if 'reasoning' in message:
+                    evidence['localProtocolReasoningSha256']=digest(message['reasoning'])
+                self.store.append('assistant',evidence,wid,tid)
                 messages.append(message)
                 proposed=message.get('tool_calls') or []
                 if not proposed:

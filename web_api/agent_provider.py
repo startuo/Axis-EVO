@@ -79,10 +79,11 @@ def _calls(value, names=None):
     return result
 
 
-def _messages(value):
+def _messages(value, *, local_gateway=False):
     if type(value) is not list or not 1 <= len(value) <= MAX_MESSAGES:
         raise ValueError('A bounded message history is required')
     result, pending, seen = [], set(), set()
+    reasoning_fields = {'reasoning_content','reasoning'} if local_gateway else {'reasoning_content'}
     for item in value:
         if type(item) is not dict:
             raise ValueError('Invalid message')
@@ -99,12 +100,12 @@ def _messages(value):
             pending.remove(item['tool_call_id'])
         elif role == 'assistant':
             if (not {'role', 'content'} <= item.keys()
-                    or not item.keys() <= {'role', 'content', 'tool_calls', 'reasoning_content'} or pending):
+                    or not item.keys() <= {'role', 'content', 'tool_calls'} | reasoning_fields or pending):
                 raise ValueError('Invalid assistant history')
             if item['content'] is not None:
                 _text(item['content'], nonempty=False)
-            if 'reasoning_content' in item:
-                _text(item['reasoning_content'], nonempty=False)
+            for field in item.keys() & reasoning_fields:
+                _text(item[field], nonempty=False)
             if item.get('tool_calls'):
                 calls = _calls(item['tool_calls'])
                 pending = {call['id'] for call in calls}
@@ -121,7 +122,7 @@ def _messages(value):
     return result
 
 
-def _assistant(envelope, names):
+def _assistant(envelope, names, *, local_gateway=False):
     """Validate protocol completeness, never tool permissions or task success."""
     try:
         if type(envelope) is not dict or 'error' in envelope:
@@ -147,7 +148,11 @@ def _assistant(envelope, names):
             result['tool_calls'] = _calls(message['tool_calls'], names)
         elif choice.get('finish_reason') != 'stop' or not content or not content.strip():
             raise ValueError
-        if message.get('reasoning_content') is not None:
+        if local_gateway and result.get('tool_calls') and message.get('reasoning') is not None:
+            # Ollama's OpenAI-compatible gateway expects this same field on
+            # subsequent requests in the current native tool exchange.
+            result['reasoning'] = _text(message['reasoning'], nonempty=False)
+        elif message.get('reasoning_content') is not None:
             # Protocol continuation only. Callers must not render this as an
             # execution trace, independent judgment, or verification evidence.
             result['reasoning_content'] = _text(message['reasoning_content'], nonempty=False)
@@ -174,11 +179,12 @@ class AgentProvider:
 
     def complete(self, messages: list, tools: list) -> dict:
         names = _tool_names(tools)
-        history = _messages(messages)
         adapter = self.providers.adapter(self.profile, self.attempt_id)
         if type(adapter) is not _RestrictedAdapter:
             raise PlanningTransportError('endpoint_policy')
         delegate = adapter.delegate
+        local_gateway = type(delegate) is LocalGatewayPlanningAdapter
+        history = _messages(messages, local_gateway=local_gateway)
         wire = {'model': self.model_id, 'stream': False, 'n': 1, 'messages': history, 'max_tokens': MAX_OUTPUT_TOKENS}
         if tools:
             wire['tools'] = deepcopy(tools)
@@ -192,7 +198,7 @@ class AgentProvider:
         self.providers.check_text(raw.decode('utf-8'))
         if not _configured(adapter.credential_env):
             raise PlanningTransportError('credentials')
-        if type(delegate) is LocalGatewayPlanningAdapter:
+        if local_gateway:
             envelope = delegate._request('POST', '/v1/chat/completions', raw)
             if envelope.get('model') != self.model_id:
                 raise PlanningTransportError('assistant_content')
@@ -203,7 +209,7 @@ class AgentProvider:
         # Check the entire envelope, including reasoning and provider metadata,
         # before returning or persisting any part of it.
         self.providers.check_text(canonical_json_bytes(envelope).decode('utf-8'))
-        message = _assistant(envelope, names)
+        message = _assistant(envelope, names, local_gateway=local_gateway)
         observed = usage(envelope)
         if observed is not None:
             message['_usage'] = observed
