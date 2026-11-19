@@ -558,7 +558,8 @@ class AgentService:
             uncertain = mutating and (dispatched or error.code in (
                 'AGENT_STORAGE_LIMIT','AGENT_STORAGE_UNAVAILABLE','AGENT_STORE_INTEGRITY'))
             result={'status':'UNKNOWN' if uncertain else 'REJECTED','code':error.code}
-            if not uncertain and error.code in ('PATCH_AMBIGUOUS','PATCH_RANGE','FILE_CHANGED','AGENT_TOOL_ARGUMENTS'):
+            if not uncertain and error.code in ('PATCH_AMBIGUOUS','PATCH_RANGE','FILE_CHANGED',
+                    'AGENT_TOOL_ARGUMENTS','SKILL_ARGUMENTS','SKILL_PATH_INVALID'):
                 result['hint']=error.message
         except (OSError,ValueError,UnicodeError):
             result={'status':'UNKNOWN' if mutating else 'FAILED','code':'TOOL_IO_UNCONFIRMED' if mutating else 'MATERIAL_UNAVAILABLE'}
