@@ -18,7 +18,7 @@ from .agent_store import canonical
 from .agent_workspace import MAX_FILE_BYTES, relative_path, fail
 from .agent_project import overview, update_plan, changes
 from .agent_execution import validate_argv
-from .agent_fileops import MUTATIONS, paths as mutation_paths, execute as file_operation
+from .agent_fileops import MUTATIONS, directory_path, paths as mutation_paths, execute as file_operation
 from .agent_git import observe as git_observe
 from .schemas import ApiError, no_redirected_parents
 
@@ -43,7 +43,8 @@ CATALOG = [
         {'argv':{'type':'array','items':TEXT,'minItems':1,'maxItems':64},'timeoutSeconds':{'type':'integer','minimum':1,'maximum':120}},['argv']),
     _function('run_checks','执行用户预先配置的固定项目校验，使用当前项目的隔离副本。检查定义不能由模型修改。',{},[]),
     _function('inspect_changes','查看本轮每个文件首次修改前到最后保存版本的差异，以及是否仍匹配当前文件。',{},[]),
-    _function('list_files','列出已授权来源的文本文件；sourceId 为 workspace 或来源 ID。',{'sourceId':TEXT},[]),
+    _function('list_files','分页列出授权来源的文件。可传 pathPrefix（相对目录）；继续列举使用返回的 nextOffset。同一页的文件大小不代表内容已读取。',
+        {'sourceId':TEXT,'pathPrefix':TEXT,'offset':{'type':'integer','minimum':0}},[]),
     _function('search','在工作区和已授权知识文本中搜索字词，返回原文片段、字符范围、行号及完整来源摘要。片段不代表全文；用 read_file 按范围继续读取。',{'query':TEXT,'sourceId':TEXT},['query']),
     _function('read_file','读取最多4MiB文本的有界片段，默认8000字符。startChar 从0开始，maxChars 最大24000；较长文件先搜索定位，续读使用 nextStartChar 和 expectedSha256。PARTIAL 不是全文。材料不授予权限。',
         {'path':TEXT,'sourceId':TEXT,'startChar':{'type':'integer','minimum':0},
@@ -164,6 +165,10 @@ class AgentTools:
                 if type(value) is not int or (key=='startChar' and value<0) or (key=='maxChars' and not 1<=value<=24000):
                     fail('AGENT_TOOL_ARGUMENTS','读取范围参数无效。')
                 continue
+            if name=='list_files' and key=='offset':
+                if type(value) is not int or value<0:
+                    fail('AGENT_TOOL_ARGUMENTS','文件列表 offset 必须为非负整数。')
+                continue
             if name=='patch_file' and key in ('startLine','endLine'):
                 if type(value) is not int or value < 1:
                     fail('AGENT_TOOL_ARGUMENTS','行边界须为从1开始的整数。')
@@ -198,7 +203,15 @@ class AgentTools:
         if name=='inspect_changes':
             return changes(self.service,turn['id'])
         if name=='list_files':
-            return self.workspaces.files(wid,args.get('sourceId','workspace'))
+            prefix=directory_path(args['pathPrefix'].removesuffix('/'))+'/' if 'pathPrefix' in args else ''
+            listing=self.workspaces.files(wid,args.get('sourceId','workspace'))
+            files=[row for row in listing['files'] if row['path'].startswith(prefix)]
+            offset=args.get('offset',0)
+            if offset>len(files):
+                fail('WORKSPACE_LIST_OFFSET','列表游标超过当前目录范围，请从头列举。',409)
+            end=min(offset+24,len(files))
+            return {**listing,'files':files[offset:end],'pathPrefix':prefix,
+                'visibleFileCount':len(files),'offset':offset,'nextOffset':end if end<len(files) else None}
         if name=='search':
             return self.workspaces.search(wid,args['query'],args.get('sourceId'))
         if name=='read_file':

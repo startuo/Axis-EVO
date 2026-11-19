@@ -48,6 +48,7 @@ Thumbs.db
 
 # Local-only validation materials
 /tests/
+/verification/
 *_DELIVERY_REPORT.md
 /AGENT_BASELINE_REPORT.md
 
