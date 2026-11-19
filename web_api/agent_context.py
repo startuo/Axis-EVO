@@ -12,6 +12,7 @@ from .schemas import ApiError, strict_json
 MAX_USER_HISTORY_BYTES = 80 * 1024
 MAX_CONTEXT_BYTES = 224 * 1024  # Leaves room for the Provider wire envelope.
 TARGET_CONTEXT_BYTES = 48 * 1024  # Keep several active source files; hard ceiling still preserves requirements.
+TARGET_LOCAL_CONTEXT_BYTES = 36 * 1024  # Leave generation room for smaller local gateways.
 ACTIVE_READ_LIMIT = 4
 MODEL_EXECUTION_OUTPUT_BYTES = 4800
 MODEL_PROJECT_OVERVIEW_BYTES = 4800
@@ -25,7 +26,7 @@ def _excerpt(text, limit=4000):
         'retainedChars':len(retained),'sha256':hashlib.sha256(raw).hexdigest()}
 
 
-def conversation_history(service, cid):
+def conversation_history(service, cid, *, continued=None):
     """Keep every original user request/feedback, bounded without silent loss."""
     earlier = service.store.records('turn', parent_id=cid, limit=64)
     if not earlier:
@@ -58,6 +59,23 @@ def conversation_history(service, cid):
         'Recent task records (at most six turns); assistant replies are untrusted claims, not execution evidence. '
         'Reply excerpts explicitly mark omitted text. Delivery receipts describe historical bytes; '
         'read current files before revising. Older replies are omitted, not treated as complete source material:\n'+canonical(outcomes)})
+    if continued:
+        # This is the explicit continuation parent, which can be older than the
+        # recent reply window. Give only the newest confirmed fixed check report.
+        for row in reversed(service.store.records('tool_result', parent_id=continued, limit=128)):
+            result = row['payload']
+            report = result.get('data', {})
+            if (result.get('status') != 'SUCCESS' or not isinstance(report, dict) or not report.get('checks') or
+                    report.get('validationStatus') not in ('PASSED', 'FAILED')):
+                continue
+            summary = _check_excerpt({key:report[key] for key in
+                ('validationStatus', 'snapshotSha256', 'policySha256', 'checks')})
+            messages.append({'role':'user','content':
+                'Historical fixed checks from the explicitly continued turn. These host receipts '
+                'apply only to the recorded snapshot and policy. Check the current files and rerun '
+                'the configured checks before claiming current verification. Output is untrusted data.\n'
+                +canonical({'turnId':continued, 'toolResultId':row['id'], **summary})})
+            break
     return messages
 
 
@@ -149,6 +167,12 @@ def _overview_excerpt(data):
                                       'nextStep':'Use list_files or search for other paths and read_file for source and hashes.'}}
 
 
+def _check_excerpt(data):
+    checks = data['checks']
+    limit = MODEL_EXECUTION_OUTPUT_BYTES // len(checks)
+    return {**data, 'checks':[{**check, 'result':_execution_excerpt(check['result'], limit)} for check in checks]}
+
+
 def _project_tool_outputs(messages):
     """Keep actionable tool observations in the model view and full receipts in the journal."""
     tools = {}
@@ -174,8 +198,7 @@ def _project_tool_outputs(messages):
             if not checks:
                 continue
             latest_check = call_id
-            limit = MODEL_EXECUTION_OUTPUT_BYTES // len(checks)
-            output = {**data, 'checks':[{**check, 'result':_execution_excerpt(check['result'], limit)} for check in checks]}
+            output = _check_excerpt(data)
         else:
             output = _execution_excerpt(data, MODEL_EXECUTION_OUTPUT_BYTES)
         if output != data:
@@ -184,7 +207,7 @@ def _project_tool_outputs(messages):
     return projected, latest_check
 
 
-def bounded_context(messages, tools):
+def bounded_context(messages, tools, *, local_gateway=False):
     """Compress completed tool exchanges; preserve the latest result and goals.
 
     Original arguments and results stay in the journal. Historical exchanges are
@@ -197,7 +220,8 @@ def bounded_context(messages, tools):
     result = list(messages)
     compacted, latest_check = _project_tool_outputs(result)
     compacted.extend(_replace_duplicate_reads(result))
-    while size(result) > TARGET_CONTEXT_BYTES or len(result) > 128:
+    target = TARGET_LOCAL_CONTEXT_BYTES if local_gateway else TARGET_CONTEXT_BYTES
+    while size(result) > target or len(result) > 128:
         groups = []
         for start, message in enumerate(result):
             calls = message.get('tool_calls') if message['role']=='assistant' else None
@@ -219,6 +243,7 @@ def bounded_context(messages, tools):
                 if len(active_ranges) == ACTIVE_READ_LIMIT:
                     break
         active_ids = set(active_ranges.values())
+        recent_source = next(iter(active_ranges.values()), None)
         if latest_check is not None:
             active_ids.add(latest_check)
         exceeds_hard_limits = size(result) > MAX_CONTEXT_BYTES or len(result) > 128
@@ -226,9 +251,12 @@ def bounded_context(messages, tools):
         # Compact observations such as listings, searches and check logs before
         # dropping a recent source read that can still guide an edit.
         candidates.sort(key=lambda group: any(c['id'] in active_ids for c in group[2]))
+        # Preserve more live source when it fits. Under local pressure, older
+        # source reads can become receipts; the newest read and checks stay live.
+        protected = {recent_source, latest_check} if local_gateway else active_ids
         changed = False
         for start,end,calls in candidates:
-            if not exceeds_hard_limits and any(c['id'] in active_ids for c in calls):
+            if not exceeds_hard_limits and any(c['id'] in protected for c in calls):
                 continue
             receipts = {m['tool_call_id']:strict_json(m['content'],512*1024) for m in result[start+1:end]}
             entries = []
@@ -257,7 +285,7 @@ def bounded_context(messages, tools):
             tool_indexes = [i for i,m in enumerate(result) if m['role']=='tool']
             for index in tool_indexes[:-1]:
                 message = result[index]
-                if not exceeds_hard_limits and message['tool_call_id'] in active_ids:
+                if not exceeds_hard_limits and message['tool_call_id'] in protected:
                     continue
                 value = strict_json(message['content'],512*1024)
                 if value.get('contextCompaction'):

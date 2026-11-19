@@ -6,12 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from web_api.agent_context import bounded_context
+from web_api.agent_context import bounded_context, conversation_history
 from web_api.agent_metrics import ModelBudget
 from web_api.agent_provider import _messages
 from web_api.agent_service import AgentService
-from web_api.agent_store import canonical
+from web_api.agent_store import AgentStore, canonical
 from web_api.agent_tools import AgentTools, patch_text
+from web_api.agent_workspace import AgentWorkspaces, WorkspacePathResolver
 from web_api.schemas import ApiError
 
 
@@ -102,6 +103,80 @@ def test_new_read_does_not_erase_latest_fixed_check_failure():
     assert current['validationStatus'] == 'FAILED' and not current['checks'][0]['passed']
     assert 'FAILED verify_insertion_order' in current['checks'][0]['result']['stdout']
     assert _messages(messages) == messages
+
+
+def test_local_compaction_keeps_newest_read_and_fixed_check_under_pressure():
+    def source(name):
+        text = ('distinct implementation '+name+'\n') * 340
+        return {'path':name, 'content':text, 'sourceId':'workspace', 'sha256':'a'*64,
+                'startChar':0, 'endChar':len(text)}
+
+    original = [{'role':'user', 'content':'Ship only if the fixed tests pass.'},
+                *exchange('one','read_file',source('one.py')),
+                *exchange('two','read_file',source('two.py')),
+                *exchange('three','read_file',source('three.py')),
+                *exchange('four','read_file',source('four.py')),
+                *exchange('verify','run_checks',{'validationStatus':'FAILED','checks':[
+                    {'name':'fixed','passed':False,'result':{'exitCode':1,'stdout':'FAILED test_case'}}]})]
+    messages, checkpoint = bounded_context(original, [], local_gateway=True)
+    assert checkpoint['sentBytes'] <= 36 * 1024
+    assert checkpoint['compactedCallIds'] and 'four' not in checkpoint['compactedCallIds']
+    assert 'FAILED test_case' in messages[-1]['content']
+    assert 'distinct implementation four.py' in next(m for m in messages if m.get('tool_call_id')=='four')['content']
+    assert messages[0] == original[0] and _messages(messages) == messages
+
+
+def test_read_window_reports_partial_coverage_and_can_be_extended_explicitly(tmp_path, monkeypatch):
+    project = tmp_path/'project'
+    project.mkdir()
+    source = '公开材料\n'*4000
+    (project/'source.txt').write_bytes(source.encode())
+    providers = SimpleNamespace(check_text=lambda text: None)
+    workspaces = AgentWorkspaces(AgentStore(tmp_path/'state'), providers)
+    # The test runner may use an OS-owned temporary directory. Inject the
+    # resolved synthetic project; exercise the actual read and range checks.
+    monkeypatch.setattr(workspaces, 'resolver', lambda workspace, source_id: WorkspacePathResolver(project))
+    service = SimpleNamespace(workspaces=workspaces, runtime=SimpleNamespace(providers=providers))
+    turn = {'workspaceId':'fixture'}
+    tools = AgentTools(service)
+    first = tools.execute(turn, 'first', 'read_file', {'path':'source.txt'})
+    more = tools.execute(turn, 'more', 'read_file', {'path':'source.txt', 'startChar':first['nextStartChar'],
+        'expectedSha256':first['sha256'], 'maxChars':24000})
+    full = tools.execute(turn, 'full', 'read_file', {'path':'source.txt', 'maxChars':24000})
+    assert first['coverage']=='PARTIAL' and first['nextStartChar']==8000
+    assert first['content'] + more['content'] == source
+    assert more['sha256']==full['sha256']==first['sha256']
+    assert full['coverage']=='FULL' and full['content']==source
+
+
+def test_linked_turn_carries_only_confirmed_parent_check_as_historical(tmp_path):
+    store = AgentStore(tmp_path)
+    store.prepare()
+    workspace, cid = 'workspace_fixture', 'conversation_fixture'
+    parent = store.append('turn', {'prompt':'Implement the feature and preserve test inputs.'}, workspace, cid)
+    other = store.append('turn', {'prompt':'Run a separate check.'}, workspace, cid)
+
+    def record(turn, *, status, verdict, output):
+        return store.append('tool_result', {'status':status,'data':{'validationStatus':verdict,
+            'snapshotSha256':'s'*64,'policySha256':'p'*64,'checks':[
+                {'name':'acceptance','passed':False,'receiptId':'test_receipt',
+                 'result':{'exitCode':1,'stdout':output}}]}}, workspace, turn['id'])
+
+    evidence = record(parent,status='SUCCESS',verdict='FAILED',
+                      output='large output\n'*1000+'FAILED fixed_case')
+    record(parent,status='UNKNOWN',verdict='FAILED',output='unconfirmed outcome')
+    record(other,status='SUCCESS',verdict='FAILED',output='other turn output')
+    service = SimpleNamespace(store=store)
+    assert len(conversation_history(service,cid)) == 2
+    messages = conversation_history(service,cid,continued=parent['id'])
+    assert 'preserve test inputs' in messages[0]['content']
+    label, payload = messages[-1]['content'].split('\n',1)
+    assert 'Historical' in label and 'rerun' in label
+    observed = json.loads(payload)
+    assert observed['turnId']==parent['id'] and observed['toolResultId']==evidence['id']
+    assert observed['validationStatus']=='FAILED' and observed['snapshotSha256']=='s'*64
+    assert observed['checks'][0]['result']['exitCode']==1 and 'FAILED fixed_case' in payload
+    assert len(payload)<6300 and 'other turn output' not in payload and 'unconfirmed outcome' not in payload
 
 
 def test_patch_selector_rejection_explains_recovery_before_write_admission():

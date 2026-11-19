@@ -258,7 +258,7 @@ class AgentService:
                     fail('AGENT_CONVERSATION_LIMIT','该会话已达到64轮，请开启新会话。',409)
             else:
                 cid=self.store.append('conversation',{'title':prompt[:80]},wid)['id']
-            history=context_messages if context_messages is not None else self._history_messages(cid)
+            history=context_messages if context_messages is not None else self._history_messages(cid, continued=continued)
             turn=self.store.append('turn',{'prompt':prompt,'profile':profile,'workspaceRevision':workspace['revision'],
                 'sourceGrantIds':sorted(s['id'] for s in workspace['sources'] if s['enabled']),
                 'requestSha256':digest(body),'browserBindingId':binding,'evaluation':evaluation,'forcedSkill':forced_skill,
@@ -306,8 +306,8 @@ class AgentService:
                 self.store.append('cancel',{'reason':'USER_CANCELLED'},turn['workspaceId'],tid)
         return self.turn(tid)
 
-    def _history_messages(self,cid):
-        return conversation_history(self,cid)
+    def _history_messages(self,cid,*,continued=None):
+        return conversation_history(self,cid,continued=continued)
 
     def _messages(self,turn):
         workspace=self.workspaces.get(turn['workspaceId'])
@@ -350,7 +350,8 @@ class AgentService:
                 catalog=self.tools.catalog()
                 if turn['payload'].get('evaluation'):
                     catalog=[t for t in catalog if t['function']['name'] not in ('find_skills','use_skill','browser_read','browser_snapshot')]
-                provider_messages,checkpoint=bounded_context(messages,catalog)
+                provider_messages,checkpoint=bounded_context(messages,catalog,
+                    local_gateway=turn['payload']['profile'].get('protocol')=='local-gateway')
                 if checkpoint:
                     self.store.append('context_checkpoint',{'round':round_number+1,**checkpoint},wid,tid)
                 request={'messages':provider_messages,'tools':catalog}
