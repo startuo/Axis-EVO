@@ -46,6 +46,17 @@
 - 63 项关联后端回归首跑 62 通过、1 项 Skill Evolution 轮询在 30 秒内未完成。原日志中的该轮后来实际记录 `ADOPTED`。单独完整复跑该项通过，包含采用后的输入变化及回退断言。
 - 此次 Windows 安装包 SHA-256 `f757991cc1edadcee24ffed7ae8fc09fb1b0ffc19060518f0918f47bf4cb1390`。实际安装版配置、记录与凭据保留，以及包内 Python worker 的本地确定性编辑均复验通过。两个 EXE 的三种尺寸图标再度与原图生成资源一致。
 
+## 本轮真实模型复验（2026-11-19 复核）
+
+使用 `89c582d` Runtime、相同冻结项目、提示、工具权限及固定测试。Ollama 在独立回环端口运行，使用相同模型与 16,384 Token 上下文，开启 Flash Attention 和 Q8 KV 缓存。录制代理只设置 `reasoning_effort=none`、`temperature=0.3`、`seed=61`，不改写任务、工具调用或模型响应。付费 Provider 请求 0 次。
+
+| 真实任务 | 实际请求与耗时 | 独立固定检查 | 终止原因 |
+| --- | --- | --- | --- |
+| python-slugify `--stdin --lines` | 15 次，838.56 秒；14 次有效响应 173,813 Token，末次另有 16,384 Token | 实际修改 CLI、README、报告；原测试 2 failed、133 passed、3 skipped、137 subtests passed；新增 1/8 | 从一次 `PATCH_AMBIGUOUS` 拒绝恢复后继续编辑。最后读入约 24 KiB 的测试文本，请求体 82,328 字节；Provider 报告输入 16,078 Token、输出 306 Token、`finish_reason=length` |
+| Tomli-W `sort_keys` | 18 次，705.91 秒；17 次有效响应 195,484 Token，末次另有 16,384 Token | 实际修改 writer 和 README；引入 `SyntaxError`，原测试和新增验收均未进入有效执行。独立任务此前最好为原测试通过、固定验收 3/4 | 最后请求体 52,193 字节；Provider 报告输入 16,298 Token、输出 86 Token、`finish_reason=length` |
+
+两次末轮都返回 HTTP 200，Runtime 拒绝截断响应并保留实际写入和原始回执。33 次实际请求、31 次有效响应计 369,297 Token；加上有协议用量的两次拒绝，共计 402,065 Token。本组没有通过真实任务门槛，也没有得到端到端节约成本的证据。字节软预算不能保证 Provider 侧还有足够输出空间；同时，Tomli-W 的失败也包含独立可验证的代码错误。保留两次实际差异和未改动的测试，`main` 不合并。
+
 <!-- AXIS_M61_CURRENT_END -->
 
 <!-- AXIS_M6_CURRENT_START -->
