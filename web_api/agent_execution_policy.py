@@ -64,7 +64,7 @@ class AgentExecution:
             self.service.store.append('execution_policy',{**body,'protectedPaths':paths,'protectedInputs':protected},wid)
         return self.public_policy(wid)
 
-    def execute(self, turn, call_id, argv, timeout=None):
+    def execute(self, turn, call_id, argv, timeout=None, *, stdin_text=None):
         wid=turn['workspaceId']
         policy=self.policy(wid)
         if not policy['enabled']:
@@ -76,7 +76,7 @@ class AgentExecution:
         inputs=snapshot(self.service.workspaces,wid)
         record=self.service.store.append('command_snapshot',{'callId':call_id,'manifest':inputs['manifest'],
             'snapshotSha256':inputs['sha256'],'policyId':policy['id']},wid,turn['id'])
-        result=self.runner.run(inputs,policy['imageId'],argv,timeout=timeout or policy['timeoutSeconds'],
+        result=self.runner.run(inputs,policy['imageId'],argv,timeout=timeout or policy['timeoutSeconds'],stdin_text=stdin_text,
             cancelled=lambda:self.service._cancelled(turn) or time.monotonic()>self.service._deadlines.get(turn['id'],float('inf')),
             on_prepared=lambda ref:self.service.bind_execution(turn,call_id,'container',ref))
         return {**result,'snapshotId':record['id'],'inputFiles':len(inputs['manifest']['files']),

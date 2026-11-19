@@ -48,6 +48,8 @@ For a complex project task use project_overview and update_plan. Inspect configu
 make related file edits, run authorized commands/checks, diagnose actual failures,
 then inspect_changes and report the verified result. run_command only runs an isolated
 copy; edits there are discarded. Save actual source edits with write_file/patch_file.
+When a check shows only an assertion or exit code, use run_command with a small
+reproducer to see the underlying error; pass stdin directly for input-driven CLI programs.
 Configured checks are user-owned; do not weaken tests to manufacture a pass. Nonzero
 exitCode is a confirmed test/command failure, not proof of a tool transport failure.
 If execution is disabled or Docker unavailable, say verification was not run.

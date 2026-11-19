@@ -17,7 +17,7 @@ from axis_evo.validators import validate_acceptance
 from .agent_store import canonical
 from .agent_workspace import MAX_FILE_BYTES, relative_path, fail
 from .agent_project import overview, update_plan, changes
-from .agent_execution import validate_argv
+from .agent_execution import validate_argv, encode_stdin
 from .agent_fileops import MUTATIONS, directory_path, paths as mutation_paths, execute as file_operation
 from .agent_git import observe as git_observe
 from .schemas import ApiError, no_redirected_parents
@@ -39,8 +39,10 @@ CATALOG = [
     _function('project_overview','了解授权项目的结构、配置入口与测试文件。只列出实际观察，不运行项目。',{},[]),
     _function('update_plan','为复杂任务记录并更新简短工作计划；完成标记是计划声明，验证仍须工具证据。',
         {'steps':{'type':'array','maxItems':12,'items':{'type':'object','properties':{'title':TEXT,'status':{'type':'string','enum':['pending','in_progress','completed']}},'required':['title','status'],'additionalProperties':False}}},['steps']),
-    _function('run_command','在用户授权的无网络 Linux 容器内执行 argv；只使用项目文本副本，无宿主挂载。副本修改不会写回项目。依据 exitCode 判断测试结果，UNKNOWN 不重试。',
-        {'argv':{'type':'array','items':TEXT,'minItems':1,'maxItems':64},'timeoutSeconds':{'type':'integer','minimum':1,'maximum':120}},['argv']),
+    _function('run_command','在授权的无网络 Linux 容器中执行 argv，可用 stdin 直接复现读取标准输入的命令并查看原始输出。项目副本不写回，依据 exitCode 判断成败，UNKNOWN 不重试。',
+        {'argv':{'type':'array','items':TEXT,'minItems':1,'maxItems':64},
+         'stdin':{'type':'string','description':'可选 UTF-8 标准输入，最多 8 KiB；不传时为空'},
+         'timeoutSeconds':{'type':'integer','minimum':1,'maximum':120}},['argv']),
     _function('run_checks','执行用户预先配置的固定项目校验，使用当前项目的隔离副本。检查定义不能由模型修改。',{},[]),
     _function('inspect_changes','查看本轮每个文件首次修改前到最后保存版本的差异，以及是否仍匹配当前文件。',{},[]),
     _function('list_files','分页列出授权来源的文件。pathPrefix 为空时列出整个来源，也可传相对目录；继续列举使用返回的 nextOffset。列表不代表内容已读取。',
@@ -153,6 +155,9 @@ class AgentTools:
             if name=='run_command' and key=='argv':
                 validate_argv(value)
                 continue
+            if name=='run_command' and key=='stdin':
+                encode_stdin(value)
+                continue
             if name=='run_command' and key=='timeoutSeconds':
                 if type(value) is not int or not 1<=value<=120:
                     fail('EXECUTION_TIMEOUT','命令时限无效。')
@@ -193,7 +198,8 @@ class AgentTools:
         if name=='update_plan':
             return update_plan(self.service,turn,args['steps'])
         if name=='run_command':
-            return self.service.execution.execute(turn,call_id,args['argv'],args.get('timeoutSeconds'))
+            return self.service.execution.execute(turn,call_id,args['argv'],args.get('timeoutSeconds'),
+                stdin_text=args.get('stdin'))
         if name=='run_checks':
             value=self.service.execution.verify(wid,turn['id'],cancelled=lambda:self.service._cancelled(turn)
                 or time.monotonic()>self.service._deadlines.get(turn['id'],float('inf')))

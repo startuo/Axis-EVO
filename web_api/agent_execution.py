@@ -4,6 +4,7 @@ The Docker daemon/image remain trusted dependencies. This is container isolation
 not a claim of protection against kernel/daemon vulnerabilities or the OS owner.
 No host directory, socket, credential or environment is mounted into the container.
 """
+import hashlib
 import json
 import os
 import re
@@ -16,8 +17,10 @@ from uuid import uuid4
 from .agent_workspace import fail
 
 MAX_OUTPUT = 64 * 1024
+MAX_STDIN_BYTES = 8192
 IMAGE_ID = re.compile(r'sha256:[a-f0-9]{64}\Z')
-BOOTSTRAP = 'umask 077; mkdir /tmp/project && tar -xf - -C /tmp/project && cd /tmp/project && exec timeout -s KILL {seconds} env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp PYTHONDONTWRITEBYTECODE=1 "$@" </dev/null'
+BOOTSTRAP = 'mkdir /tmp/project && tar -xf - -C /tmp/project && cd /tmp/project && '
+COMMAND = 'exec timeout -s KILL {seconds} env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp PYTHONDONTWRITEBYTECODE=1 "$@"'
 
 
 def validate_argv(argv):
@@ -26,6 +29,17 @@ def validate_argv(argv):
             or not argv[0] or sum(len(arg.encode('utf-8')) for arg in argv)>12000):
         fail('EXECUTION_ARGUMENTS', '命令需为有界的参数数组。')
     return argv
+
+
+def encode_stdin(value):
+    if type(value) is str:
+        try:
+            raw = value.encode('utf-8')
+        except UnicodeError:
+            raw = None
+        if raw is not None and len(raw) <= MAX_STDIN_BYTES:
+            return raw
+    fail('EXECUTION_STDIN', '标准输入应为不超过 8 KiB 的 UTF-8 文本。')
 
 
 class ContainerRunner:
@@ -101,8 +115,11 @@ class ContainerRunner:
                 self._cli(['rm','--force',helper])
 
     def run(self, snapshot, image_id, argv, *, timeout=60, cancelled=lambda:False, on_prepared=lambda ref:None,
-            readonly=False):
+            readonly=False, stdin_text=None):
         validate_argv(argv)
+        stdin = None if stdin_text is None else encode_stdin(stdin_text)
+        if readonly and stdin is not None:
+            fail('EXECUTION_STDIN', '固定验证不接收临时标准输入。')
         if type(timeout) is not int or not 1<=timeout<=120:
             fail('EXECUTION_TIMEOUT', '单次命令时限需为1至120秒。')
         self.image(image_id)
@@ -120,8 +137,14 @@ class ContainerRunner:
             args.extend(['--mount','type=volume,source='+volume+',target=/project,readonly'])
         # The container also owns a deadline. If the coordinator disappears,
         # PID 1 still exits and Docker terminates the isolated process tree.
-        bootstrap=('exec timeout -s KILL {seconds} env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp PYTHONDONTWRITEBYTECODE=1 "$@" </dev/null'
-            if readonly else BOOTSTRAP).format(seconds=timeout)
+        # The byte count is host-derived. Keep model text out of the bootstrap
+        # and command arguments. Read exactly the prefix before tar sees input.
+        command=COMMAND.format(seconds=timeout)
+        bootstrap=command+' </dev/null'
+        if not readonly:
+            prefix = (f'dd bs=1 count={len(stdin)} of=/tmp/axis-stdin 2>/dev/null && '
+                      f'test "$(wc -c </tmp/axis-stdin)" -eq {len(stdin)} && ') if stdin else ''
+            bootstrap='umask 077; '+prefix+BOOTSTRAP+command+(' </tmp/axis-stdin' if stdin else ' </dev/null')
         args.extend([image_id,'-c',bootstrap,'axis-command',*argv])
         try:
             container=self._cli(args,30)
@@ -155,8 +178,11 @@ class ContainerRunner:
                         output.extend(chunk[:MAX_OUTPUT-len(output)])
             def feed():
                 try:
-                    process.stdin.write(b'' if readonly else snapshot['archive'])
-                    process.stdin.close()
+                    with process.stdin as stream:
+                        if stdin:
+                            stream.write(stdin)
+                        if not readonly:
+                            stream.write(snapshot['archive'])
                 except (OSError,ValueError):
                     pass
             reader=threading.Thread(target=drain,daemon=True)
@@ -190,6 +216,8 @@ class ContainerRunner:
                 'oomKilled':bool(state.get('OOMKilled')),'effectScope':'EPHEMERAL_PROJECT_COPY',
                 'network':'NONE','hostMounts':False,'trust':'UNTRUSTED_COMMAND_OUTPUT'}
             result['inputReadOnly']=readonly
+            if stdin is not None:
+                result.update(stdinBytes=len(stdin), stdinSha256=hashlib.sha256(stdin).hexdigest())
             return result
         except Exception:
             if not started:
