@@ -14,6 +14,7 @@ MAX_CONTEXT_BYTES = 224 * 1024  # Leaves room for the Provider wire envelope.
 TARGET_CONTEXT_BYTES = 48 * 1024  # Keep several active source files; hard ceiling still preserves requirements.
 TARGET_LOCAL_CONTEXT_BYTES = 36 * 1024  # Leave generation room for smaller local gateways.
 ACTIVE_READ_LIMIT = 4
+LOCAL_ACTIVE_PAIR_BYTES = 8192
 MODEL_EXECUTION_OUTPUT_BYTES = 4800
 MODEL_PROJECT_OVERVIEW_BYTES = 4800
 CONTINUATION_SOURCE_BYTES = 8192
@@ -285,6 +286,36 @@ def _project_tool_outputs(messages):
     return projected, latest_check
 
 
+def _active_source_calls(messages, *, local_gateway):
+    active = {}
+    newest = None
+    newest_bytes = 0
+    companion = None
+    for message in reversed(messages):
+        if message['role'] != 'tool':
+            continue
+        result = strict_json(message['content'], 512 * 1024)
+        identity = _read_identity(result)
+        if identity is None:
+            continue
+        call_id = message['tool_call_id']
+        if len(active) < ACTIVE_READ_LIMIT:
+            active.setdefault(identity[:2], call_id)
+        if newest is None:
+            newest = identity
+            newest_bytes = len(result['data']['content'].encode('utf-8'))
+        elif local_gateway and companion is None and identity[:3] == newest[:3]:
+            start, end = identity[3:]
+            if start < end and (end <= newest[3] or start >= newest[4]) and (
+                    newest_bytes + len(result['data']['content'].encode('utf-8')) <= LOCAL_ACTIVE_PAIR_BYTES):
+                companion = call_id
+        if len(active) == ACTIVE_READ_LIMIT and (not local_gateway or companion is not None
+                or newest_bytes >= LOCAL_ACTIVE_PAIR_BYTES):
+            break
+    recent = {next(iter(active.values()), None), companion} - {None}
+    return set(active.values()) | recent, recent
+
+
 def bounded_context(messages, tools, *, local_gateway=False):
     """Compress completed tool exchanges; preserve the latest result and goals.
 
@@ -312,17 +343,7 @@ def bounded_context(messages, tools, *, local_gateway=False):
             groups.append((start,end,calls))
         # Prefer replacing older exchanges as a whole. A large multi-call
         # latest exchange may need explicit receipt projections below.
-        active_ranges = {}
-        for message in reversed(result):
-            if message['role'] != 'tool':
-                continue
-            identity = _read_identity(strict_json(message['content'], 512 * 1024))
-            if identity is not None and identity[:2] not in active_ranges:
-                active_ranges[identity[:2]] = message['tool_call_id']
-                if len(active_ranges) == ACTIVE_READ_LIMIT:
-                    break
-        active_ids = set(active_ranges.values())
-        recent_source = next(iter(active_ranges.values()), None)
+        active_ids, recent_sources = _active_source_calls(result, local_gateway=local_gateway)
         if latest_check is not None:
             active_ids.add(latest_check)
         exceeds_hard_limits = size(result) > MAX_CONTEXT_BYTES or len(result) > 128
@@ -330,9 +351,9 @@ def bounded_context(messages, tools, *, local_gateway=False):
         # Compact observations such as listings, searches and check logs before
         # dropping a recent source read that can still guide an edit.
         candidates.sort(key=lambda group: any(c['id'] in active_ids for c in group[2]))
-        # Preserve more live source when it fits. Under local pressure, older
-        # source reads can become receipts; the newest read and checks stay live.
-        protected = {recent_source, latest_check} if local_gateway else active_ids
+        # Keep a small companion page of the active revision so paging doesn't
+        # discard the previous half of the same observation after each read.
+        protected = recent_sources | {latest_check} if local_gateway else active_ids
         changed = False
         for start,end,calls in candidates:
             if not exceeds_hard_limits and any(c['id'] in protected for c in calls):
