@@ -62,13 +62,18 @@ def conversation_history(service, cid, *, continued=None):
     if continued:
         # This is the explicit continuation parent, which can be older than the
         # recent reply window. Give only the newest confirmed fixed check report.
-        for row in reversed(service.store.records('tool_result', parent_id=continued, limit=128)):
+        for row in reversed(service.store.records(parent_id=continued, limit=512)):
             result = row['payload']
+            if row['kind']=='host_delivery_check':
+                result = {'status':'SUCCESS','data':result} if all(
+                    c['result']['status']=='SUCCESS' for c in result['checks']) else {}
+            elif row['kind']!='tool_result':
+                continue
             report = result.get('data', {})
             if (result.get('status') != 'SUCCESS' or not isinstance(report, dict) or not report.get('checks') or
                     report.get('validationStatus') not in ('PASSED', 'FAILED')):
                 continue
-            summary = _check_excerpt({key:report[key] for key in
+            summary = fixed_check_excerpt({key:report[key] for key in
                 ('validationStatus', 'snapshotSha256', 'policySha256', 'checks')})
             messages.append({'role':'user','content':
                 'Historical fixed checks from the explicitly continued turn. These host receipts '
@@ -167,7 +172,7 @@ def _overview_excerpt(data):
                                       'nextStep':'Use list_files or search for other paths and read_file for source and hashes.'}}
 
 
-def _check_excerpt(data):
+def fixed_check_excerpt(data):
     checks = data['checks']
     limit = MODEL_EXECUTION_OUTPUT_BYTES // len(checks)
     return {**data, 'checks':[{**check, 'result':_execution_excerpt(check['result'], limit)} for check in checks]}
@@ -198,7 +203,7 @@ def _project_tool_outputs(messages):
             if not checks:
                 continue
             latest_check = call_id
-            output = _check_excerpt(data)
+            output = fixed_check_excerpt(data)
         else:
             output = _execution_excerpt(data, MODEL_EXECUTION_OUTPUT_BYTES)
         if output != data:

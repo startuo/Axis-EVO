@@ -69,6 +69,8 @@ export function agentStopReason(code?: string | null) {
     COORDINATOR_RESTARTED: '服务重启前的执行结果尚未确认。已停止该操作，保留文件和执行记录。',
     COORDINATOR_UNCONFIRMED: '这次执行未能确认。请查看已保存的文件和过程记录，系统不会自动重做未知操作。',
     TOOL_OUTCOME_UNKNOWN: '工具没有返回可以确认的执行结果。相关路径保持停止，其他工作可以继续。',
+    FIXED_CHECKS_FAILED: '固定检查未通过，本轮未完成。已保存的改动和检查结果可供继续修复。',
+    FIXED_CHECK_OUTCOME_UNKNOWN: '固定检查的结果无法确认。已保存改动和检查记录，未自动重试。',
     WORKSPACE_POLICY_CHANGED: '工作区设置已变化，本轮已停止。之后的任务使用新设置。',
     WORKSPACE_ROOT_CHANGED: '工作区文件夹身份已变化，需要在设置中重新选择。',
     SOURCE_NOT_AUTHORIZED: '任务需要的资料来源已撤销或尚未授权，请在知识与 Skills 设置中检查。',

@@ -82,12 +82,18 @@ class AgentExecution:
         return {**result,'snapshotId':record['id'],'inputFiles':len(inputs['manifest']['files']),
             'argv':argv,'policyId':policy['id']}
 
-    def verify(self, wid, parent_id, *, cancelled=lambda:False, fixed_snapshot=None):
+    def verify(self, wid, parent_id, *, cancelled=lambda:False, fixed_snapshot=None, previous=None):
         """Run immutable user checks, including when the model elects not to test."""
         policy=self.policy(wid)
         if not policy['enabled'] or not policy['checks']:
             return {'status':'NOT_CONFIGURED','checks':[]}
+        if cancelled():
+            fail('EXECUTION_CANCELLED','验证授权已撤销或任务已停止。',409)
         inputs=fixed_inputs(fixed_snapshot or snapshot(self.service.workspaces,wid),policy.get('protectedInputs',[]))
+        policy_sha=digest({k:v for k,v in policy.items() if k!='id'})
+        if (previous and previous['snapshotSha256']==inputs['sha256']
+                and previous['policySha256']==policy_sha):
+            return previous
         checks=[]
         for index,check in enumerate(policy['checks']):
             if cancelled():
@@ -106,5 +112,5 @@ class AgentExecution:
             if result['status']=='UNKNOWN':
                 break
         return {'status':'PASSED' if len(checks)==len(policy['checks']) and all(c['passed'] for c in checks) else 'FAILED',
-            'checks':checks,'policySha256':digest({k:v for k,v in policy.items() if k!='id'}),
+            'checks':checks,'policySha256':policy_sha,
             'snapshotSha256':inputs['sha256']}

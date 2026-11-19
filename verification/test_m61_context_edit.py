@@ -12,7 +12,7 @@ from web_api.agent_provider import _messages
 from web_api.agent_service import AgentService
 from web_api.agent_store import AgentStore, canonical
 from web_api.agent_tools import AgentTools, patch_text
-from web_api.agent_workspace import AgentWorkspaces, WorkspacePathResolver
+from web_api.agent_workspace import AgentWorkspaces, WorkspacePathResolver, root_identity
 from web_api.schemas import ApiError
 
 
@@ -177,6 +177,65 @@ def test_linked_turn_carries_only_confirmed_parent_check_as_historical(tmp_path)
     assert observed['validationStatus']=='FAILED' and observed['snapshotSha256']=='s'*64
     assert observed['checks'][0]['result']['exitCode']==1 and 'FAILED fixed_case' in payload
     assert len(payload)<6300 and 'other turn output' not in payload and 'unconfirmed outcome' not in payload
+
+
+@pytest.mark.parametrize('repair,outcome,checks', [(True,'COMPLETED',2),(False,'FAILED',1)])
+def test_host_checks_persisted_changes_before_model_can_finish(tmp_path, monkeypatch, repair, outcome, checks):
+    import io
+    import tarfile
+
+    project = tmp_path/'project'
+    project.mkdir()
+    def reply(text):
+        return {'role':'assistant','content':text}
+
+    def write(identity, value, expected):
+        return {'role':'assistant','content':None,'tool_calls':[{'id':identity,'type':'function',
+            'function':{'name':'write_file','arguments':canonical({'path':'product.py','content':value,
+                                                                 'expectedSha256':expected})}}]}
+
+    bad, good = 'result = 0\n', 'result = 42\n'
+    responses = [write('create',bad,None), reply('I think the work is done.')]
+    if repair:
+        responses.append(write('correct',good,hashlib.sha256(bad.encode()).hexdigest()))
+    responses.append(reply('Work finished.'))
+    requested, executed = [], []
+
+    def complete(providers, profile, messages, tools, cancelled):
+        assert not cancelled()
+        requested.append(messages)
+        return responses[len(requested)-1]
+
+    profile = {'id':'fixture','revision':1,'modelId':'fixture','configSha256':'b'*64,'protocol':'local-gateway'}
+    providers = SimpleNamespace(get=lambda *args:profile, adapter=lambda *args:None, check_text=lambda *args:None)
+    config = SimpleNamespace(data_dir=tmp_path/'state')
+    service = AgentService(SimpleNamespace(config=config,providers=providers),object(),completion=complete)
+    def container(inputs, image, argv, **kwargs):
+        assert kwargs['readonly'] and not kwargs['cancelled']()
+        with tarfile.open(fileobj=io.BytesIO(inputs['archive'])) as tar:
+            value = tar.extractfile('product.py').read().decode()
+        executed.append((value,argv))
+        return {'status':'SUCCESS','exitCode':0 if value==good else 1,'stdout':'checked persisted artifact'}
+
+    monkeypatch.setattr(service.workspaces,'_root',lambda path:(project,root_identity(project)))
+    monkeypatch.setattr(service.execution.runner,'image',lambda image: None)
+    monkeypatch.setattr(service.execution.runner,'run',container)
+    try:
+        ws=service.create_workspace({'name':'fixture','path':str(project),'writeMode':'write','shareWithProvider':True})
+        service.execution.configure(ws['id'],{'enabled':True,'imageId':'sha256:'+'a'*64,'timeoutSeconds':30,
+            'checks':[{'name':'fixed','argv':['python','tests.py']}]})
+        result=service.submit({'workspaceId':ws['id'],'profileId':profile['id'],'profileRevision':1,
+            'requestId':'fixture123','prompt':'Update product.py and verify it.'},inline=True)['turns'][0]
+        assert result['status']==outcome and len(executed)==checks
+        assert executed == [(bad,['python','tests.py'])] + ([(good,['python','tests.py'])] if repair else [])
+        assert any('Host ran the configured fixed checks' in (m.get('content') or '') for m in requested[2])
+        receipts=[e['payload'] for e in result['events'] if e['kind']=='host_delivery_check']
+        assert [e['status'] for e in receipts]==(['FAILED','PASSED'] if repair else ['FAILED'])
+        assert (project/'product.py').read_bytes()==(good if repair else bad).encode()
+        if not repair:
+            assert result['code']=='FIXED_CHECKS_FAILED'
+    finally:
+        service.close()
 
 
 def test_patch_selector_rejection_explains_recovery_before_write_admission():
