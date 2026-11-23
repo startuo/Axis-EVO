@@ -29,6 +29,7 @@ def _function(name, description, properties, required):
 
 
 TEXT={'type':'string'}
+MAX_PATCH_REPLACEMENTS = 8
 CATALOG = [
     _function('create_directory','在授权工作区创建一个普通目录，父目录必须存在。不递归创建。',{'path':TEXT},['path']),
     _function('move_file','移动单个已读取文本文件，不覆盖目标；保留原件和操作事实。部分完成为 UNKNOWN，不重试。',{'path':TEXT,'destination':TEXT,'expectedSha256':TEXT},['path','destination','expectedSha256']),
@@ -54,8 +55,11 @@ CATALOG = [
          'maxChars':{'type':'integer','minimum':1,'maximum':24000},'expectedSha256':TEXT},['path']),
     _function('write_file','写入工作区文本。新文件 expectedSha256 为 null；覆盖必须先读取并传原字节 SHA256。旧内容自动保留。',
         {'path':TEXT,'content':TEXT,'expectedSha256':{'type':['string','null']}},['path','content','expectedSha256']),
-    _function('patch_file','使用读取所得 SHA-256 编辑最小连续片段。替换单行正文只传 startLine 和 newLine，自动保留原缩进和行尾。范围替换传 startLine/endLine 和 new（从1开始、结束行不含），或传唯一匹配的 old 和 new。成功后下次编辑使用新摘要。',
+    _function('patch_file','使用读取所得 SHA-256 编辑文件。同一文件的关联修改可传 replacements，每项给唯一匹配的 old 和 new，所有原文基于同一快照。单行正文传 startLine 和 newLine，保留缩进和行尾。其余可传 startLine/endLine 和 new，或 old 和 new。',
         {'path':TEXT,'old':TEXT,'new':TEXT,'newLine':{'type':'string','description':'单行正文，无缩进、无换行。'},'expectedSha256':TEXT,
+         'replacements':{'type':'array','minItems':1,'maxItems':MAX_PATCH_REPLACEMENTS,
+                         'items':{'type':'object','properties':{'old':TEXT,'new':TEXT},
+                                  'required':['old','new'],'additionalProperties':False}},
          'startLine':{'type':'integer','minimum':1},'endLine':{'type':'integer','minimum':1}},
         ['path','expectedSha256']),
     _function('find_skills','按任务发现授权的 SKILL.md 和已导入版本。使用返回的 useArguments 调用 use_skill。',{'query':TEXT},[]),
@@ -107,6 +111,25 @@ def patch_text(text, args):
     # Convert a model's LF to the source convention only for uniform files.
     without_crlf = text.replace('\r\n', '')
     uniform_crlf = '\r\n' in text and '\r' not in without_crlf and '\n' not in without_crlf
+    if 'replacements' in args:
+        spans = []
+        for index, item in enumerate(args['replacements'], 1):
+            old, replacement = item['old'], item['new']
+            if uniform_crlf:
+                old = old.replace('\r\n', '\n').replace('\n', '\r\n')
+                replacement = replacement.replace('\r\n', '\n').replace('\n', '\r\n')
+            start = text.find(old)
+            if start < 0 or text.find(old, start + 1) != -1:
+                fail('PATCH_AMBIGUOUS', f'第 {index} 处原文在同一版本中必须恰好匹配一次。', 409)
+            spans.append((start, start + len(old), replacement))
+        pieces, end = [], 0
+        for start, stop, replacement in sorted(spans):
+            if start < end:
+                fail('PATCH_RANGE', '同一补丁的原文范围重叠，请合并成一处替换。', 409)
+            pieces.extend((text[end:start], replacement))
+            end = stop
+        pieces.append(text[end:])
+        return ''.join(pieces)
     if uniform_crlf and new is not None:
         new = new.replace('\r\n', '\n').replace('\n', '\r\n')
     if 'old' in args:
@@ -160,7 +183,15 @@ class AgentTools:
             fail('AGENT_TOOL_ARGUMENTS','工具参数不完整或包含未注册字段。')
         if name == 'patch_file':
             selectors = args.keys() & {'old','startLine','endLine'}
-            if 'newLine' in args:
+            if 'replacements' in args:
+                edits = args['replacements']
+                if (selectors or args.keys() & {'new','newLine'} or type(edits) is not list
+                        or not 1 <= len(edits) <= MAX_PATCH_REPLACEMENTS
+                        or any(type(item) is not dict or item.keys() != {'old','new'}
+                               or type(item['old']) is not str or not item['old']
+                               or type(item['new']) is not str for item in edits)):
+                    fail('AGENT_TOOL_ARGUMENTS','多处替换只传 replacements，其中每项须有非空 old 和字符串 new。')
+            elif 'newLine' in args:
                 if ('new' in args or selectors != {'startLine'} or type(args['newLine']) is not str
                         or '\r' in args['newLine'] or '\n' in args['newLine']):
                     fail('AGENT_TOOL_ARGUMENTS','单行替换只传 startLine 和无换行的 newLine，保留原缩进和行尾。')
@@ -170,6 +201,8 @@ class AgentTools:
                 or ('endLine' in args and 'startLine' not in args)):
             fail('AGENT_TOOL_ARGUMENTS','用 startChar 或 startLine 选择起点，endLine 需要 startLine。')
         for key,value in args.items():
+            if name=='patch_file' and key=='replacements':
+                continue
             if name=='run_command' and key=='argv':
                 validate_argv(value)
                 continue
