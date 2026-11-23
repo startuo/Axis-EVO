@@ -10,7 +10,8 @@ from axis_evo.sandbox import _pin_windows_parents
 from .agent_workspace import EXCLUDED, MAX_FILE_BYTES, fail, relative_path
 from .schemas import no_redirected_parents
 
-MUTATIONS = frozenset(('write_file', 'patch_file', 'create_directory', 'move_file', 'delete_file'))
+TEXT_EDITS = frozenset(('write_file', 'patch_file', 'patch_lines'))
+MUTATIONS = TEXT_EDITS | {'create_directory', 'move_file', 'delete_file'}
 
 
 def directory_path(value):

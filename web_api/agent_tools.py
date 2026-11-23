@@ -18,7 +18,7 @@ from .agent_store import canonical
 from .agent_workspace import MAX_FILE_BYTES, relative_path, fail
 from .agent_project import overview, update_plan, changes
 from .agent_execution import validate_argv, encode_stdin
-from .agent_fileops import MUTATIONS, directory_path, paths as mutation_paths, execute as file_operation
+from .agent_fileops import MUTATIONS, TEXT_EDITS, directory_path, paths as mutation_paths, execute as file_operation
 from .agent_git import observe as git_observe
 from .schemas import ApiError, no_redirected_parents
 
@@ -30,6 +30,9 @@ def _function(name, description, properties, required):
 
 TEXT={'type':'string'}
 MAX_PATCH_REPLACEMENTS = 8
+PATCH_TARGET = {'path':TEXT, 'expectedSha256':TEXT}
+LINE = {'type':'integer', 'minimum':1}
+LEGACY_PATCH_PROPERTIES = {'old':TEXT, 'new':TEXT, 'newLine':TEXT, 'startLine':LINE, 'endLine':LINE}
 CATALOG = [
     _function('create_directory','在授权工作区创建一个普通目录，父目录必须存在。不递归创建。',{'path':TEXT},['path']),
     _function('move_file','移动单个已读取文本文件，不覆盖目标；保留原件和操作事实。部分完成为 UNKNOWN，不重试。',{'path':TEXT,'destination':TEXT,'expectedSha256':TEXT},['path','destination','expectedSha256']),
@@ -55,13 +58,15 @@ CATALOG = [
          'maxChars':{'type':'integer','minimum':1,'maximum':24000},'expectedSha256':TEXT},['path']),
     _function('write_file','写入工作区文本。新文件 expectedSha256 为 null；覆盖必须先读取并传原字节 SHA256。旧内容自动保留。',
         {'path':TEXT,'content':TEXT,'expectedSha256':{'type':['string','null']}},['path','content','expectedSha256']),
-    _function('patch_file','使用读取所得 SHA-256 编辑文件。同一文件的关联修改可传 replacements，每项给唯一匹配的 old 和 new，所有原文基于同一快照。单行正文传 startLine 和 newLine，保留缩进和行尾。其余可传 startLine/endLine 和 new，或 old 和 new。',
-        {'path':TEXT,'old':TEXT,'new':TEXT,'newLine':{'type':'string','description':'单行正文，无缩进、无换行。'},'expectedSha256':TEXT,
+    _function('patch_file','按读取所得 SHA-256 在同一文件替换一到八处原文。每项 old 必须在同一原文件中恰好出现一次，new 为替换文本，可为空。单处也传一个 replacements 元素。',
+        {**PATCH_TARGET,
          'replacements':{'type':'array','minItems':1,'maxItems':MAX_PATCH_REPLACEMENTS,
                          'items':{'type':'object','properties':{'old':TEXT,'new':TEXT},
-                                  'required':['old','new'],'additionalProperties':False}},
-         'startLine':{'type':'integer','minimum':1},'endLine':{'type':'integer','minimum':1}},
-        ['path','expectedSha256']),
+                                  'required':['old','new'],'additionalProperties':False}}},
+        ['path','expectedSha256','replacements']),
+    _function('patch_lines','按读取所得 SHA-256 替换已观察的行范围。从第 1 行开始计数，endLine 不含。new 包含需要的缩进，保留后续行时非空 new 必须以换行结束。起止相同时在该边界插入。',
+        {**PATCH_TARGET,'startLine':LINE,'endLine':LINE,'new':TEXT},
+        ['path','expectedSha256','startLine','endLine','new']),
     _function('find_skills','按任务发现授权的 SKILL.md 和已导入版本。使用返回的 useArguments 调用 use_skill。',{'query':TEXT},[]),
     _function('use_skill','读取并固定 Skill。已导入项只传 skillId；只传授权 Skill 库的 sourceId 读取该库根目录的 SKILL.md，嵌套 Skill 另传 path。Skill 不授予权限。',
         {'skillId':{'type':'string','description':'已导入项返回的 skillId，不是文件路径'},'sourceId':TEXT,'path':TEXT},[]),
@@ -138,7 +143,7 @@ def patch_text(text, args):
             old = old.replace('\r\n', '\n').replace('\n', '\r\n')
         matches = text.count(old) if old else 0
         if matches != 1:
-            fail('PATCH_AMBIGUOUS', f'原文匹配 {matches} 处。用相同摘要下已观察的行范围，或选择唯一原文片段。', 409)
+            fail('PATCH_AMBIGUOUS', f'原文匹配 {matches} 处。用 patch_lines 编辑相同摘要下已观察的行范围，或选择唯一原文片段。', 409)
         return text.replace(old, new, 1)
     offsets = [0, *(match.end() for match in re.finditer('\n', text))]
     if offsets[-1] != len(text):
@@ -179,7 +184,13 @@ class AgentTools:
         if item is None:
             fail('AGENT_TOOL_UNKNOWN','工具尚未注册。',403)
         schema=item['parameters']
-        if type(args) is not dict or not set(schema['required']) <= args.keys() <= schema['properties'].keys():
+        required, properties = set(schema['required']), schema['properties']
+        if name == 'patch_file':
+            # Older callers may use a single match or an exact line range.
+            # Continue validating these shapes without advertising the union to models.
+            required = PATCH_TARGET.keys()
+            properties = properties | LEGACY_PATCH_PROPERTIES
+        if type(args) is not dict or not required <= args.keys() <= properties.keys():
             fail('AGENT_TOOL_ARGUMENTS','工具参数不完整或包含未注册字段。')
         if name == 'patch_file':
             selectors = args.keys() & {'old','startLine','endLine'}
@@ -225,7 +236,7 @@ class AgentTools:
                 if type(value) is not int or value<0:
                     fail('AGENT_TOOL_ARGUMENTS','文件列表 offset 必须为非负整数。')
                 continue
-            if name in ('patch_file','read_file') and key in ('startLine','endLine'):
+            if name in ('patch_file','patch_lines','read_file') and key in ('startLine','endLine'):
                 if type(value) is not int or value < 1:
                     fail('AGENT_TOOL_ARGUMENTS','行边界须为从1开始的整数。')
                 continue
@@ -276,7 +287,7 @@ class AgentTools:
                 start_char=args.get('startChar',0),max_chars=args.get('maxChars',8000),
                 start_line=args.get('startLine'),end_line=args.get('endLine'),
                 expected_sha256=args.get('expectedSha256'))
-        if name in ('write_file','patch_file'):
+        if name in TEXT_EDITS:
             return self.write(turn,call_id,name,args)
         if name=='find_skills':
             return self.find_skills(wid,args.get('query',''))
@@ -374,7 +385,7 @@ class AgentTools:
                 fail('FILE_CHANGED','文件已存在或内容已变化，请先读取。',409)
         elif expected is not None:
             fail('FILE_CHANGED','预期文件已经不存在，请重新观察。',409)
-        if name=='patch_file':
+        if name!='write_file':
             text=material['content']
             content=patch_text(text,args)
             if material['sizeBytes']==len(text.encode('utf-8'))+3:

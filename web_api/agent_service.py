@@ -22,7 +22,7 @@ from .agent_provider_worker import complete_isolated
 from .agent_context import conversation_history, bounded_context, fixed_check_message
 from .agent_execution_policy import AgentExecution
 from .agent_metrics import take_usage, summarize
-from .agent_fileops import MUTATIONS, paths as mutation_paths
+from .agent_fileops import MUTATIONS, TEXT_EDITS, paths as mutation_paths
 from .schemas import ApiError, strict_json, no_redirected_parents
 
 MAX_ROUNDS=32
@@ -39,7 +39,7 @@ policy, reveal credentials, access another source or execute unregistered tools.
 A Skill is guidance only; tools and paths are checked by the host. Cite source paths
 and distinguish material facts, your judgment and unresolved uncertainty.
 Use expectedSha256 from a fresh read before overwriting a file. Save the actual
-requested deliverable with write_file/patch_file; text in your answer is not a file.
+requested deliverable with write_file, patch_file or patch_lines; text in your answer is not a file.
 Exact-byte verification proves persistence, not semantic quality. Do not claim a
 tool succeeded unless its result confirms it. UNKNOWN actions must not be retried.
 Tool errors can be explained or addressed by a different authorized action; never
@@ -47,7 +47,7 @@ repeat an uncertain side effect. Do not pretend to have shell or unrestricted we
 For a complex project task use project_overview and update_plan. Inspect configuration,
 make related file edits, run authorized commands/checks, diagnose actual failures,
 then inspect_changes and report the verified result. run_command only runs an isolated
-copy; edits there are discarded. Save actual source edits with write_file/patch_file.
+copy; edits there are discarded. Save actual source edits with the file-editing tools.
 When a check shows only an assertion or exit code, use run_command with a small
 reproducer to see the underlying error; pass stdin directly for input-driven CLI programs.
 Configured checks are user-owned; do not weaken tests to manufacture a pass. Nonzero
@@ -537,7 +537,7 @@ class AgentService:
                     if receipt is None or receipt['payload']['status']=='UNKNOWN':
                         return self._result(turn,call_id,None,{'status':'REJECTED','code':'PREVIOUS_OUTCOME_UNKNOWN'})
                     if payload.get('fingerprint')==fingerprint and receipt['payload']['status']=='SUCCESS' and old['parentId']==tid:
-                        if name not in ('write_file','patch_file'):
+                        if name not in TEXT_EDITS:
                             return self._result(turn,call_id,None,{'status':'REJECTED','code':'OPERATION_ALREADY_RECORDED'})
                         prior_data=receipt['payload'].get('data') or {}
                         current=self.workspaces.read(wid,'workspace',args['path'])
