@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from axis_evo.process_limits import child_environment, managed_popen, terminate_tree, close_process_job
 from axis_evo.planning_adapter import PlanningTransportError
+from .agent_metrics import usage
 from .agent_store import canonical
 from .agent_provider import AgentProvider, MAX_RESPONSE_BYTES
 from .schemas import strict_json, no_redirected_parents
@@ -62,11 +63,15 @@ def complete_isolated(providers, profile, messages, tools, cancelled):
         if process.returncode!=0:
             raise PlanningTransportError('worker_failed')
         value=strict_json(bytes(result),MAX_RESPONSE_BYTES+8192)
-        if type(value) is not dict or value.keys() not in ({'message'},{'error'}):
+        if type(value) is not dict or value.keys() not in ({'message'},{'error'},{'error','reportedUsage','replyShape'}):
             raise PlanningTransportError('invalid_response')
-        if 'error' in value:
-            raise PlanningTransportError(value['error'])
         providers.check_text(canonical(value))
+        if 'error' in value:
+            error=PlanningTransportError(value['error'])
+            if 'replyShape' in value:
+                error.reported_usage=usage({'usage':value['reportedUsage']})
+                error.reply_shape=value['replyShape']
+            raise error
         return value['message']
     finally:
         if process is not None:
@@ -95,6 +100,8 @@ def main(path):
         result={'message':message}
     except PlanningTransportError as error:
         result={'error':error.category}
+        if hasattr(error,'reply_shape'):
+            result.update(reportedUsage=error.reported_usage,replyShape=error.reply_shape)
     sys.stdout.buffer.write(canonical(result).encode('utf-8'))
     sys.stdout.buffer.flush()
 

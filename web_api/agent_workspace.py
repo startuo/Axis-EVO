@@ -28,6 +28,15 @@ def fail(code, message, status=400):
     raise ApiError(code, message, status)
 
 
+def _line_start(text, line, offset=0):
+    for _ in range(line - 1):
+        newline = text.find('\n', offset)
+        if newline == -1:
+            return None
+        offset = newline + 1
+    return offset
+
+
 def bounded_text(value, limit=256):
     if type(value) is not str or not value.strip() or len(value) > limit or public_text(value, limit) != value:
         fail('WORKSPACE_INPUT_INVALID', '请输入有效的名称或文本。')
@@ -150,10 +159,15 @@ class AgentWorkspaces:
             fail('WORKSPACE_ROOT_CHANGED','工作区目录身份发生变化，请重新选择。',409)
         return WorkspacePathResolver(root)
 
-    def read(self, workspace_id, source_id, path, *, max_chars=24000, start_char=0, expected_sha256=None):
+    def read(self, workspace_id, source_id, path, *, max_chars=24000, start_char=0,
+             start_line=None, end_line=None, expected_sha256=None):
         if (type(start_char) is not int or start_char < 0 or type(max_chars) is not int
                 or not 1 <= max_chars <= MAX_READ_FILE_BYTES):
             fail('WORKSPACE_READ_RANGE', '读取范围需要非负字符起点和有效长度。')
+        if start_line is not None and (type(start_line) is not int or start_line < 1 or start_char != 0):
+            fail('WORKSPACE_READ_RANGE', '请使用从1开始的 startLine，或使用 startChar。')
+        if end_line is not None and (type(end_line) is not int or start_line is None or end_line <= start_line):
+            fail('WORKSPACE_READ_RANGE', 'endLine 不含指定行，且必须大于 startLine。')
         if expected_sha256 is not None and (type(expected_sha256) is not str
                 or not re.fullmatch('[a-f0-9]{64}', expected_sha256)):
             fail('FILE_EXPECTED_DIGEST', '分段读取需要来源返回的 SHA-256。')
@@ -170,9 +184,19 @@ class AgentWorkspaces:
             fail('FILE_CHANGED', '来源已变化，请重新检索并核对范围。', 409)
         text = data.decode('utf-8-sig')
         self.providers.check_text(text)
+        stop = len(text)
+        if start_line is not None:
+            start_char = _line_start(text, start_line)
+            if start_char is None:
+                last_line = text.count('\n') + 1
+                fail('WORKSPACE_READ_RANGE', f'文件末行是 {last_line}，请选择文件内起点。')
+            if end_line is not None:
+                boundary = _line_start(text, end_line - start_line + 1, start_char)
+                if boundary is not None:
+                    stop = boundary
         if start_char > len(text):
-            fail('WORKSPACE_READ_RANGE', '读取起点超过文件长度，请重新检索。')
-        end_char = min(len(text), start_char + max_chars)
+            fail('WORKSPACE_READ_RANGE', f'文件共有 {len(text)} 字符，请使用有效的 startChar 或指定行。')
+        end_char = min(stop, start_char + max_chars)
         partial = start_char != 0 or end_char != len(text)
         return {'sourceId':source_id,'path':path,'sha256':sha256,
             'sizeBytes':len(data),'content':text[start_char:end_char],

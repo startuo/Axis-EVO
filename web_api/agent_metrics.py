@@ -53,10 +53,11 @@ class ModelBudget:
         self.requests = self.tokens = 0
         self.cost = 0.0
         self.uncertain = False
+        self._rejected_reply = False
         self._lock = threading.Lock()
 
     def remaining_requests(self):
-        return 0 if self.uncertain else self.limits['requests'] - self.requests
+        return 0 if self.uncertain or self._rejected_reply else self.limits['requests'] - self.requests
 
     def remaining_tokens(self):
         return 0 if self.uncertain else max(0, self.limits['tokens'] - self.tokens)
@@ -78,6 +79,7 @@ class ModelBudget:
                 if number not in intents or number in completed or observed is None:
                     raise ValueError('Budget receipt identity invalid')
                 completed[number]=observed
+                self._rejected_reply |= row.get('replyStatus') == 'REJECTED'
             else:
                 self.uncertain=True
         self.requests=len(intents)
@@ -91,6 +93,15 @@ class ModelBudget:
         if self.requests>self.limits['requests'] or self.tokens>self.limits['tokens'] or self.cost>self.limits['costCny']:
             self.uncertain=True
 
+    def _record_usage(self, number, observed, reserved_tokens, reserved_cost, start, **fields):
+        actual_cost = (observed['prompt_tokens'] * self.input_rate
+                       + observed['completion_tokens'] * self.output_rate) / 1_000_000
+        self.tokens += observed['total_tokens'] - reserved_tokens
+        self.cost += actual_cost - reserved_cost
+        self.journal({'phase':'result','request':number,'usage':observed,'estimatedCostCny':actual_cost,
+                      'durationMs':(time.monotonic()-start)*1000,**fields})
+        return observed['total_tokens'] > reserved_tokens or actual_cost > reserved_cost
+
     def __call__(self, providers, profile, messages, tools, cancelled):
         reserved_input = len(canonical({'messages': messages, 'tools': tools}).encode('utf-8')) + 1024
         reserved_tokens = reserved_input + MAX_OUTPUT_TOKENS
@@ -99,6 +110,8 @@ class ModelBudget:
             reason = None
             if self.uncertain:
                 reason = 'UNCONFIRMED_PRIOR_USAGE'
+            elif self._rejected_reply:
+                reason = 'PREVIOUS_REPLY_REJECTED'
             elif self.requests >= self.limits['requests']:
                 reason = 'REQUEST_LIMIT_REACHED'
             elif self.tokens >= self.limits['tokens']:
@@ -126,18 +139,19 @@ class ModelBudget:
             observed = usage({'usage': reply.get('_usage')})
             if observed is None:
                 raise PlanningTransportError('usage_unconfirmed')
-            actual_cost = (observed['prompt_tokens'] * self.input_rate + observed['completion_tokens'] * self.output_rate) / 1_000_000
             with self._lock:
-                self.tokens += observed['total_tokens'] - reserved_tokens
-                self.cost += actual_cost - reserved_cost
-                self.journal({'phase': 'result', 'request': number, 'usage': observed,
-                    'estimatedCostCny': actual_cost, 'durationMs': (time.monotonic()-start)*1000})
-                if observed['total_tokens'] > reserved_tokens or actual_cost > reserved_cost:
+                if self._record_usage(number,observed,reserved_tokens,reserved_cost,start):
                     self.uncertain = True
                     raise PlanningTransportError('usage_reservation_exceeded')
             return reply
-        except BaseException:
+        except BaseException as error:
+            observed=usage({'usage':getattr(error,'reported_usage',None)})
             with self._lock:
-                self.uncertain = True
-                self.journal({'phase': 'unconfirmed', 'request': number, 'furtherDispatch': 'STOPPED'})
+                if observed is None:
+                    self.uncertain = True
+                    self.journal({'phase':'unconfirmed','request':number,'furtherDispatch':'STOPPED'})
+                else:
+                    self._rejected_reply = True
+                    self.uncertain |= self._record_usage(number,observed,reserved_tokens,reserved_cost,start,
+                        replyStatus='REJECTED',furtherDispatch='STOPPED')
             raise

@@ -161,6 +161,19 @@ def _assistant(envelope, names, *, local_gateway=False):
         raise PlanningTransportError('assistant_content') from None
 
 
+def _rejected_reply_shape(envelope):
+    choices = envelope.get('choices') if type(envelope) is dict else None
+    facts = {'choiceCount':len(choices) if type(choices) is list else None}
+    if type(choices) is list and len(choices) == 1 and type(choices[0]) is dict:
+        choice = choices[0]
+        finish = choice.get('finish_reason')
+        facts['finishReason'] = finish if finish in ('stop','tool_calls','length','content_filter','insufficient_system_resource') else None
+        message = choice.get('message')
+        calls = message.get('tool_calls') if type(message) is dict else None
+        facts['toolCallCount'] = len(calls) if type(calls) is list else None
+    return facts
+
+
 class AgentProvider:
     """One non-streaming request per complete(); no retries or tool execution.
 
@@ -209,8 +222,13 @@ class AgentProvider:
         # Check the entire envelope, including reasoning and provider metadata,
         # before returning or persisting any part of it.
         self.providers.check_text(canonical_json_bytes(envelope).decode('utf-8'))
-        message = _assistant(envelope, names, local_gateway=local_gateway)
-        observed = usage(envelope)
+        observed = usage(envelope) if type(envelope) is dict else None
+        try:
+            message = _assistant(envelope, names, local_gateway=local_gateway)
+        except PlanningTransportError as error:
+            error.reported_usage = observed
+            error.reply_shape = _rejected_reply_shape(envelope)
+            raise
         if observed is not None:
             message['_usage'] = observed
         return message

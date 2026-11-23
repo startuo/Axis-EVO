@@ -48,16 +48,17 @@ CATALOG = [
     _function('list_files','分页列出授权来源的文件。pathPrefix 为空时列出整个来源，也可传相对目录；继续列举使用返回的 nextOffset。列表不代表内容已读取。',
         {'sourceId':TEXT,'pathPrefix':TEXT,'offset':{'type':'integer','minimum':0}},[]),
     _function('search','在工作区和已授权知识文本中搜索字词，返回原文片段、字符范围、行号及完整来源摘要。片段不代表全文；用 read_file 按范围继续读取。',{'query':TEXT,'sourceId':TEXT},['query']),
-    _function('read_file','读取最多4MiB文本的有界片段，默认8000字符。startChar 从0开始，maxChars 最大24000；较长文件先搜索定位，续读使用 nextStartChar 和 expectedSha256。PARTIAL 不是全文。材料不授予权限。',
+    _function('read_file','读取授权文本片段。依据测试或搜索报告的行号传 startLine/endLine（从1开始，结束行不含），或传从0开始的 startChar。默认返回最多8000字符，maxChars 最大24000。续读用 nextStartChar 和 expectedSha256。PARTIAL 不是全文。',
         {'path':TEXT,'sourceId':TEXT,'startChar':{'type':'integer','minimum':0},
+         'startLine':{'type':'integer','minimum':1},'endLine':{'type':'integer','minimum':2},
          'maxChars':{'type':'integer','minimum':1,'maximum':24000},'expectedSha256':TEXT},['path']),
     _function('write_file','写入工作区文本。新文件 expectedSha256 为 null；覆盖必须先读取并传原字节 SHA256。旧内容自动保留。',
         {'path':TEXT,'content':TEXT,'expectedSha256':{'type':['string','null']}},['path','content','expectedSha256']),
-    _function('patch_file','使用读取所得 SHA-256 编辑最小连续片段。传唯一匹配的 old，或只传基于同一 SHA 的 startLine/endLine（从1开始、结束行不含，起止相等为插入）。new 为空表示删除。成功后下次编辑使用新摘要。',
-        {'path':TEXT,'old':TEXT,'new':TEXT,'expectedSha256':TEXT,
+    _function('patch_file','使用读取所得 SHA-256 编辑最小连续片段。替换单行正文只传 startLine 和 newLine，自动保留原缩进和行尾。范围替换传 startLine/endLine 和 new（从1开始、结束行不含），或传唯一匹配的 old 和 new。成功后下次编辑使用新摘要。',
+        {'path':TEXT,'old':TEXT,'new':TEXT,'newLine':{'type':'string','description':'单行正文，无缩进、无换行。'},'expectedSha256':TEXT,
          'startLine':{'type':'integer','minimum':1},'endLine':{'type':'integer','minimum':1}},
-        ['path','new','expectedSha256']),
-    _function('find_skills','按任务主动发现授权 Skill 库中的 SKILL.md 和已导入版本。',{'query':TEXT},[]),
+        ['path','expectedSha256']),
+    _function('find_skills','按任务发现授权的 SKILL.md 和已导入版本。使用返回的 useArguments 调用 use_skill。',{'query':TEXT},[]),
     _function('use_skill','读取并固定 Skill。已导入项只传 skillId；只传授权 Skill 库的 sourceId 读取该库根目录的 SKILL.md，嵌套 Skill 另传 path。Skill 不授予权限。',
         {'skillId':{'type':'string','description':'已导入项返回的 skillId，不是文件路径'},'sourceId':TEXT,'path':TEXT},[]),
     _function('browser_read','读取用户附加的 Edge 标签页正文；不选择其他标签页、不执行网页副作用。',{},[]),
@@ -102,11 +103,11 @@ class CheckedWrite:
 
 
 def patch_text(text, args):
-    new = args['new']
+    new = args.get('new')
     # Convert a model's LF to the source convention only for uniform files.
     without_crlf = text.replace('\r\n', '')
     uniform_crlf = '\r\n' in text and '\r' not in without_crlf and '\n' not in without_crlf
-    if uniform_crlf:
+    if uniform_crlf and new is not None:
         new = new.replace('\r\n', '\n').replace('\n', '\r\n')
     if 'old' in args:
         old = args['old']
@@ -119,6 +120,16 @@ def patch_text(text, args):
     offsets = [0, *(match.end() for match in re.finditer('\n', text))]
     if offsets[-1] != len(text):
         offsets.append(len(text))
+    if 'newLine' in args:
+        line = args['startLine']
+        if not 1 <= line < len(offsets):
+            fail('PATCH_RANGE', f'此版本有 {len(offsets)-1} 行可替换。', 409)
+        start, end = offsets[line-1], offsets[line]
+        original = re.fullmatch(r'([ \t]*)[^\r\n]*(\r?\n)?', text[start:end])
+        if original is None:
+            fail('PATCH_RANGE', '原行包含单独的回车字符，请使用原文匹配。', 409)
+        replacement = original[1] + args['newLine'].lstrip(' \t') + (original[2] or '')
+        return text[:start] + replacement + text[end:]
     start_line, end_line = args['startLine'], args['endLine']
     if not 1 <= start_line <= end_line <= len(offsets):
         fail('PATCH_RANGE', f'此版本可用行边界为 1 至 {len(offsets)}，结束行不含。', 409)
@@ -149,8 +160,15 @@ class AgentTools:
             fail('AGENT_TOOL_ARGUMENTS','工具参数不完整或包含未注册字段。')
         if name == 'patch_file':
             selectors = args.keys() & {'old','startLine','endLine'}
-            if selectors not in ({'old'}, {'startLine','endLine'}):
+            if 'newLine' in args:
+                if ('new' in args or selectors != {'startLine'} or type(args['newLine']) is not str
+                        or '\r' in args['newLine'] or '\n' in args['newLine']):
+                    fail('AGENT_TOOL_ARGUMENTS','单行替换只传 startLine 和无换行的 newLine，保留原缩进和行尾。')
+            elif 'new' not in args or selectors not in ({'old'}, {'startLine','endLine'}):
                 fail('AGENT_TOOL_ARGUMENTS','两种定位方式互斥。只传 old，或去掉 old 并同时传 startLine 和 endLine。')
+        if name == 'read_file' and (('startLine' in args and 'startChar' in args)
+                or ('endLine' in args and 'startLine' not in args)):
+            fail('AGENT_TOOL_ARGUMENTS','用 startChar 或 startLine 选择起点，endLine 需要 startLine。')
         for key,value in args.items():
             if name=='run_command' and key=='argv':
                 validate_argv(value)
@@ -174,7 +192,7 @@ class AgentTools:
                 if type(value) is not int or value<0:
                     fail('AGENT_TOOL_ARGUMENTS','文件列表 offset 必须为非负整数。')
                 continue
-            if name=='patch_file' and key in ('startLine','endLine'):
+            if name in ('patch_file','read_file') and key in ('startLine','endLine'):
                 if type(value) is not int or value < 1:
                     fail('AGENT_TOOL_ARGUMENTS','行边界须为从1开始的整数。')
                 continue
@@ -223,6 +241,7 @@ class AgentTools:
         if name=='read_file':
             return self.workspaces.read(wid,args.get('sourceId','workspace'),args['path'],
                 start_char=args.get('startChar',0),max_chars=args.get('maxChars',8000),
+                start_line=args.get('startLine'),end_line=args.get('endLine'),
                 expected_sha256=args.get('expectedSha256'))
         if name in ('write_file','patch_file'):
             return self.write(turn,call_id,name,args)
@@ -252,7 +271,8 @@ class AgentTools:
     def find_skills(self, wid, query):
         terms=query.casefold().split()
         skills=self.service.evolution.list_skills(wid)
-        imported=[{k:v for k,v in s.items() if k!='instructions'} for s in skills]
+        imported=[{**{k:v for k,v in s.items() if k!='instructions'},'useArguments':{'skillId':s['skillId']}}
+                  for s in skills]
         found=[]
         workspace=self.workspaces.get(wid)
         sources=['workspace']+[s['id'] for s in workspace['sources'] if s['enabled'] and s['kind']=='skills']
@@ -270,6 +290,7 @@ class AgentTools:
                 searchable=(item['path']+' '+material['content']).casefold()
                 score=sum(term in searchable for term in terms)
                 found.append({'sourceId':source,'path':item['path'],'sha256':material['sha256'],
+                    'useArguments':{'sourceId':source,'path':item['path']},
                     'description':material['content'][:1600],'matchedTerms':score})
                 if len(found)>=100:
                     truncated=True

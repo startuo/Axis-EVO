@@ -372,6 +372,10 @@ class AgentService:
                     if error.category=='authorized_acceptance_budget':
                         decision=getattr(error,'budget_decision',{'reason':'HOST_BUDGET'})
                         self.store.append('model_not_dispatched',{'round':round_number+1,**decision},wid,tid)
+                    elif hasattr(error,'reply_shape'):
+                        self.store.append('model_usage',{'round':round_number+1,'usage':error.reported_usage,
+                            'durationMs':round((time.monotonic()-request_start)*1000,2),'replyStatus':'REJECTED',
+                            'replyShape':error.reply_shape},wid,tid)
                     raise
                 message,observed=take_usage(message)
                 self.store.append('model_usage',{'round':round_number+1,'usage':observed,
@@ -564,7 +568,8 @@ class AgentService:
                 'AGENT_STORAGE_LIMIT','AGENT_STORAGE_UNAVAILABLE','AGENT_STORE_INTEGRITY'))
             result={'status':'UNKNOWN' if uncertain else 'REJECTED','code':error.code}
             if not uncertain and error.code in ('PATCH_AMBIGUOUS','PATCH_RANGE','FILE_CHANGED',
-                    'AGENT_TOOL_ARGUMENTS','SKILL_ARGUMENTS','SKILL_PATH_INVALID'):
+                    'AGENT_TOOL_ARGUMENTS','WORKSPACE_READ_RANGE','SKILL_ARGUMENTS','SKILL_PATH_INVALID',
+                    'AGENT_SKILL_UNAVAILABLE'):
                 result['hint']=error.message
         except (OSError,ValueError,UnicodeError):
             result={'status':'UNKNOWN' if mutating else 'FAILED','code':'TOOL_IO_UNCONFIRMED' if mutating else 'MATERIAL_UNAVAILABLE'}
