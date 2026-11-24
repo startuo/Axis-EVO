@@ -9,7 +9,8 @@ import threading
 import time
 from uuid import uuid4
 
-from axis_evo.process_limits import child_environment, terminate_tree, managed_popen, close_process_job
+from axis_evo.process_limits import terminate_tree, managed_popen, close_process_job
+from .process_environment import child_environment
 from . import runtime_jobs
 from .schemas import ApiError, strict_json
 

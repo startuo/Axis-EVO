@@ -3,7 +3,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-from axis_evo.process_limits import bounded_run, child_environment, OutputLimitExceeded
+from axis_evo.process_limits import bounded_run, OutputLimitExceeded
+from .process_environment import child_environment
 
 from .agent_workspace import relative_path, fail
 from .schemas import no_redirected_parents

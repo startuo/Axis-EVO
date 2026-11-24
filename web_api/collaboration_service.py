@@ -19,7 +19,8 @@ from uuid import uuid4
 from axis_evo.events import utc_now
 from axis_evo.inspector import inspect_database
 from axis_evo.sandbox import WorkspacePathResolver
-from axis_evo.process_limits import child_environment, managed_popen, terminate_tree, close_process_job
+from axis_evo.process_limits import managed_popen, terminate_tree, close_process_job
+from .process_environment import child_environment
 from .browser_store import canonical, digest
 from .schemas import ApiError, no_redirected_parents, strict_json
 

@@ -6,7 +6,8 @@ import sys
 import threading
 import time
 
-from axis_evo.process_limits import child_environment, managed_popen, terminate_tree, close_process_job
+from axis_evo.process_limits import managed_popen, terminate_tree, close_process_job
+from .process_environment import child_environment
 from .conversation_replies import (_request, _canonical, produce_reply, interrupt,
     commit_reply_candidate, MAX_FACT_BYTES)
 from .provider_store import ProviderStore

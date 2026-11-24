@@ -7,7 +7,8 @@ import threading
 import time
 from uuid import uuid4
 
-from axis_evo.process_limits import child_environment, managed_popen, terminate_tree, close_process_job
+from axis_evo.process_limits import managed_popen, terminate_tree, close_process_job
+from .process_environment import child_environment
 from axis_evo.planning_adapter import PlanningTransportError
 from .agent_metrics import usage
 from .agent_store import canonical
