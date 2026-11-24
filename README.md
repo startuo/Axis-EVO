@@ -4,57 +4,45 @@
 
 # Axis-Evo
 
-Axis-Evo 是一个 local-first 的通用 Agent Workbench，支持可核验执行、技能演化和中断审查。
+Axis-Evo 是一个本地优先的 AI Agent 工作台，面向代码修改、文档交付和需要保留执行证据的任务。选择工作区并描述目标后，Agent 可以在授权范围内检索资料、编辑文件、运行项目检查，并留下可审查的差异与回执。
 
-Windows 用户可使用 M6.1 预览安装程序，从开始菜单启动工作台。安装包自带 Python Runtime 和前端资源。[Windows 安装与构建说明](docs/WINDOWS_PREVIEW.md)
+当前版本为 **0.1.0 Preview（M6.1）**。
 
-项目将模型规划、调用方审批、工具执行和独立验收分开，通过 SQLite 持久化执行事实，将任务、计划、Skill 版本及执行结果关联起来，并支持只读审查、可核验检查点、受控恢复和证据门控的技能演化。
+## 可以做什么
 
-当前版本 **0.1.0 Preview**。M6 继续使用 **Chat / Work**：选择工作区后自然描述目标，Agent 在预先授权的目录内调用工具、发现 Skill、读取知识、保存文档并持续修订。可为项目授权无网络 Linux 容器命令和固定测试，查看文件差异并继续任务。任务反馈可触发候选修订、实际对照、历史反例检查与有证据的采用/保留决定。启动与能力边界见 [Agent-Native Workspace](docs/AGENT_WORKSPACE.md)，验证见 [测试结果](docs/TEST_RESULTS.md)。
+- **在 Chat 发起任务，在 Work 审查交付。** 查看本轮修改、历史文件版本和验证结果，按已保留的进展继续修订。已授权的知识目录、Skill 库和当前附加的 Edge 页面可以作为任务材料。
+- **在实际项目中修改和验证。** Agent 支持受控文件编辑和只读 Git 状态、历史与差异。授权后可在无网络 Linux 容器的项目副本中运行命令和固定检查，实际文件改动通过工作区工具另行保存。
+- **核对实际执行结果。** 本地 SQLite 保存任务、工具请求、执行回执和验证记录。文件编辑使用读取时的 SHA-256 校验版本。结果不确定的操作记为 `UNKNOWN`，重启或续跑时不会自动重放。
+- **依据任务反馈修订 Skill。** 保留原版和候选版本，用固定案例及历史反例比较实际产物，并按工作区策略决定采用、保留或回退。真实任务中稳定的质量改善和成本收益仍待验证。
 
-M6 增加受控文件生命周期、只读 Git 观察、固定依赖镜像准备、用量记录、比较前成本预检和严格身份绑定的原版证据复用。真实公开仓库任务未完成，真实 Skill 诊断对照未显示改善；能力判断与限制见 [Harness 工程基线](docs/HARNESS_ENGINEERING.md)。设置中的「毕业设计只读展示」独立呈现公开冻结研究，学术引用为 `academic/thesis-freeze-2026-11-02`，正式产品主线统一为 `main`。
+## 开始使用
 
-原工程工作台保留逐轮 Plan 审批、独立 Worker、研究评估及证据审查入口。不确定执行结果保留为 UNKNOWN，产品升级不改写正式研究实验事实。旧运行与数据维护见 [运行约定](docs/RELEASE_OPERATIONS.md)，研究演化见 [多代评估](docs/MULTIGENERATION_CAMPAIGNS.md)。
+| 场景 | 入口 |
+| --- | --- |
+| Windows 预览版 | 通过 Setup.exe 安装后，从开始菜单打开 **Axis-Evo**，添加工作区并设置模型。安装包自带 Python 运行时和前端。安装包未签名，构建步骤见 [Windows 预览指南](docs/WINDOWS_PREVIEW.md)。 |
+| 源码开发 | 按 [Agent 工作区指南](docs/AGENT_WORKSPACE.md) 构建前端和启动服务。 |
+| 配置模型 | 在「模型连接」配置受支持的 Provider。启用外部模型时，完成任务所需的已授权材料会随请求发送给 Provider。见 [模型连接说明](docs/AGENT_PROVIDER.md)。 |
 
-M1–M3 的 Edge 兼容层和受控文档交付继续可用，历史阶段说明见 [Axis Next](docs/AXIS_NEXT.md)。M4 把已关联 Edge 页面的读取纳入同一 Agent 工具回路；实际模型、扩展、文件和离线检查分别记录在测试结果中。
+工作台使用本机回环地址。项目命令和固定检查需要 Docker 的 Linux 引擎和用户授权的镜像。Docker 缺失时会禁用这些功能。Edge 扩展为可选组件。
 
-## 项目结构
+## M6.1 验证记录
 
-```text
-axis-evo/
-├── src/axis_evo/
-│   ├── models.py / events.py / storage.py   # 数据模型、事件与持久化
-│   ├── sandbox.py / tools.py               # 工作区边界与受控工具
-│   ├── seed_copy.py / process_limits.py    # 有界复制与子进程资源限制
-│   ├── runner.py / validators.py           # 计划执行与独立验收
-│   ├── inspector.py                        # 执行事实审查
-│   ├── skill_card.py / skill_manager.py     # 不可变技能版本与生命周期
-│   ├── skill_binding.py                    # 精确技能版本授权
-│   ├── skill_planner.py / planning_*.py     # 模型规划与计划溯源
-│   ├── agent_*.py                          # 有界编码尝试与反馈
-│   ├── checkpoint_*.py / recovery_*.py      # 检查点与受控恢复
-│   ├── skill_trust*.py / shadow_evaluation.py # 证据评估与影子模拟
-│   ├── skill_evolution*.py / skill_revision.py # 修订、晋升与版本激活
-│   ├── evaluation_campaign*.py              # 显式启用的前瞻配对评估
-│   ├── research_*.py                        # 隔离实验、不可变协议与只读导出
-│   └── migrations/                        # SQLite 显式迁移
-├── examples/                              # 程序化示例与一条命令开发启动器
-├── browser/edge-extension/                 # 受限 Edge MV3 兼容层
-├── web/                                   # React 工作台、离线演示与样式
-├── web_api/                               # 只读桥接、Provider、多轮会话、持久化调度与独立 Worker
-├── docs/
-│   ├── assets/Axis.png                    # 项目封面
-│   ├── SKILL_EVOLUTION.md                  # 技能演化接口与使用说明
-│   ├── RECOVERY_OPERATION_CONTRACT.md      # 恢复操作约定
-│   ├── WORKBENCH_SETUP.md                  # 工作台启动与当前边界
-│   ├── WORKBENCH_UI_SPEC.md                # 界面设计约定
-│   └── TEST_RESULTS.md                     # 测试结果
-├── pyproject.toml                         # 项目配置
-└── AGENTS.md                              # 仓库协作规则
-```
+- `python-slugify` 的 `--stdin --lines` 任务由 Axis 完成，原项目回归和新增 **8/8** 项固定验收通过。
+- `Tomli-W` 的 `sort_keys` 任务在宿主提供诊断后的续跑中由 Axis 写入补丁。独立复验通过原项目回归和新增 **4/4** 项。模型回合因后续请求的预算预留不足而结束。
+- 预览安装包已在 Windows 11 验证安装、启动、覆盖安装和卸载。全新 Windows 10/11 环境仍待复验。
 
-会议纪要的执行 Oracle、业务质量与版本采用分别报告。Stage 2D 提供 [独立质量审定](docs/MINUTES_QUALITY.md) 和 [下一轮因果比较协议提案](docs/STAGE2D_RESEARCH_PROTOCOL.md)；现有结果尚未证明 S1 整体改善，人工审定仍待完成，正式 Holdout 与论文主实验未启动。
+模型实跑、确定性回归、安装测试及已知限制见 [测试结果](docs/TEST_RESULTS.md) 和 [Harness 工程基线](docs/HARNESS_ENGINEERING.md)。
 
-完整测试、fixture 和交付报告保留在本地审查包中，不随公共仓库发布。
+## 代码入口
 
-Stage 2E 已增加 [独立评价校准与可行性协议](docs/STAGE2E_CALIBRATION.md)、保守v2审定及离线人工审阅工具。人类校准与自然输出误判率仍PENDING；96次小规模研究仅为提案，当前尚未具备独立有效性实验准入条件。
+| 路径 | 内容 |
+| --- | --- |
+| [`src/axis_evo/`](src/axis_evo) | 执行核心、事件、验收、检查点与 Skill 版本 |
+| [`web_api/`](web_api) | Agent Runtime、工作区权限、Provider 和容器执行 |
+| [`web/`](web) | Chat、Work 和设置界面 |
+| [`desktop/windows/`](desktop/windows) | Windows 启动器与安装构建 |
+| [`browser/edge-extension/`](browser/edge-extension) | Edge 页面连接 |
+
+## 产品主线与学术归档
+
+产品源码统一维护在 `main`。毕业设计《基于大语言模型的技能演化系统的设计与实现》的公开冻结历史由标签 [`academic/thesis-freeze-2026-11-02`](https://github.com/startuo/Axis-EVO/tree/academic/thesis-freeze-2026-11-02) 保留，也可在工作台的「毕业设计只读展示」查看公开研究记录、评价和证据局限。
