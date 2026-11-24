@@ -307,22 +307,21 @@ def _probe_provider(adapter, snapshot):
         adapter.delegate, 'POST', urlsplit(snapshot['endpoint']).path,
         {**_provider_headers(adapter), 'Content-Type': 'application/json'}, canonical_json_bytes(body),
     )
+    if anthropic:
+        from .agent_provider import _anthropic_assistant
+        # Reuse the Messages validator, including advisory thinking blocks.
+        # The connection probe has no tools, so the admitted tool set is empty.
+        _anthropic_assistant(result, set(), set())
+        return result
     try:
-        if anthropic:
-            if result['type'] != 'message' or result['role'] != 'assistant' or result['stop_reason'] != 'end_turn':
-                raise ValueError
-            blocks = result['content']
-            valid = (type(blocks) is list and len(blocks) == 1 and blocks[0]['type'] == 'text'
-                     and type(blocks[0]['text']) is str and blocks[0]['text'].strip())
-        else:
-            choices = result['choices']
-            valid = type(choices) is list and len(choices) == 1
-            if valid:
-                choice, message = choices[0], choices[0]['message']
-                valid = (choice['finish_reason'] == 'stop' and message['role'] == 'assistant'
-                         and type(message['content']) is str and message['content'].strip()
-                         and not message.get('tool_calls') and not message.get('function_call')
-                         and not message.get('refusal'))
+        choices = result['choices']
+        valid = type(choices) is list and len(choices) == 1
+        if valid:
+            choice, message = choices[0], choices[0]['message']
+            valid = (choice['finish_reason'] == 'stop' and message['role'] == 'assistant'
+                     and type(message['content']) is str and message['content'].strip()
+                     and not message.get('tool_calls') and not message.get('function_call')
+                     and not message.get('refusal'))
         if not valid:
             raise ValueError
     except (KeyError, TypeError, AttributeError, ValueError):

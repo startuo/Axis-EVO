@@ -1,5 +1,6 @@
 """Supervise actual processes. Scheduling threads never execute task tools."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -84,9 +85,14 @@ class ProcessSupervisor:
         service = self.service
         process = None
         readers = []
+        monitor = ExitStack()
         try:
             row = service._row_unscoped(thread_id)
             profile = strict_json(row['profile_json'])
+            project, _ = service._project(row['project_id'])
+            # Keep the monitor connection open until the worker is reaped. On
+            # Windows, reopening during WAL last-close cleanup can fail to truncate.
+            core = monitor.enter_context(service._core(project))
             env = child_environment()
             root = Path(__file__).resolve().parent.parent
             env['PYTHONPATH'] = str(root / 'src') + os.pathsep + str(root) + os.pathsep + env.get('PYTHONPATH', '')
@@ -126,9 +132,7 @@ class ProcessSupervisor:
                     with service._web() as c, runtime_jobs.transaction(c):
                         runtime_jobs.observation(c, thread_id, worker, 'TERMINATION_REQUESTED', {'reason': 'OUTPUT_LIMIT_EXCEEDED' if overflow.is_set() else 'SHUTDOWN' if service._closed else 'DEADLINE'})
                     break
-                project, _ = service._project(row['project_id'])
-                with service._core(project) as c:
-                    count = c.execute('SELECT count(*) FROM events WHERE run_id=?', (row['reserved_run_id'],)).fetchone()[0]
+                count = core.execute('SELECT count(*) FROM events WHERE run_id=?', (row['reserved_run_id'],)).fetchone()[0]
                 if count > MAX_WORKER_EVENTS:
                     terminate_tree(process)
                     break
@@ -157,7 +161,10 @@ class ProcessSupervisor:
                     self.active.pop(thread_id, None)
                 service._reconcile(thread_id, phase)
             finally:
-                service._slots.release()
+                try:
+                    monitor.close()
+                finally:
+                    service._slots.release()
 
     def close(self, wait):
         self.pool.shutdown(wait=wait, cancel_futures=True)
