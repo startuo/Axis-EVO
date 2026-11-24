@@ -77,7 +77,7 @@ def validate_endpoint(value):
             or not _HOST.fullmatch(host) or "." not in host or host.endswith(".")
             or parsed.username or parsed.password or parsed.port not in (None, 443)
             or parsed.query or parsed.fragment or "%" in value or "\\" in value
-            or parsed.path not in ("/chat/completions", "/v1/chat/completions")
+            or parsed.path not in ("/chat/completions", "/v1/chat/completions", "/apps/anthropic/v1/messages")
             or parsed.netloc != host and parsed.netloc != host + ":443"):
         raise ValueError("Invalid endpoint")
     try:

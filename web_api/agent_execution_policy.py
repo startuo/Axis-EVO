@@ -28,7 +28,8 @@ class AgentExecution:
 
     def configure(self, wid, body):
         self.service.workspaces.get(wid)
-        if (type(body) is not dict or not {'enabled','imageId','timeoutSeconds','checks'}<=body.keys()<={'enabled','imageId','timeoutSeconds','checks','protectedPaths'}
+        required={'enabled','imageId','timeoutSeconds','checks'}
+        if (type(body) is not dict or not required<=body.keys()<=required|{'protectedPaths','postEditCheck'}
                 or type(body['enabled']) is not bool or type(body['timeoutSeconds']) is not int
                 or not 1<=body['timeoutSeconds']<=120 or type(body['checks']) is not list or len(body['checks'])>8):
             fail('EXECUTION_POLICY_INVALID','执行授权配置无效。')
@@ -40,7 +41,8 @@ class AgentExecution:
             if type(body['imageId']) is not str or not IMAGE_ID.fullmatch(body['imageId']):
                 fail('EXECUTION_POLICY_INVALID','镜像标识无效。')
         names=set()
-        for check in body['checks']:
+        hook=body.get('postEditCheck')
+        for check in [*body['checks'], *([hook] if hook is not None else [])]:
             if (type(check) is not dict or check.keys()!={'name','argv'} or type(check['name']) is not str
                     or not 1<=len(check['name'])<=80 or check['name'] in names):
                 fail('EXECUTION_POLICY_INVALID','验证项需要唯一名称和命令参数。')
@@ -63,6 +65,42 @@ class AgentExecution:
                 protected.append({k:value[k] for k in ('path','content','sha256')})
             self.service.store.append('execution_policy',{**body,'protectedPaths':paths,'protectedInputs':protected},wid)
         return self.public_policy(wid)
+
+    def post_edit(self, turn, call_id):
+        """Run only the user-configured light check on a read-only Docker snapshot."""
+        wid, tid = turn['workspaceId'], turn['id']
+        policy = self.policy(wid)
+        check = policy.get('postEditCheck')
+        if not policy['enabled'] or check is None:
+            return None
+        if turn['payload']['executionPolicyId'] != policy['id']:
+            fail('EXECUTION_POLICY_CHANGED','执行授权已变化，请发起新任务。',409)
+
+        def cancelled():
+            return self.service._cancelled(turn) or time.monotonic() > self.service._deadlines[tid]
+
+        if cancelled():
+            fail('EXECUTION_CANCELLED','验证授权已撤销或任务已停止。',409)
+        inputs = fixed_inputs(snapshot(self.service.workspaces,wid),policy['protectedInputs'])
+        payload = {'callId':call_id,'check':check,'policyId':policy['id'],'snapshotSha256':inputs['sha256']}
+        intent = self.service.store.append('post_edit_intent',payload,wid,tid)
+
+        def prepared(ref):
+            self.service.store.append('post_edit_execution',{'intentId':intent['id'],**ref},wid,tid)
+
+        from .schemas import ApiError
+        try:
+            result = self.runner.run(inputs,policy['imageId'],check['argv'],timeout=min(10,policy['timeoutSeconds']),
+                                     cancelled=cancelled,on_prepared=prepared,readonly=True)
+        except ApiError as error:
+            result = {'status':'REJECTED','code':error.code,'exitCode':None}
+        self.service.runtime.providers.check_text(str(result))
+        status = 'PASSED' if result['status']=='SUCCESS' and result['exitCode']==0 else result['status']
+        if status == 'SUCCESS':
+            status = 'FAILED'
+        receipt = self.service.store.append('post_edit_hook',{'intentId':intent['id'],**payload,
+                                           'status':status,'result':result},wid,tid)
+        return {'receiptId':receipt['id'],**receipt['payload']}
 
     def execute(self, turn, call_id, argv, timeout=None, *, stdin_text=None):
         wid=turn['workspaceId']

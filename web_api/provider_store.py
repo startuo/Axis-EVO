@@ -19,14 +19,23 @@ from axis_evo.planning_adapter import (OpenAICompatiblePlanningAdapter, Planning
 
 from .runtime_config import provider_route_from_dict, validate_endpoint, validate_gateway_endpoint, validate_gateway_model
 from .local_gateway import LocalGatewayPlanningAdapter
-from .provider_network import RoutedPlanningAdapter
+from .provider_network import RoutedPlanningAdapter, connection_diagnostic, request_provider_json
 from .schemas import ApiError, no_redirected_parents, public_text
 from .provider_credentials import validate_credential_recipient
 
 
 MAX_PROFILES = 32
+MAX_ARCHIVED_PROFILES = 128
 MAX_PROFILE_REVISIONS = 100
 _FIELDS = {"name", "protocol", "endpoint", "modelId", "credentialRef", "timeout"}
+_PROFILE_OPTIONS = {"contextWindow", "reasoningEffort", "maxOutputTokens", "proxy"}
+_PROXY = re.compile(r"http://127\.0\.0\.1:([1-9][0-9]{0,4})\Z")
+_FAKE_IP = ipaddress.IPv4Network("198.18.0.0/15")
+_ANTHROPIC_PATH = "/apps/anthropic/v1/messages"
+_ARCHIVE_SCHEMA = """CREATE TABLE provider_archived_profiles(
+    profile_id TEXT PRIMARY KEY NOT NULL REFERENCES provider_profiles(id),
+    archived_at TEXT NOT NULL
+)"""
 _IDENTITY = re.compile(r"provider_[0-9a-f]{32}\Z")
 _ATTEMPT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
@@ -102,6 +111,31 @@ def _insert_one(connection, statement, values):
         raise ApiError("PROVIDER_WRITE_REJECTED", "The provider fact was not committed.", 409)
 
 
+def _archive_catalog(connection, *, create=False):
+    objects = [tuple(row) for row in connection.execute("""SELECT type,name,sql FROM sqlite_master
+        WHERE tbl_name='provider_archived_profiles' AND name NOT LIKE 'sqlite_%' ORDER BY type,name""")]
+    if not objects:
+        if create:
+            connection.execute(_ARCHIVE_SCHEMA)
+        return create
+    if objects != [('table', 'provider_archived_profiles', _ARCHIVE_SCHEMA)]:
+        raise ApiError("PROVIDER_INTEGRITY", "The local provider archive cannot be verified.", 409)
+    return True
+
+
+def _available_profiles_query(connection):
+    if _archive_catalog(connection):
+        return """SELECT id FROM provider_profiles
+            WHERE id NOT IN (SELECT profile_id FROM provider_archived_profiles)"""
+    return 'SELECT id FROM provider_profiles'
+
+
+def _is_archived(connection, profile_id):
+    return _archive_catalog(connection) and connection.execute(
+        'SELECT 1 FROM provider_archived_profiles WHERE profile_id=?', (profile_id,),
+    ).fetchone() is not None
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
@@ -133,14 +167,15 @@ def _safe_text(value, limit):
 
 
 def _configuration(body, config, *, stored=False):
-    permitted = (_FIELDS, _FIELDS | {'networkRoute'}) if stored else (_FIELDS,)
-    if type(body) is not dict or body.keys() not in permitted:
+    permitted = _FIELDS | _PROFILE_OPTIONS | ({'networkRoute'} if stored else set())
+    if type(body) is not dict or not _FIELDS <= body.keys() <= permitted:
         raise ValueError("Unexpected provider profile fields")
-    validate_credential_recipient(body.get('credentialRef'),config,body.get('protocol'),body.get('endpoint'),stored=stored)
+    protocol = body["protocol"]
+    validate_credential_recipient(body['credentialRef'], config, protocol, body['endpoint'], stored=stored)
     name, model = _safe_text(body["name"], 80), _safe_text(body["modelId"], 128)
-    if body["protocol"] not in ("openai-compatible", "deepseek-compatible", "local-gateway"):
+    if protocol not in ("openai-compatible", "deepseek-compatible", "anthropic-compatible", "local-gateway"):
         raise ValueError("Unsupported planning protocol")
-    if body['protocol'] == 'local-gateway':
+    if protocol == 'local-gateway':
         endpoint = validate_gateway_endpoint(body['endpoint'])
         gateway = next((item for item in config.local_gateways if item.endpoint == endpoint), None)
         validate_gateway_model(model)
@@ -148,6 +183,8 @@ def _configuration(body, config, *, stored=False):
             raise ValueError('Unconfigured local gateway or model')
     else:
         endpoint = validate_endpoint(body["endpoint"])
+        if (urlsplit(endpoint).path == _ANTHROPIC_PATH) != (protocol == "anthropic-compatible"):
+            raise ValueError('Endpoint path does not match the selected protocol')
         if not stored and endpoint not in config.endpoints:
             raise ValueError("Unconfigured provider endpoint")
     alias = body["credentialRef"]
@@ -157,19 +194,43 @@ def _configuration(body, config, *, stored=False):
     timeout = body["timeout"]
     if type(timeout) is not int or not 1 <= timeout <= 300:
         raise ValueError("Invalid provider timeout")
-    value = {"name": name, "protocol": body["protocol"], "endpoint": endpoint,
+    value = {"name": name, "protocol": protocol, "endpoint": endpoint,
              "modelId": model, "credentialRef": alias, "timeout": timeout}
+    for field, minimum, maximum in (("contextWindow", 256, 16_000_000), ("maxOutputTokens", 1, 1_000_000)):
+        if field in body:
+            number = body[field]
+            if type(number) is not int or not minimum <= number <= maximum:
+                raise ValueError("Invalid model token limit")
+            value[field] = number
+    if "contextWindow" in value and "maxOutputTokens" in value and value["maxOutputTokens"] >= value["contextWindow"]:
+        raise ValueError("Output must leave room in the model context")
+    if "reasoningEffort" in body:
+        if body["reasoningEffort"] not in ("off", "low", "medium", "high"):
+            raise ValueError("Invalid reasoning effort")
+        value["reasoningEffort"] = body["reasoningEffort"]
+    if "proxy" in body:
+        proxy = body["proxy"]
+        if proxy is not None:
+            match = _PROXY.fullmatch(proxy) if type(proxy) is str else None
+            if not match or int(match[1]) > 65535 or protocol == "local-gateway":
+                raise ValueError("An explicit literal loopback HTTP proxy is required")
+        value["proxy"] = proxy
     if stored and 'networkRoute' in body:
         route = provider_route_from_dict(body['networkRoute'])
-        if route.endpoint != endpoint or body['protocol'] == 'local-gateway':
+        if route.endpoint != endpoint or protocol == 'local-gateway' or body.get('proxy', route.proxy) != route.proxy:
             raise ValueError('Provider route identity mismatch')
         value['networkRoute'] = route.to_dict()
-    elif not stored and body['protocol'] != 'local-gateway':
-        route = next((r for r in config.provider_routes if r.endpoint == endpoint), None)
+    elif not stored and protocol != 'local-gateway':
+        route = next((r for r in config.provider_routes
+                      if r.endpoint == endpoint and body.get('proxy', r.proxy) == r.proxy), None)
+        if body.get("proxy") is not None and route is None:
+            raise ValueError("An exact administrator proxy grant is required")
         if route is not None:
             if time.time() >= route.expires_at:
                 raise ValueError('Configured provider route expired')
             value['networkRoute'] = route.to_dict()
+    if value.get("proxy") is not None and "networkRoute" not in value:
+        raise ValueError("Invalid stored proxy authority")
     return value
 
 
@@ -178,18 +239,95 @@ def _public_addresses(endpoint):
         parsed = urlsplit(endpoint)
         addresses = socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
         if not addresses:
-            raise ValueError("No provider addresses")
-        for result in addresses:
-            raw = result[4][0]
-            address = ipaddress.ip_address(raw)
+            raise PlanningTransportError("dns_error")
+        resolved = [ipaddress.ip_address(result[4][0]) for result in addresses]
+        if any((getattr(address, "ipv4_mapped", None) or address) in _FAKE_IP for address in resolved):
+            raise PlanningTransportError("fake_ip_tun_blocked")
+        for address in resolved:
             mapped = getattr(address, "ipv4_mapped", None)
-            if ("%" in raw or not address.is_global or address.is_multicast or address.is_reserved
+            if (getattr(address, "scope_id", None) is not None or not address.is_global or
+                    address.is_multicast or address.is_reserved
                     or mapped is not None and not mapped.is_global):
                 raise PlanningTransportError("endpoint_policy")
     except PlanningTransportError:
         raise
+    except socket.gaierror:
+        raise PlanningTransportError("dns_error") from None
+    except TimeoutError:
+        raise PlanningTransportError("timeout") from None
     except (OSError, ValueError, TypeError, IndexError):
         raise PlanningTransportError("connection") from None
+
+
+def _provider_headers(adapter):
+    key = os.environ.get(adapter.credential_env)
+    if not key or any(not 33 <= ord(char) <= 126 for char in key):
+        raise PlanningTransportError("credentials")
+    if type(adapter.delegate) is not RoutedPlanningAdapter:
+        _public_addresses(adapter.delegate.endpoint)
+    if adapter.protocol == 'anthropic-compatible':
+        return {'x-api-key': key, 'anthropic-version': '2023-06-01'}
+    return {'Authorization': 'Bearer ' + key}
+
+
+def _model_metadata(model):
+    info = {'id': validate_gateway_model(model['id'])}
+    for remote, local, lower, upper in (
+        ('context_window', 'contextWindow', 256, 16_000_000),
+        ('max_output_tokens', 'maxOutputTokens', 1, 1_000_000),
+    ):
+        value = model.get(remote)
+        if type(value) is int and lower <= value <= upper:
+            info[local] = value
+    return info
+
+
+_CONNECTION_PROMPT = 'This is a connectivity check. Return the text connection-ok. Do not execute any action.'
+
+
+def _probe_provider(adapter, snapshot):
+    if snapshot['protocol'] == 'local-gateway':
+        adapter.plan(canonical_json_bytes({"schema_version": 1, "core_policy": _CONNECTION_PROMPT,
+                                          "purpose": "connection-test"}).decode('utf-8'))
+        return None
+    anthropic = snapshot['protocol'] == 'anthropic-compatible'
+    native_openai = urlsplit(snapshot['endpoint']).hostname == 'api.openai.com' and not anthropic
+    cap_field = 'max_completion_tokens' if native_openai else 'max_tokens'
+    body = {'model': snapshot['modelId'], 'stream': False, cap_field: 32,
+            'messages': [{'role': 'user', 'content': _CONNECTION_PROMPT}]}
+    if anthropic or snapshot['protocol'] == 'deepseek-compatible':
+        body['thinking'] = {'type': 'disabled'}
+    if native_openai:
+        from .agent_provider import openai_effort
+        if (effective := openai_effort(snapshot['modelId'], 'off')) is not None:
+            body.update(reasoning_effort=effective, max_completion_tokens=256 if effective=='low' else 32)
+    elif not anthropic:
+        body['n'] = 1
+    result = request_provider_json(
+        adapter.delegate, 'POST', urlsplit(snapshot['endpoint']).path,
+        {**_provider_headers(adapter), 'Content-Type': 'application/json'}, canonical_json_bytes(body),
+    )
+    try:
+        if anthropic:
+            if result['type'] != 'message' or result['role'] != 'assistant' or result['stop_reason'] != 'end_turn':
+                raise ValueError
+            blocks = result['content']
+            valid = (type(blocks) is list and len(blocks) == 1 and blocks[0]['type'] == 'text'
+                     and type(blocks[0]['text']) is str and blocks[0]['text'].strip())
+        else:
+            choices = result['choices']
+            valid = type(choices) is list and len(choices) == 1
+            if valid:
+                choice, message = choices[0], choices[0]['message']
+                valid = (choice['finish_reason'] == 'stop' and message['role'] == 'assistant'
+                         and type(message['content']) is str and message['content'].strip()
+                         and not message.get('tool_calls') and not message.get('function_call')
+                         and not message.get('refusal'))
+        if not valid:
+            raise ValueError
+    except (KeyError, TypeError, AttributeError, ValueError):
+        raise PlanningTransportError('assistant_content') from None
+    return result
 
 
 @dataclass(frozen=True)
@@ -204,6 +342,7 @@ class _RestrictedAdapter:
     delegate: OpenAICompatiblePlanningAdapter | LocalGatewayPlanningAdapter
     credential_env: str
     credential_envs: tuple[str, ...]
+    protocol: str = 'openai-compatible'
 
     @property
     def adapter_name(self):
@@ -214,6 +353,10 @@ class _RestrictedAdapter:
         return self.delegate.model_id
 
     def plan(self, request_json):
+        if self.protocol == 'anthropic-compatible':
+            # Native turns use AgentProvider. Legacy Core planning keeps its
+            # existing compatibility contract and exact transport semantics.
+            raise PlanningTransportError('endpoint_policy')
         key = os.environ.get(self.credential_env)
         if not _configured(self.credential_env):
             raise PlanningTransportError("credentials")
@@ -314,7 +457,12 @@ class ProviderStore:
             test = connection.execute("""SELECT tested_at,status,category,http_status FROM provider_connection_tests
                 WHERE profile_id=? AND revision=? ORDER BY rowid DESC LIMIT 1""",
                 (row["profile_id"], row["revision"])).fetchone()
-            return {"id": row["profile_id"], "revision": row["revision"], "configSha256": digest, **value,
+            diagnostic = {}
+            if test:
+                error = PlanningTransportError(test["category"], test["http_status"])
+                diagnostic = {"diagnosticCode": 'response_received' if test["status"] == 'CONNECTED'
+                              else connection_diagnostic(error), "httpStatus": test["http_status"]}
+            return {"id": row["profile_id"], "revision": row["revision"], "configSha256": digest, **value, **diagnostic,
                 "credentialConfigured": _configured(self.config.credentials.get(value["credentialRef"], '')),
                 "testStatus": test["status"] if test else "NOT_TESTED", "testedAt": test["tested_at"] if test else None}
         except (ApiError, TypeError, ValueError, KeyError):
@@ -330,7 +478,15 @@ class ProviderStore:
                                      (profile_id, revision)).fetchone()
         if row is None:
             raise ApiError("PROVIDER_NOT_FOUND", "The provider profile revision does not exist.", 404)
-        return self._snapshot(connection, row)
+        snapshot = self._snapshot(connection, row)
+        if _is_archived(connection, profile_id):
+            snapshot["archived"] = True
+        return snapshot
+
+    @staticmethod
+    def _require_available(snapshot):
+        if snapshot.get("archived"):
+            raise ApiError("PROVIDER_ARCHIVED", "Restore this provider profile before using it.", 409)
 
     def get(self, profile_id, revision=None):
         connection = self.connect()
@@ -342,17 +498,21 @@ class ProviderStore:
     def list(self):
         connection = self.connect()
         try:
-            ids = [row[0] for row in connection.execute("SELECT id FROM provider_profiles ORDER BY created_at,id LIMIT ?",
-                                                       (MAX_PROFILES + 1,))]
+            ids = [row[0] for row in connection.execute(
+                _available_profiles_query(connection) + " ORDER BY created_at,id LIMIT ?", (MAX_PROFILES + 1,))]
             if len(ids) > MAX_PROFILES:
                 raise ApiError("PROVIDER_LIMIT", "The provider store exceeds its supported budget.", 409)
             active = connection.execute("SELECT profile_id FROM provider_active_profile WHERE singleton=1").fetchone()
             return {"profiles": [self._load(connection, profile_id) for profile_id in ids],
-                "activeProfileId": active[0] if active else None, "endpoints": list(self.config.endpoints),
+                "activeProfileId": active[0] if active and active[0] in ids else None,
+                "endpoints": list(self.config.endpoints),
+                "providerRoutes": [{"endpoint": route.endpoint, "proxy": route.proxy, "expiresAt": route.expires_at}
+                                   for route in self.config.provider_routes if route.expires_at > time.time()],
                 "localGateways": [{"endpoint": item.endpoint, "modelIds": list(item.model_ids)}
                                   for item in self.config.local_gateways],
                 "credentialRefs": [{"id": alias, "configured": _configured(env)}
                                    for alias, env in self.config.credentials.items()],
+                "nativeTurnOptions": ["contextWindow", "maxOutputTokens", "reasoningEffort"],
                 "unsupportedOptions": ["reasoning", "retry"]}
         finally:
             connection.close()
@@ -380,7 +540,10 @@ class ProviderStore:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            if connection.execute("SELECT COUNT(*) FROM provider_profiles").fetchone()[0] >= MAX_PROFILES:
+            available = _available_profiles_query(connection)
+            total = connection.execute("SELECT COUNT(*) FROM provider_profiles").fetchone()[0]
+            if (total >= MAX_PROFILES + MAX_ARCHIVED_PROFILES
+                    or connection.execute(f"SELECT COUNT(*) FROM ({available})").fetchone()[0] >= MAX_PROFILES):
                 raise ApiError("PROVIDER_LIMIT", "The provider profile limit has been reached.", 409)
             _insert_one(connection, "INSERT INTO provider_profiles(id,created_at) VALUES (?,?)", (profile_id, created_at))
             _insert_one(connection, """INSERT INTO provider_profile_revisions
@@ -402,6 +565,7 @@ class ProviderStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             previous = self._load(connection, profile_id)
+            self._require_available(previous)
             revision = previous["revision"] + 1
             if revision > MAX_PROFILE_REVISIONS:
                 raise ApiError("PROVIDER_LIMIT", "The provider revision limit has been reached.", 409)
@@ -422,10 +586,50 @@ class ProviderStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             result = self._load(connection, profile_id)
+            self._require_available(result)
             _insert_one(connection, """INSERT INTO provider_active_profile(singleton,profile_id) VALUES (1,?)
                 ON CONFLICT(singleton) DO UPDATE SET profile_id=excluded.profile_id""", (profile_id,))
             connection.commit()
             return result
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def delete(self, profile_id):
+        """Archive the selectable profile while retaining every issued revision."""
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            profile = self._load(connection, profile_id)
+            if not profile.get("archived"):
+                _archive_catalog(connection, create=True)
+                if connection.execute("SELECT COUNT(*) FROM provider_archived_profiles").fetchone()[0] >= MAX_ARCHIVED_PROFILES:
+                    raise ApiError("PROVIDER_LIMIT", "The provider archive limit has been reached.", 409)
+                _insert_one(connection, "INSERT INTO provider_archived_profiles(profile_id, archived_at) VALUES (?,?)",
+                            (profile_id, _now()))
+                connection.execute("DELETE FROM provider_active_profile WHERE profile_id=?", (profile_id,))
+            connection.commit()
+            return {"id": profile_id, "archived": True}
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def restore(self, profile_id):
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            profile = self._load(connection, profile_id)
+            if profile.get("archived"):
+                available = _available_profiles_query(connection)
+                if connection.execute(f"SELECT COUNT(*) FROM ({available})").fetchone()[0] >= MAX_PROFILES:
+                    raise ApiError("PROVIDER_LIMIT", "The provider profile limit has been reached.", 409)
+                connection.execute("DELETE FROM provider_archived_profiles WHERE profile_id=?", (profile_id,))
+            connection.commit()
+            return {"id": profile_id, "archived": False}
         except BaseException:
             connection.rollback()
             raise
@@ -438,8 +642,8 @@ class ProviderStore:
             if type(snapshot) is not dict or type(attempt_id) is not str or not _ATTEMPT.fullmatch(attempt_id):
                 raise ValueError("Invalid adapter identity")
             pinned = self.get(snapshot["id"], snapshot["revision"])
-            if (any(snapshot.get(key) != pinned[key] for key in _FIELDS | {"id", "revision", "configSha256"})
-                    or snapshot.get('networkRoute') != pinned.get('networkRoute')):
+            fields = _FIELDS | _PROFILE_OPTIONS | {"id", "revision", "configSha256", "networkRoute"}
+            if {key: snapshot[key] for key in fields & snapshot.keys()} != {key: pinned[key] for key in fields & pinned.keys()}:
                 raise ValueError("Changed profile snapshot")
             adapter_name = (f"axis-profile/{pinned['id']}/{pinned['revision']}/"
                             f"{pinned['configSha256']}/attempt/{attempt_id}")
@@ -449,10 +653,11 @@ class ProviderStore:
 
     def adapter(self, snapshot, attempt_id):
         identity = self.adapter_identity(snapshot, attempt_id)
+        pinned = self.get(snapshot['id'], snapshot['revision'])
+        self._require_available(pinned)
         try:
-            pinned = self.get(snapshot['id'], snapshot['revision'])
             # Historical parsing does not grant current outbound authority.
-            _configuration({key:pinned[key] for key in _FIELDS}, self.config)
+            _configuration({key: pinned[key] for key in (_FIELDS | _PROFILE_OPTIONS) & pinned.keys()}, self.config)
             env = self.config.credentials[pinned["credentialRef"]]
             adapter_type = LocalGatewayPlanningAdapter if pinned['protocol'] == 'local-gateway' else OpenAICompatiblePlanningAdapter
             options = {}
@@ -464,7 +669,7 @@ class ProviderStore:
                 options['route_json'] = canonical_json_bytes(route.to_dict()).decode('utf-8')
             delegate = adapter_type(endpoint=pinned["endpoint"], model_id=pinned["modelId"],
                 api_key_env=env, adapter_name=identity.adapter_name, timeout_seconds=pinned["timeout"], **options)
-            return _RestrictedAdapter(delegate, env, tuple(self.config.credentials.values()))
+            return _RestrictedAdapter(delegate, env, tuple(self.config.credentials.values()), pinned['protocol'])
         except (ApiError, KeyError, TypeError, ValueError):
             raise ApiError("PROVIDER_INTEGRITY", "The selected provider revision cannot be used.", 409) from None
 
@@ -480,36 +685,61 @@ class ProviderStore:
     def discover_models(self, profile_id, revision):
         """A directory response is neither authorization nor planning evidence."""
         snapshot = self.get(profile_id, revision)
-        if snapshot['protocol'] != 'local-gateway':
-            raise ApiError('MODEL_DISCOVERY_UNSUPPORTED', 'Discovery is available for an authorized local gateway only.', 422)
+        self._require_available(snapshot)
         adapter = self.adapter(snapshot, 'discovery_' + uuid4().hex)
+        base = {'id': profile_id, 'revision': snapshot['revision'], 'configSha256': snapshot['configSha256'],
+                'planningVerified': False, 'executionVerified': False}
+        if snapshot['protocol'] == 'anthropic-compatible':
+            # Model Studio's Messages endpoint deliberately provides no model
+            # directory. Keep the configured ID without routing the key elsewhere.
+            model = {'id': snapshot['modelId'], **{key: snapshot[key] for key in
+                     ('contextWindow', 'maxOutputTokens') if key in snapshot}}
+            return {**base, 'status': 'MANUAL_CONFIGURATION', 'modelIds': [model['id']],
+                    'models': [model], 'excludedCount': 0}
+        excluded = 0
         try:
-            models = adapter.delegate.discover_models()
+            if snapshot['protocol'] == 'local-gateway':
+                found = adapter.delegate.discover_models()
+                allowed = next(item.model_ids for item in self.config.local_gateways
+                               if item.endpoint == snapshot['endpoint'])
+                models = [{'id': model} for model in found if model in allowed]
+                excluded = sum(model not in allowed for model in found)
+            else:
+                endpoint_path = urlsplit(snapshot['endpoint']).path
+                path = endpoint_path.removesuffix('/chat/completions') + '/models'
+                response = request_provider_json(adapter.delegate, 'GET', path, _provider_headers(adapter))
+                self.check_text(canonical_json_bytes(response).decode('utf-8'))
+                data = response.get('data')
+                if type(data) is not list or len(data) > 512:
+                    raise PlanningTransportError('transport_json')
+                models = [_model_metadata(model) for model in data]
             for model in models:
-                self.check_text(model)
+                self.check_text(model['id'])
+        except (TypeError, KeyError, ValueError):
+            raise ApiError('PROVIDER_RESPONSE', 'The model directory contains invalid entries.', 502) from None
         except PlanningTransportError as error:
-            # Never reflect the gateway body, error message, URL or credential.
-            raise ApiError('MODEL_DISCOVERY_FAILED',
-                f'Model discovery failed: {error.category}' +
-                (f' (HTTP {error.status_code})' if error.status_code else ''), 502) from None
-        allowed = next(item.model_ids for item in self.config.local_gateways if item.endpoint == snapshot['endpoint'])
-        return {'id': profile_id, 'revision': revision, 'configSha256': snapshot['configSha256'],
-            'status': 'DISCOVERED', 'modelIds': sorted(model for model in models if model in allowed),
-            'excludedCount': sum(model not in allowed for model in models),
-            'planningVerified': False, 'executionVerified': False}
+            raise ApiError(connection_diagnostic(error), 'The model directory request did not succeed.', 502) from None
+        by_id = {model['id']: model for model in models}
+        ids = sorted(by_id)
+        return {**base, 'status': 'DISCOVERED', 'modelIds': ids,
+                'models': [by_id[model] for model in ids], 'excludedCount': excluded}
 
     def test(self, profile_id, revision):
         snapshot = self.get(profile_id, revision)
-        adapter = self.adapter(snapshot, "connection_" + uuid4().hex)
+        self._require_available(snapshot)
         status, category, http_status = "CONNECTED", "response_received", None
         try:
-            adapter.plan(canonical_json_bytes({"schema_version": 1, "core_policy":
-                "This is a connectivity check. Return the text connection-ok. Do not execute any action.",
-                "purpose": "connection-test"}).decode("utf-8"))
+            adapter = self.adapter(snapshot, "connection_" + uuid4().hex)
+            response = _probe_provider(adapter, snapshot)
+            if response is not None:
+                self.check_text(canonical_json_bytes(response).decode('utf-8'))
         except PlanningTransportError as error:
             status, category, http_status = "FAILED", error.category, error.status_code
-        except Exception:
+        except ApiError as error:
+            status, category = "FAILED", ("endpoint_policy" if error.code == 'PROVIDER_INTEGRITY' else 'unavailable')
+        except (OSError, ValueError):
             status, category = "FAILED", "unavailable"
+        revision = snapshot['revision']
         tested_at = _now()
         connection = self.connect()
         try:
@@ -525,4 +755,6 @@ class ProviderStore:
         finally:
             connection.close()
         return {"id": profile_id, "revision": revision, "configSha256": snapshot["configSha256"],
-                "testStatus": status, "testedAt": tested_at, "category": category, "httpStatus": http_status}
+                "testStatus": status, "testedAt": tested_at, "category": category, "httpStatus": http_status,
+                "diagnosticCode": "response_received" if status == "CONNECTED" else
+                connection_diagnostic(PlanningTransportError(category, http_status))}

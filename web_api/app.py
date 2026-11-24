@@ -33,7 +33,8 @@ class WorkbenchServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     request_queue_size = 8
 
-    def __init__(self, address, facade, *, web_root=None, allowed_origins=(), bound_socket=None):
+    def __init__(self, address, facade, *, web_root=None, allowed_origins=(), bound_socket=None,
+                 connection_slots=4):
         if address[0] != "127.0.0.1":
             raise ValueError("The Workbench bridge binds only to 127.0.0.1")
         self.facade = facade
@@ -45,7 +46,7 @@ class WorkbenchServer(ThreadingMixIn, HTTPServer):
             if not root.is_dir() or not (root / "index.html").is_file():
                 raise ValueError("A built frontend directory with index.html is required")
             self.web_root = root
-        self._slots = threading.BoundedSemaphore(4)
+        self._slots = threading.BoundedSemaphore(connection_slots)
         super().__init__(address, WorkbenchHandler, bind_and_activate=bound_socket is None)
         if bound_socket is not None:
             self.socket.close()
@@ -265,6 +266,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Axis-Evo read-only local Web Workbench")
     parser.add_argument("--config", type=Path, help="Explicit local project JSON; never publish credentials")
     parser.add_argument("--runtime-config", type=Path, help="Explicit opt-in runtime configuration; backend credential references only")
+    parser.add_argument("--legacy-runtime", action="store_true", help="Eagerly prepare configured older Runtime services")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--web-root", type=Path, default=Path("web/dist"), help="Built frontend assets only")
     parser.add_argument('--api-only', action='store_true', help='Explicit API-only mode for the Vite development proxy')
@@ -272,6 +274,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("port must be between 1 and 65535")
+    if args.legacy_runtime and not args.runtime_config:
+        parser.error("--legacy-runtime requires --runtime-config")
     if args.open_browser and (args.api_only or not args.runtime_config):
         parser.error('--open-browser requires a Runtime configuration and built frontend; API-only mode has no launch page')
     bound = runtime = credentials = None
@@ -302,7 +306,8 @@ def main(argv=None):
         if args.runtime_config:
             runtime = RuntimeService(runtime_config, config, ProviderStore(runtime_config, initialize=False))
             server = RuntimeServer(("127.0.0.1", args.port), ReadFacade(config), runtime,
-                                   web_root=root, bound_socket=bound, credential_manager=credentials)
+                                   web_root=root, bound_socket=bound, credential_manager=credentials,
+                                   legacy_runtime=args.legacy_runtime)
         else:
             server = WorkbenchServer(("127.0.0.1", args.port), ReadFacade(config), web_root=root, bound_socket=bound)
         bound = None  # Server now owns the reserved socket.

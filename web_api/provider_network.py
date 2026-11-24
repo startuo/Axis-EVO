@@ -13,8 +13,62 @@ import time
 from urllib.parse import urlsplit
 
 from axis_evo.hashing import canonical_json_bytes
-from axis_evo.planning_adapter import OpenAICompatiblePlanningAdapter, PlanningTransportError, _strict_json
+from axis_evo.planning_adapter import (MAX_RESPONSE_BYTES, OpenAICompatiblePlanningAdapter,
+                                       PlanningTransportError, _response_bytes, _strict_json)
 from .runtime_config import OfficialHostRoute, provider_route_from_dict
+
+
+def connection_diagnostic(error):
+    """Project stable operator-facing codes without including transport details."""
+    if isinstance(error, PlanningTransportError):
+        if error.status_code == 401:
+            return 'auth_401'
+        if error.category in ('fake_ip_tun_blocked', 'tls_error', 'timeout', 'dns_error', 'endpoint_policy',
+                              'connection_error'):
+            return error.category
+        if error.category == 'credentials':
+            return 'credentials'
+        return 'provider_response' if error.category != 'connection' else 'connection_error'
+    if isinstance(error, TimeoutError):
+        return 'timeout'
+    if isinstance(error, ssl.SSLError):
+        return 'tls_error'
+    if isinstance(error, socket.gaierror):
+        return 'dns_error'
+    return 'connection_error'
+
+
+def request_provider_json(delegate, method, path, headers, body=None):
+    """One bounded request to a previously admitted provider, without redirects."""
+    connection = response = None
+    try:
+        connection = delegate._connection(urlsplit(delegate.endpoint))
+        connection.request(method, path, body=body, headers={
+            'Accept': 'application/json', 'Accept-Encoding': 'identity', **headers,
+        })
+        response = connection.getresponse()
+        if not 200 <= response.status < 300:
+            raise PlanningTransportError('http', response.status)
+        wire = _response_bytes(response)
+    except PlanningTransportError:
+        raise
+    except (OSError, http.client.HTTPException, UnicodeError) as error:
+        raise PlanningTransportError(connection_diagnostic(error)) from None
+    finally:
+        for resource in (response, connection):
+            close = getattr(resource, 'close', None)
+            if close is not None:
+                try:
+                    close()
+                except (OSError, http.client.HTTPException):
+                    pass
+    try:
+        value = _strict_json(wire.decode('utf-8'), MAX_RESPONSE_BYTES)
+    except (UnicodeError, ValueError):
+        raise PlanningTransportError('transport_json') from None
+    if type(value) is not dict:
+        raise PlanningTransportError('transport_json')
+    return value
 
 
 class _ProxyTLSConnection(http.client.HTTPSConnection):

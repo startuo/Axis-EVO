@@ -6,18 +6,20 @@ SetCompressor /SOLID lzma
 !include "LogicLib.nsh"
 
 !define APP "Axis-Evo"
-!define RELEASE "0.1.0 Preview M6.1"
+!define RELEASE "0.1.0 Preview M7"
+!define PREVIOUS_WINDOW "Axis-Evo 0.1.0 Preview · M6.1"
+!define CURRENT_WINDOW "Axis-Evo 0.1.0 Preview · M7"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\AxisEvoPreview"
 
 Name "${APP} ${RELEASE}"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\Axis-Evo"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
-VIProductVersion "0.1.0.61"
+VIProductVersion "0.1.0.70"
 VIAddVersionKey /LANG=1033 "ProductName" "${APP}"
 VIAddVersionKey /LANG=1033 "CompanyName" "Axis-Evo"
 VIAddVersionKey /LANG=1033 "FileDescription" "Axis-Evo Windows Preview Setup"
-VIAddVersionKey /LANG=1033 "FileVersion" "0.1.0.61"
+VIAddVersionKey /LANG=1033 "FileVersion" "0.1.0.70"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${RELEASE}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "Axis-Evo"
 
@@ -44,12 +46,19 @@ Function .onInit
   Call RequireClosed
 FunctionEnd
 
-Function RequireClosed
-  FindWindow $0 "" "Axis-Evo 0.1.0 Preview · M6.1"
+!macro RequireAxisClosed errorText
+  FindWindow $0 "" "${CURRENT_WINDOW}"
+  ${If} $0 = 0
+    FindWindow $0 "" "${PREVIOUS_WINDOW}"
+  ${EndIf}
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP|MB_OK "请退出 Axis-Evo 后再继续。"
+    MessageBox MB_ICONSTOP|MB_OK "${errorText}"
     Abort
   ${EndIf}
+!macroend
+
+Function RequireClosed
+  !insertmacro RequireAxisClosed "请退出 Axis-Evo 后再继续。"
 FunctionEnd
 
 Section "Axis-Evo"
@@ -74,11 +83,7 @@ SectionEnd
 
 Section "Uninstall"
   SetShellVarContext current
-  FindWindow $0 "" "Axis-Evo 0.1.0 Preview · M6.1"
-  ${If} $0 != 0
-    MessageBox MB_ICONSTOP|MB_OK "请退出 Axis-Evo 后再卸载。"
-    Abort
-  ${EndIf}
+  !insertmacro RequireAxisClosed "请退出 Axis-Evo 后再卸载。"
   !include "${UNINSTALL_FILES}"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"

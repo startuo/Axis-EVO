@@ -205,16 +205,19 @@ class ContainerRunner:
             process.wait(timeout=10)
             reader.join(timeout=5); writer.join(timeout=5)
             state=json.loads(self._cli(['inspect','--format','{{json .State}}',container]))
-            confirmed=state.get('Status')=='exited' and not state.get('Running')
+            confirmed=(state.get('Status')=='exited' and state.get('Running') is False
+                       and type(state.get('ExitCode')) is int)
             if not stop and confirmed and state.get('ExitCode')==137 and time.monotonic()-begin>=timeout:
                 stop='TIMED_OUT'
-            result={'status':stop or ('SUCCESS' if confirmed else 'UNKNOWN'),
+            result={'status':(stop or 'SUCCESS') if confirmed else 'UNKNOWN',
                 'outcome':'EXITED' if confirmed else 'UNCONFIRMED','exitCode':state.get('ExitCode') if confirmed else None,
                 'stdout':output.decode('utf-8',errors='replace'),'outputBytes':output_count[0],
                 'outputTruncated':output_count[0]>MAX_OUTPUT,'durationMs':round((time.monotonic()-begin)*1000),
                 'containerId':container,'imageId':image_id,'snapshotSha256':snapshot['sha256'],
                 'oomKilled':bool(state.get('OOMKilled')),'effectScope':'EPHEMERAL_PROJECT_COPY',
                 'network':'NONE','hostMounts':False,'trust':'UNTRUSTED_COMMAND_OUTPUT'}
+            if stop and not confirmed:
+                result['requestedStop']=stop
             result['inputReadOnly']=readonly
             if stdin is not None:
                 result.update(stdinBytes=len(stdin), stdinSha256=hashlib.sha256(stdin).hexdigest())

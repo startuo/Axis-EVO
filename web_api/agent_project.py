@@ -2,14 +2,81 @@
 import difflib
 import hashlib
 import io
+import os
 from pathlib import Path
+import stat
 import tarfile
+import time
 
 from .agent_store import digest
-from .agent_workspace import fail
+from .agent_workspace import EXCLUDED, PUBLIC_DOTFILES, fail, relative_path
 from .schemas import ApiError, no_redirected_parents
 
 MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
+MAX_DIRECTORY_ENTRIES = 400
+MAX_DIRECTORY_SCAN = 2000
+
+
+def list_directory(workspaces, wid, path):
+    if (type(path) is not str or len(path) > 512 or any(c in path for c in ('\\', ':', '\x00'))
+            or path and any(not part or part.startswith('.') or part.lower() in EXCLUDED
+                            for part in path.split('/'))):
+        fail('WORKSPACE_PATH_DENIED', '请选择工作区内的相对目录。', 403)
+    resolver = workspaces.resolver(wid)
+    entries, truncated = [], False
+    deadline = time.monotonic() + 2
+    try:
+        no_redirected_parents(resolver.root / path)
+        directory = resolver.resolve(path) if path else resolver.root
+        with os.scandir(directory) as found:
+            for index, entry in enumerate(found):
+                if index >= MAX_DIRECTORY_SCAN or time.monotonic() > deadline:
+                    truncated = True
+                    break
+                name = entry.name
+                if (name.startswith('.') and name not in PUBLIC_DOTFILES
+                        or name.lower() in EXCLUDED):
+                    continue
+                try:
+                    info = Path(entry.path).lstat()
+                except FileNotFoundError:
+                    continue
+                if getattr(info, 'st_file_attributes', 0) & 0x400:
+                    continue
+                if stat.S_ISDIR(info.st_mode):
+                    entries.append({'name': name, 'type': 'dir', 'size': 0})
+                elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                    try:
+                        relative_path((Path(path) / name).as_posix())
+                    except ApiError:
+                        continue
+                    entries.append({'name': name, 'type': 'file', 'size': info.st_size})
+    except (FileNotFoundError, NotADirectoryError):
+        fail('WORKSPACE_DIRECTORY_MISSING', '请先选择此工作区内的现有文件夹。', 404)
+    except ValueError:
+        fail('WORKSPACE_PATH_DENIED', '请选择工作区内的相对目录。', 403)
+    except OSError:
+        fail('WORKSPACE_DIRECTORY_UNAVAILABLE', '无法读取此工作区目录。', 409)
+    entries.sort(key=lambda item: (item['type'], item['name'].casefold(), item['name']))
+    return {'path': path, 'entries': entries[:MAX_DIRECTORY_ENTRIES],
+            'truncated': truncated or len(entries) > MAX_DIRECTORY_ENTRIES}
+
+
+def preview_file(workspaces, wid, path, max_bytes):
+    try:
+        data = workspaces.read(wid, 'workspace', path, max_chars=max_bytes)
+    except FileNotFoundError:
+        fail('WORKSPACE_FILE_MISSING', '文件已移动或不存在。', 404)
+    except UnicodeDecodeError:
+        fail('WORKSPACE_FILE_NOT_UTF8', '文件不是可预览的 UTF-8 文本。', 409)
+    except ValueError:
+        fail('WORKSPACE_PATH_DENIED', '请选择工作区内的相对文件。', 403)
+    except OSError:
+        fail('WORKSPACE_FILE_UNAVAILABLE', '无法读取此文件。', 409)
+    encoded = data['content'].encode('utf-8')
+    return {'path': data['path'], 'size': data['sizeBytes'], 'sha256': data['sha256'],
+            'content': encoded[:max_bytes].decode('utf-8', errors='ignore'),
+            'truncated': data['truncated'] or len(encoded) > max_bytes}
 
 
 def snapshot(workspaces, wid):

@@ -1,6 +1,7 @@
 """Append-only product Agent journal. No research database is opened here."""
 from contextlib import contextmanager
 import hashlib
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -56,6 +57,35 @@ def _expected():
 
 EXPECTED = _expected()
 
+_FENCE_TABLE = """
+CREATE TABLE agent_fenced_paths(
+ path_key TEXT NOT NULL,
+ intent_id TEXT NOT NULL REFERENCES agent_records(id),
+ PRIMARY KEY(path_key,intent_id));
+"""
+_FENCE_INDEX = "CREATE INDEX agent_fenced_paths_intent ON agent_fenced_paths(intent_id);"
+
+
+def _fence_objects(c):
+    return tuple(tuple(row) for row in c.execute(
+        "SELECT type,name,sql FROM sqlite_master WHERE tbl_name='agent_fenced_paths' "
+        "AND name NOT LIKE 'sqlite_%' ORDER BY type,name"
+    ))
+
+
+def _expected_fence_objects():
+    with sqlite3.connect(':memory:') as c:
+        c.execute(_FENCE_TABLE)
+        c.execute(_FENCE_INDEX)
+        return _fence_objects(c)
+
+
+EXPECTED_FENCES = _expected_fence_objects()
+
+
+def _path_key(path):
+    return Path(os.path.normcase(os.path.normpath(path))).as_posix()
+
 
 class AgentStore:
     def __init__(self, data_dir):
@@ -82,6 +112,70 @@ class AgentStore:
                 raise ApiError('AGENT_STORE_INTEGRITY', 'Agent 存储结构无法核对。', 409)
         finally:
             c.close()
+        self.prepare_projection()
+
+    def prepare_projection(self):
+        """Migrate the derived write fences in one transaction before serving."""
+        with self.connect(write=True) as c:
+            current = _fence_objects(c)
+            if current == EXPECTED_FENCES:
+                return
+            if current:
+                raise ApiError('AGENT_STORE_INTEGRITY', '写入围栏结构无法核对。', 409)
+            c.execute(_FENCE_TABLE)
+            c.execute(_FENCE_INDEX)
+            receipts = {}
+            for row in c.execute("SELECT * FROM agent_records WHERE kind='tool_result' ORDER BY seq"):
+                receipt = self._decode(row)
+                receipts[(receipt['parentId'], receipt['payload'].get('intentId'))] = receipt['payload']['status']
+            for row in c.execute("SELECT * FROM agent_records WHERE kind='tool_intent' ORDER BY seq"):
+                intent = self._decode(row)
+                if receipts.get((intent['parentId'], intent['id']), 'UNKNOWN') == 'UNKNOWN':
+                    self._project_intent(c, intent['id'], intent['workspaceId'], intent['payload'])
+
+    def _project_intent(self, c, record_id, workspace_id, payload):
+        if not payload.get('mutating'):
+            return
+        paths = payload.get('canonicalPaths') or [payload.get('canonicalPath')]
+        if paths == [None]:
+            workspace = self._decode(c.execute("SELECT * FROM agent_records WHERE id=? AND kind='workspace'",
+                                               (workspace_id,)).fetchone())
+            paths = [str((Path(workspace['payload']['path']) / payload['path']).resolve())]
+        c.executemany('INSERT OR IGNORE INTO agent_fenced_paths(path_key,intent_id) VALUES(?,?)',
+                      ((_path_key(path), record_id) for path in paths))
+
+    def _project_receipt(self, c, parent_id, payload):
+        intent_id = payload.get('intentId')
+        if not intent_id:
+            return
+        if payload['status'] != 'UNKNOWN':
+            c.execute('DELETE FROM agent_fenced_paths WHERE intent_id IN '
+                      "(SELECT id FROM agent_records WHERE id=? AND parent_id=? AND kind='tool_intent')",
+                      (intent_id, parent_id))
+            return
+        row = c.execute("SELECT * FROM agent_records WHERE id=? AND parent_id=? AND kind='tool_intent'",
+                        (intent_id, parent_id)).fetchone()
+        if row is not None:
+            intent = self._decode(row)
+            self._project_intent(c, intent_id, intent['workspaceId'], intent['payload'])
+
+    def has_fenced_path(self, paths):
+        """Match exact paths, ancestors, and descendants using the path index."""
+        with self.connect() as c:
+            if _fence_objects(c) != EXPECTED_FENCES:
+                raise ApiError('AGENT_STORE_INTEGRITY', '写入围栏结构无法核对。', 409)
+            for value in paths:
+                path = Path(value)
+                ancestors = [_path_key(parent) for parent in (path, *path.parents)]
+                slots = ','.join('?' for _ in ancestors)
+                if c.execute(f'SELECT 1 FROM agent_fenced_paths WHERE path_key IN ({slots}) LIMIT 1',
+                             ancestors).fetchone():
+                    return True
+                prefix = _path_key(path).rstrip('/')
+                if c.execute('SELECT 1 FROM agent_fenced_paths WHERE path_key>=? AND path_key<? LIMIT 1',
+                             (prefix+'/', prefix+'0')).fetchone():
+                    return True
+        return False
 
     @contextmanager
     def connect(self, *, write=False):
@@ -136,6 +230,10 @@ class AgentStore:
         with self.connect(write=True) as c:
             c.execute('INSERT INTO agent_records(id,kind,workspace_id,parent_id,payload_json,payload_sha256,created_at) VALUES(?,?,?,?,?,?,?)',
                 (record_id, kind, workspace_id, parent_id, raw, hashlib.sha256(raw.encode()).hexdigest(), created))
+            if kind == 'tool_intent':
+                self._project_intent(c, record_id, workspace_id, payload)
+            elif kind == 'tool_result':
+                self._project_receipt(c, parent_id, payload)
         return {'id':record_id,'kind':kind,'workspaceId':workspace_id,'parentId':parent_id,'payload':payload,'createdAt':created}
 
     def get(self, record_id, kind=None):

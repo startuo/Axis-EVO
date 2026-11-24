@@ -19,6 +19,35 @@ TERMINAL = SUCCESS | frozenset(('FAILED', 'UNKNOWN', 'STOPPED', 'CANCELLED', 'IN
     'BLOCKED', 'LIMIT_REACHED'))
 
 
+def sim_ledger(records, terminal):
+    """Project SIM from durable candidate and fixed-check facts."""
+    payloads = {record['kind']:record['payload'] for record in records}
+    draft = payloads.get('skill_candidate_intent', {}).get('draft', {})
+    generation = payloads.get('evolution_model_result', {})
+    generation = next((record['payload'] for record in records
+        if record['kind'] == 'evolution_model_result' and record['payload']['phase'] == 'generation'),
+        generation if generation.get('phase') == 'generation' else {})
+    benchmark = payloads.get('evolution_evaluation_intent', {})
+    gate = payloads.get('evolution_gate', {})
+    if gate:
+        measured = {'status':'MEASURED', 'eligible':gate['eligible'], 'gateSha256':gate['manifestSha256'],
+            'referenceTurnId':gate['reference']['turnId'], 'candidateTurnId':gate['candidate']['turnId'],
+            'checks':gate['checks'], 'commandChecks':gate['commandChecks'],
+            'regressions':gate['regressions'], 'reasons':gate['reasons'],
+            'historicalCases':[{'experienceId':case['experienceId'], 'reasons':case['gate']['reasons'],
+                'checks':case['gate']['checks'], 'commandChecks':case['gate']['commandChecks']}
+                for case in gate.get('regressionCases', [])]}
+    else:
+        measured = {'status':terminal.get('actualValidation', 'UNCONFIRMED' if benchmark else 'NOT_RUN')
+            if terminal else 'PENDING', 'reasons':terminal.get('reasons', []) if terminal else []}
+    return {'rationale':draft.get('change_summary'), 'prediction':draft.get('expected_behavior_change'),
+        'measuredOutcome':measured, 'modelAndBenchmark':{
+            'generationModel':generation.get('provider'), 'evaluationModel':benchmark.get('evaluationModel'),
+            'benchmarkRequestSha256':benchmark.get('requestSha256'),
+            'checkOrigin':benchmark.get('checksOrigin'),
+            'referenceTurnId':measured.get('referenceTurnId'), 'candidateTurnId':measured.get('candidateTurnId')}}
+
+
 def validate_checks(value):
     if type(value) is not list or len(value) > 16:
         raise ApiError('EVOLUTION_CHECKS_INVALID', '最多提供 16 项明确的文档检查。')

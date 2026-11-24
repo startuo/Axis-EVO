@@ -6,15 +6,68 @@ from axis_evo.planning_adapter import PlanningTransportError
 from .agent_store import canonical
 
 MAX_OUTPUT_TOKENS = 4096
+DEFAULT_CONTEXT_LIMIT = 128 * 1024
+DEFAULT_LOCAL_CONTEXT_LIMIT = 16 * 1024
+
+
+def context_window(configured=None, *, local_gateway=False):
+    return configured or (DEFAULT_LOCAL_CONTEXT_LIMIT if local_gateway else DEFAULT_CONTEXT_LIMIT)
+
+
+def output_token_limit(profile):
+    window = profile.get('contextWindow')
+    default = min(MAX_OUTPUT_TOKENS, max(1, window // 4)) if window is not None else MAX_OUTPUT_TOKENS
+    return profile.get('maxOutputTokens', default)
+
+
+def _token_count(value):
+    return type(value) is int and 0 <= value <= 10_000_000
 
 
 def usage(envelope):
     value = envelope.get('usage')
-    keys = ('prompt_tokens', 'completion_tokens', 'total_tokens')
-    if (type(value) is not dict or any(type(value.get(k)) is not int or not 0 <= value[k] <= 10_000_000 for k in keys)
-            or value['total_tokens'] != value['prompt_tokens'] + value['completion_tokens']):
+    if type(value) is not dict:
         return None
-    return {k: value[k] for k in keys} | {'basis': 'PROVIDER_REPORTED_NOT_INVOICE'}
+    if 'input_tokens' in value or 'output_tokens' in value:
+        # Anthropic input_tokens is the uncached remainder. Include cache
+        # reads and writes once in the context and conservative budget.
+        miss, output = value.get('input_tokens'), value.get('output_tokens')
+        hit = value.get('cache_read_input_tokens', 0)
+        write = value.get('cache_creation_input_tokens', 0)
+        if not all(map(_token_count, (miss, output, hit, write))):
+            return None
+        prompt = miss + hit + write
+        total = prompt + output
+        if not _token_count(total):
+            return None
+        cache_reported = bool({'cache_read_input_tokens', 'cache_creation_input_tokens'} & value.keys())
+    else:
+        prompt, output, total = (value.get(key) for key in
+            ('prompt_tokens', 'completion_tokens', 'total_tokens'))
+        if not all(map(_token_count, (prompt, output, total))) or total != prompt + output:
+            return None
+        details = value.get('prompt_tokens_details')
+        nested_hit = details.get('cached_tokens') if type(details) is dict else None
+        hit = value.get('cacheHitTokens', value.get('prompt_cache_hit_tokens', nested_hit))
+        write = value.get('cacheWriteTokens')
+        miss = value.get('cacheMissTokens', value.get('prompt_cache_miss_tokens'))
+        cache_reported = hit is not None or write is not None or miss is not None
+        if cache_reported:
+            hit = hit if hit is not None else 0
+            write = write if write is not None else 0
+            if not _token_count(hit) or not _token_count(write) or hit + write > prompt:
+                cache_reported = False
+            elif miss is None:
+                miss = prompt - hit - write
+            elif not _token_count(miss) or hit + write + miss != prompt:
+                cache_reported = False
+    result = {'prompt_tokens': prompt, 'completion_tokens': output, 'total_tokens': total,
+        'promptTokens': prompt, 'completionTokens': output, 'totalTokens': total,
+        'basis': 'PROVIDER_REPORTED_NOT_INVOICE'}
+    if cache_reported:
+        result.update(cacheHitTokens=hit, cacheWriteTokens=write, cacheMissTokens=miss,
+                      cacheHitRate=hit / prompt if prompt else 0)
+    return result
 
 
 def take_usage(message):
@@ -26,7 +79,9 @@ def take_usage(message):
 def summarize(events):
     requests = [e for e in events if e['kind'] == 'model_request']
     replies = [e['payload'] for e in events if e['kind'] == 'model_usage']
-    known = [r['usage'] for r in replies if r.get('usage')]
+    known = [value for r in replies if (value := usage({'usage': r.get('usage')}))]
+    cache_known = [value for value in known if 'cacheHitTokens' in value]
+    cache_prompt = sum(value['promptTokens'] for value in cache_known)
     denied=sum(e['kind']=='model_not_dispatched' for e in events)
     dispatched=len(requests)-denied
     return {'modelRequests': dispatched,'modelAttempts':len(requests),'notDispatched':denied,'responsesWithUsage': len(known),
@@ -34,16 +89,37 @@ def summarize(events):
         'promptTokens': sum(r['prompt_tokens'] for r in known),
         'completionTokens': sum(r['completion_tokens'] for r in known),
         'totalTokens': sum(r['total_tokens'] for r in known),
+        'cacheReportedResponses': len(cache_known),
+        'cacheHitTokens': sum(value['cacheHitTokens'] for value in cache_known) if cache_known else None,
+        'cacheWriteTokens': sum(value['cacheWriteTokens'] for value in cache_known) if cache_known else None,
+        'cacheMissTokens': sum(value['cacheMissTokens'] for value in cache_known) if cache_known else None,
+        'cacheHitRate': sum(value['cacheHitTokens'] for value in cache_known) / cache_prompt if cache_prompt else None,
+        'costBasis': 'CONSERVATIVE_UNDISCOUNTED_INPUT_NOT_INVOICE',
         'modelDurationMs': round(sum(r.get('durationMs', 0) for r in replies), 2),
         'basis': 'PROVIDER_REPORTED_PARTIAL' if len(known) != dispatched else 'PROVIDER_REPORTED_NOT_INVOICE'}
+
+
+def current_context(events, profile):
+    configured = profile.get('contextWindow')
+    limit = context_window(configured, local_gateway=profile.get('protocol')=='local-gateway')
+    basis = 'PROFILE_CONFIGURED' if configured else 'HARNESS_DEFAULT'
+    for event in reversed(events):
+        if event['kind'] == 'model_usage' and (observed := usage({'usage': event['payload'].get('usage')})):
+            return {'contextTokens': observed['promptTokens'], 'contextLimit': limit, 'contextLimitBasis': basis,
+                    'contextMeasuredRound': event['payload'].get('round'),
+                    **{name: observed.get(name) for name in (
+                        'cacheHitRate', 'cacheHitTokens', 'cacheWriteTokens', 'cacheMissTokens')}}
+    return {'contextTokens': None, 'contextLimit': limit, 'contextLimitBasis': basis,
+            'contextMeasuredRound': None, 'cacheHitRate': None, 'cacheHitTokens': None,
+            'cacheWriteTokens': None, 'cacheMissTokens': None}
 
 
 class ModelBudget:
     """Host-supplied shared cap. Reserve a conservative UTF-8 byte upper bound.
 
     Unknown/failed requests retain their entire reservation and stop further
-    dispatch. This object never retries. Prices are supplied by the operator,
-    not inferred from a model name or treated as an authenticated invoice.
+    dispatch. This object never retries. The operator supplies rate ceilings,
+    including any cache-write premium. Usage is not an authenticated invoice.
     """
     def __init__(self, completion, *, requests, tokens, cost_cny, input_per_million, output_per_million, journal):
         self.completion = completion
@@ -104,8 +180,9 @@ class ModelBudget:
 
     def __call__(self, providers, profile, messages, tools, cancelled):
         reserved_input = len(canonical({'messages': messages, 'tools': tools}).encode('utf-8')) + 1024
-        reserved_tokens = reserved_input + MAX_OUTPUT_TOKENS
-        reserved_cost = (reserved_input * self.input_rate + MAX_OUTPUT_TOKENS * self.output_rate) / 1_000_000
+        max_output = output_token_limit(profile)
+        reserved_tokens = reserved_input + max_output
+        reserved_cost = (reserved_input * self.input_rate + max_output * self.output_rate) / 1_000_000
         with self._lock:
             reason = None
             if self.uncertain:

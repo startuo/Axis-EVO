@@ -29,7 +29,7 @@ from axis_evo.storage import connect_database
 from .agent_provider_worker import complete_isolated
 from .agent_experience import diagnose, cost, tool_incidents, select_cases
 from .agent_skill_gate import (POLICY_ID, SUCCESS, TERMINAL, assess_comparison,
-    task_summary, validate_checks)
+    sim_ledger, task_summary, validate_checks)
 from .agent_store import digest, identity
 from .agent_workspace import root_identity
 from .agent_metrics import take_usage
@@ -259,6 +259,21 @@ class AgentEvolution:
                     raise
         return result
 
+    def list_versions(self, workspace_id, skill_id):
+        preferred = self.use_skill(workspace_id, skill_id)
+        versions = []
+        for row in self._receipts(workspace_id):
+            payload = row['payload']
+            if payload['skillId'] != skill_id or payload['source']['sourceId'] != preferred['source']['sourceId']:
+                continue
+            card, _ = self._card(workspace_id, skill_id, payload['version'])
+            versions.append({key:card[key] for key in ('skillId', 'version', 'name', 'description',
+                'cardSha256', 'source', 'state', 'receiptId')} | {
+                'createdAt':row['createdAt'], 'cycleId':row['parentId'] if row['kind'] == 'skill_candidate' else None,
+                'preferred':card['version'] == preferred['version']})
+        return {'versions':sorted(versions, key=lambda item:item['version'], reverse=True),
+                'preferredVersion':preferred['version']}
+
     def use_skill(self, workspace_id, skill_id, version=None):
         if version is None:
             base = self._current_import(workspace_id, skill_id)
@@ -422,13 +437,14 @@ class AgentEvolution:
             # The worker commits its terminal before clearing _active under this
             # lock. Read both together so an old fact page cannot be combined
             # with a newly cleared worker flag and falsely report UNKNOWN.
-            facts = self.store.records(workspace_id=workspace_id, parent_id=cycle_id, limit=100)
-            terminal = [fact for fact in facts if fact['kind'] == 'evolution_terminal']
+            facts = list(self.store.iter_records(workspace_id=workspace_id, parent_id=cycle_id))
+            terminal = next((fact['payload'] for fact in reversed(facts)
+                if fact['kind'] == 'evolution_terminal'), None)
             active = cycle_id in self._active
         return {'id': cycle_id, 'workspaceId': workspace_id, 'feedbackId': cycle['payload']['feedbackId'],
-            'status': terminal[-1]['payload']['status'] if terminal else 'RUNNING' if active else 'UNKNOWN',
-            'workerActive': active, 'policy': cycle['payload']['policy'], 'facts': facts,
-            'result': terminal[-1]['payload'] if terminal else None}
+            'status': terminal['status'] if terminal else 'RUNNING' if active else 'UNKNOWN',
+            'workerActive': active, 'policy': cycle['payload']['policy'], 'facts': facts[-100:],
+            'result': terminal, 'simLedger':sim_ledger(facts, terminal)}
 
     def list_cycles(self, workspace_id):
         return [self.get_cycle(workspace_id, record['id']) for record in
@@ -675,6 +691,7 @@ class AgentEvolution:
                 request['experienceId']=experiences[0]['id']
             self._append('evolution_evaluation_intent', {'requestSha256': digest(request),
                 'sourceTurnId': source['id'], 'checks': feedback['payload']['checks'],
+                'evaluationModel': _profile_identity(request['profile']),
                 'outputPaths': sorted({artifact['path'] for artifact in source.get('artifacts', [])}),
                 'checksOrigin': 'IMMUTABLE_USER_FEEDBACK', 'feedbackSha256': digest(feedback['payload'])}, workspace_id,
                 cycle_id, record_id=cycle_id + '-evaluation-intent')

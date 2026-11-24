@@ -14,14 +14,14 @@ import time
 from uuid import uuid4
 
 from axis_evo.planning_adapter import PlanningTransportError
-from .agent_store import AgentStore, canonical, digest
-from .agent_workspace import AgentWorkspaces, bounded_text, relative_path, fail
+from .agent_store import AgentStore, canonical, digest, identity
+from .agent_workspace import AgentWorkspaces, bounded_text, fail
 from .agent_tools import AgentTools
 from .agent_evolution import AgentEvolution
 from .agent_provider_worker import complete_isolated
-from .agent_context import conversation_history, bounded_context, fixed_check_message
+from .agent_context import conversation_history, bounded_context, fixed_check_message, post_edit_message
 from .agent_execution_policy import AgentExecution
-from .agent_metrics import take_usage, summarize
+from .agent_metrics import current_context, output_token_limit, summarize, take_usage
 from .agent_fileops import MUTATIONS, TEXT_EDITS, paths as mutation_paths
 from .schemas import ApiError, strict_json, no_redirected_parents
 
@@ -29,6 +29,12 @@ MAX_ROUNDS=32
 MAX_CALLS=96
 MAX_TURN_SECONDS=1200
 TERMINAL={'COMPLETED','FAILED','UNKNOWN','CANCELLED','LIMIT_REACHED','BLOCKED'}
+SUMMARY_PAGE_SIZE = 96
+SUMMARY_KINDS = (
+    'started', 'terminal', 'assistant', 'model_usage', 'model_not_dispatched',
+    'tool_intent', 'tool_result', 'tool_execution', 'artifact', 'file_operation',
+    'task_plan', 'host_delivery_check', 'post_edit_hook', 'circuit_breaker', 'context_checkpoint',
+)
 SYSTEM = '''You are Axis-Evo, a local-first agent collaborating on goals and deliverables.
 Use the user's language. Work autonomously within the host-provided workspace policy.
 For a work request inspect files and discover relevant Skills, read their instructions,
@@ -81,6 +87,7 @@ class AgentService:
         self.execution=AgentExecution(self)
         # Startup never replays a tool or reissues a model request.
         if self.store.prepared:
+            self.store.prepare_projection()
             for turn in self.store.iter_records('turn'):
                 if not self.store.records('terminal',parent_id=turn['id'],limit=1):
                     self._finish(turn,'UNKNOWN','COORDINATOR_RESTARTED')
@@ -172,17 +179,143 @@ class AgentService:
         return {'id':cid,'workspaceId':row['workspaceId'],'title':row['payload']['title'],
                 'turns':[self.turn(t['id']) for t in self.store.records('turn',parent_id=cid,limit=100)]}
 
+    def conversation_summary(self, cid, since_seq):
+        identity(cid)
+        with self.store.connect() as conn:
+            conn.execute('BEGIN')
+            conversation = self.store._decode(conn.execute(
+                "SELECT * FROM agent_records WHERE id=? AND kind='conversation'", (cid,)).fetchone())
+            wid = conversation['workspaceId']
+            visibility = conn.execute("""SELECT json_extract(payload_json, '$.internalEvaluation') AS internal
+                FROM agent_records WHERE kind='workspace' AND id=?""", (wid,)).fetchone()
+            if visibility is None or visibility['internal']:
+                fail('AGENT_RECORD_MISSING', '工程会话不存在。', 404)
+            latest = conn.execute(
+                """SELECT id, json_extract(payload_json, '$.profile.contextWindow') AS context_limit,
+                    json_extract(payload_json, '$.profile.protocol') AS protocol
+                    FROM agent_records WHERE kind='turn' AND workspace_id=? AND parent_id=?
+                    ORDER BY seq DESC LIMIT 1""", (wid, cid)).fetchone()
+            if latest is None:
+                current = {'turnId': None, 'status': 'EMPTY', **current_context([], {}),
+                           'contextLimit':None, 'contextLimitBasis':None}
+            else:
+                state = conn.execute(
+                    """SELECT * FROM agent_records WHERE kind IN ('terminal', 'started')
+                        AND workspace_id=? AND parent_id=? ORDER BY seq DESC LIMIT 1""",
+                    (wid, latest['id'])).fetchone()
+                last_usage = conn.execute(
+                    """SELECT * FROM agent_records WHERE kind='model_usage' AND workspace_id=?
+                        AND parent_id=? AND json_type(payload_json, '$.usage')='object'
+                        ORDER BY seq DESC LIMIT 1""", (wid, latest['id'])).fetchone()
+                event = self.store._decode(state) if state is not None else None
+                status = ('QUEUED' if event is None else
+                          event['payload']['status'] if event['kind'] == 'terminal' else 'RUNNING')
+                current = {'turnId': latest['id'], 'status': status,
+                           'code': event['payload'].get('code') if event else None,
+                           **current_context([self.store._decode(last_usage)] if last_usage else [],
+                                             {'contextWindow':latest['context_limit'],'protocol':latest['protocol']})}
+            kinds = ','.join('?' for _ in SUMMARY_KINDS)
+            rows = conn.execute(f"""SELECT * FROM agent_records
+                    WHERE seq>? AND workspace_id=? AND
+                        ((kind='turn' AND parent_id=?) OR
+                        (kind IN ({kinds}) AND parent_id IN (
+                            SELECT id FROM agent_records WHERE kind='turn' AND workspace_id=? AND parent_id=?)))
+                    ORDER BY seq LIMIT ?""",
+                (since_seq, wid, cid, *SUMMARY_KINDS, wid, cid, SUMMARY_PAGE_SIZE+1)).fetchall()
+            records = []
+            projected_bytes = 0
+            for row in rows[:SUMMARY_PAGE_SIZE]:
+                event = self.store._decode(row)
+                record = {**event, 'seq': row['seq'], 'payload': self._summary_payload(event)}
+                projected_bytes += len(canonical(record).encode('utf-8'))
+                if records and projected_bytes > 768 * 1024:
+                    break
+                records.append(record)
+        return {'id': cid, 'workspaceId': wid, 'title': conversation['payload']['title'],
+                **current, 'events': records,
+                'nextSeq': records[-1]['seq'] if records else since_seq,
+                'hasMore': len(rows) > len(records)}
+
+    @staticmethod
+    def _public_event(event):
+        if event['kind']=='assistant' and 'providerContext' in event['payload']:
+            return {**event,'payload':{key:value for key,value in event['payload'].items()
+                                      if key!='providerContext'}}
+        return event
+
+    @staticmethod
+    def _summary_payload(event):
+        event = AgentService._public_event(event)
+        kind, payload = event['kind'], event['payload']
+        if kind == 'turn':
+            return {key: payload[key] for key in ('prompt', 'profile', 'continuedFrom') if key in payload}
+        if kind == 'assistant':
+            message = payload['message']
+            material = {key: message[key] for key in ('role', 'content') if key in message}
+            if message.get('tool_calls'):
+                material['tool_calls'] = [
+                    {'id': call['id'], 'function': {'name': call['function']['name']}}
+                    for call in message['tool_calls']]
+            return {**payload, 'message': material}
+        if kind == 'artifact':
+            return {key: value for key, value in payload.items() if key != 'directory'}
+        if kind == 'tool_intent':
+            return {key: payload[key] for key in ('callId', 'tool', 'path', 'mutating') if key in payload}
+        if kind == 'tool_execution':
+            reference = payload.get('reference', {})
+            return {key: payload[key] for key in ('callId', 'intentId', 'adapter')} | {
+                'reference': {key: reference[key] for key in ('coreRunId', 'operationId', 'containerId')
+                              if key in reference}}
+        if kind == 'tool_result':
+            compact = {key: payload[key] for key in (
+                'callId', 'intentId', 'executionId', 'status', 'code', 'hint', 'hostDurationMs') if key in payload}
+            data = payload.get('data', {})
+            compact['data'] = {key: data[key] for key in ('path', 'artifactId', 'sha256', 'coreRunId', 'exitCode')
+                               if key in data}
+            return compact
+        if kind in ('post_edit_hook', 'host_delivery_check'):
+            return {key: payload[key] for key in (
+                'callId', 'status', 'validationStatus', 'snapshotSha256', 'policySha256', 'code',
+                'receiptId', 'intentId', 'resultId', 'checkName') if key in payload}
+        if kind == 'file_operation':
+            return {key: payload[key] for key in ('operation', 'paths', 'changes', 'coreRunId') if key in payload}
+        return payload
+
+    def artifact_by_id(self, aid):
+        row = self.store.get(aid, 'artifact')
+        self._public_turn_record(row)
+        return self.artifact(row)
+
+    def event_by_id(self, eid):
+        row = self.store.get(eid)
+        if row['kind'] not in SUMMARY_KINDS:
+            fail('AGENT_RECORD_MISSING', '工程事件不存在。', 404)
+        self._public_turn_record(row)
+        row = self._public_event(row)
+        payload = row['payload']
+        if row['kind'] in ('artifact', 'tool_intent', 'tool_execution', 'file_operation'):
+            payload = self._summary_payload(row)
+        return {**row, 'payload': payload}
+
+    def _public_turn_record(self, row):
+        turn = self.store.get(row['parentId'], 'turn')
+        if (row['workspaceId'] != turn['workspaceId']
+                or self.workspaces.get(row['workspaceId']).get('internalEvaluation')):
+            fail('AGENT_RECORD_MISSING', '工程记录不存在。', 404)
+
     def artifact(self,row):
         payload=row['payload']
         result={k:v for k,v in payload.items() if k!='directory'}
         result.update({'id':row['id'],'verified':False,'content':None,'historicalVerified':True})
         directory=Path(payload['directory'])
-        if not directory.is_relative_to(self.store.directory/'agent-files'):
+        if directory.parent != self.store.directory/'agent-files' or not re.fullmatch('file_[0-9a-f]{32}', directory.name):
             fail('ARTIFACT_INTEGRITY','交付物身份无法核对。',409)
-        no_redirected_parents(directory)
-        no_redirected_parents(directory/'after.bin')
-        with (directory/'after.bin').open('rb') as stream:
-            data=stream.read(128*1024+1)
+        try:
+            no_redirected_parents(directory/'after.bin')
+            with (directory/'after.bin').open('rb') as stream:
+                data=stream.read(128*1024+1)
+        except OSError:
+            fail('ARTIFACT_INTEGRITY','已保留版本无法读取。',409)
         if len(data)!=payload['sizeBytes'] or hashlib.sha256(data).hexdigest()!=payload['sha256']:
             fail('ARTIFACT_INTEGRITY','已保留版本的字节无法核对。',409)
         result['content']=data.decode('utf-8')
@@ -195,9 +328,13 @@ class AgentService:
 
     def turn(self,tid):
         row=self.store.get(tid,'turn')
-        events=self.store.records(parent_id=tid,limit=1000)
+        events=[self._public_event(event) for event in self.store.records(parent_id=tid,limit=1000)]
         terminals=[e for e in events if e['kind']=='terminal']
         terminal=terminals[-1]['payload'] if terminals else {}
+        circuit = next((event['payload'] for event in reversed(events)
+                        if event['kind'] == 'circuit_breaker'), None)
+        delivery = next((event['payload'] for event in reversed(events)
+                         if event['kind'] == 'host_delivery_check'), None)
         # Status, reason and answer must come from the same event snapshot.
         # A terminal appended between separate reads must not yield BLOCKED
         # with no reason, or COMPLETED without its final answer.
@@ -208,7 +345,9 @@ class AgentService:
             'answer':terminal.get('answer',''),'createdAt':row['createdAt'],
             'completionBasis':terminal.get('completionBasis'),
             'evaluation':row['payload'].get('evaluation'),
+            'circuitBreaker': circuit, 'deliveryValidation': delivery,
             'skillUses':[e['payload'] for e in events if e['kind']=='skill_use'],
+            **current_context(events, row['payload']['profile']),
             'events':events,'usage':summarize(events),'artifacts':[self.artifact(e) for e in events if e['kind']=='artifact'],
             'feedback':[{'id':f['id'],'rating':'positive' if f['payload']['evaluation']=='MET_EXPECTATIONS' else 'negative',
                 'comment':f['payload']['comment'],'evidence':f['payload']} for f in self.store.records('agent_feedback',workspace_id=row['workspaceId'],parent_id=tid)]}
@@ -260,7 +399,8 @@ class AgentService:
                     fail('AGENT_CONVERSATION_LIMIT','该会话已达到64轮，请开启新会话。',409)
             else:
                 cid=self.store.append('conversation',{'title':prompt[:80]},wid)['id']
-            history=context_messages if context_messages is not None else self._history_messages(cid, continued=continued)
+            history=context_messages if context_messages is not None else self._history_messages(
+                cid, continued=continued, profile=profile)
             turn=self.store.append('turn',{'prompt':prompt,'profile':profile,'workspaceRevision':workspace['revision'],
                 'sourceGrantIds':sorted(s['id'] for s in workspace['sources'] if s['enabled']),
                 'requestSha256':digest(body),'browserBindingId':binding,'evaluation':evaluation,'forcedSkill':forced_skill,
@@ -308,8 +448,8 @@ class AgentService:
                 self.store.append('cancel',{'reason':'USER_CANCELLED'},turn['workspaceId'],tid)
         return self.turn(tid)
 
-    def _history_messages(self,cid,*,continued=None):
-        return conversation_history(self,cid,continued=continued)
+    def _history_messages(self,cid,*,continued=None,profile=None):
+        return conversation_history(self,cid,continued=continued,profile=profile)
 
     def _messages(self,turn):
         workspace=self.workspaces.get(turn['workspaceId'])
@@ -320,8 +460,10 @@ class AgentService:
             'sources':[{'id':'workspace','name':workspace['name'],'kind':'workspace'}]+[
                 {'id':s['id'],'name':s['name'],'kind':s['kind']} for s in workspace['sources'] if s['enabled']],
             'browserAttached':bool(turn['payload'].get('browserBindingId'))}
-        messages=[{'role':'system','content':SYSTEM+'\nHost context: '+canonical(context)},
-            *turn['payload'].get('contextMessages',[]),{'role':'user','content':turn['payload']['prompt']}]
+        policy_message = {'role':'user','_contextPolicy': True,'content':'Host context: '+canonical(context)}
+        self.store.append('context_policy', {'message': policy_message}, turn['workspaceId'], turn['id'])
+        messages=[{'role':'system','content':SYSTEM},
+            *turn['payload'].get('contextMessages',[]),policy_message,{'role':'user','content':turn['payload']['prompt']}]
         if turn['payload'].get('forcedSkill'):
             skill=turn['payload']['forcedSkill']
             self.store.append('skill_use',skill,turn['workspaceId'],turn['id'])
@@ -338,6 +480,8 @@ class AgentService:
         previous_checks=None
         prompted_repair=False
         proactive_check=False
+        context_epoch = {}
+        failure_signature, consecutive_failures = None, 0
         try:
             self.store.append('started',{'execution':'NATIVE_TOOLS'},wid,tid)
             messages=self._messages(turn)
@@ -357,7 +501,9 @@ class AgentService:
                 if turn['payload'].get('evaluation'):
                     catalog=[t for t in catalog if t['function']['name'] not in ('find_skills','use_skill','browser_read','browser_snapshot')]
                 provider_messages,checkpoint=bounded_context(messages,catalog,
-                    local_gateway=turn['payload']['profile'].get('protocol')=='local-gateway')
+                    local_gateway=turn['payload']['profile'].get('protocol')=='local-gateway',
+                    context_limit=turn['payload']['profile'].get('contextWindow'), epoch=context_epoch,
+                    output_reserve=output_token_limit(turn['payload']['profile']))
                 if checkpoint:
                     self.store.append('context_checkpoint',{'round':round_number+1,**checkpoint},wid,tid)
                 request={'messages':provider_messages,'tools':catalog}
@@ -387,25 +533,30 @@ class AgentService:
                     self._finish(turn,'LIMIT_REACHED','TURN_DEADLINE')
                     return
                 self.runtime.providers.check_text(canonical(message))
-                recorded={k:v for k,v in message.items() if k!='reasoning'}
+                recorded={k:v for k,v in message.items() if k not in ('reasoning', '_anthropicBlocks')}
                 evidence={'message':recorded,'trust':'MODEL_OUTPUT'}
                 if 'reasoning' in message:
                     evidence['localProtocolReasoningSha256']=digest(message['reasoning'])
+                if '_anthropicBlocks' in message:
+                    evidence['anthropicBlocksSha256']=digest(message['_anthropicBlocks'])
+                opaque = {key:message[key] for key in ('reasoning','_anthropicBlocks') if key in message}
+                if opaque:
+                    evidence['providerContext'] = opaque
                 self.store.append('assistant',evidence,wid,tid)
                 messages.append(message)
                 proposed=message.get('tool_calls') or []
                 if not proposed:
                     if changed and not turn['payload'].get('evaluation'):
                         report=self._delivery_check(turn,previous_checks)
+                        if any(c['result']['status']=='UNKNOWN' for c in report['checks']):
+                            self._finish(turn,'UNKNOWN','FIXED_CHECK_OUTCOME_UNKNOWN')
+                            return
                         if self._cancelled(turn):
                             self._finish_cancelled(turn)
                             return
                         if report['status']=='FAILED':
-                            if any(c['result']['status']=='UNKNOWN' for c in report['checks']):
-                                self._finish(turn,'UNKNOWN','FIXED_CHECK_OUTCOME_UNKNOWN')
-                                return
                             if report is not previous_checks and not prompted_repair:
-                                messages.append(self._delivery_feedback(report))
+                                self._context_notice(turn, messages, self._delivery_feedback(report))
                                 previous_checks=report
                                 prompted_repair=True
                                 continue
@@ -414,6 +565,7 @@ class AgentService:
                     self._finish(turn,'COMPLETED',answer=message.get('content') or '')
                     return
                 command_ran=False
+                post_edit_notices = []
                 for call in proposed:
                     if self._cancelled(turn):
                         self._finish_cancelled(turn)
@@ -436,8 +588,30 @@ class AgentService:
                     if result['status']=='SUCCESS':
                         changed |= name in MUTATIONS
                         command_ran |= name=='run_command'
+                        if name in TEXT_EDITS and not result.get('reusedResult'):
+                            post_edit = self.execution.post_edit(turn, call['id'])
+                            if post_edit is not None:
+                                if post_edit['status']=='UNKNOWN':
+                                    self._finish(turn,'UNKNOWN','POST_EDIT_CHECK_OUTCOME_UNKNOWN')
+                                    return
+                                post_edit_notices.append(post_edit_message(post_edit))
+                    signature = self._tool_failure(name, result)
+                    if signature is None:
+                        failure_signature, consecutive_failures = None, 0
+                    else:
+                        consecutive_failures = consecutive_failures + 1 if signature == failure_signature else 1
+                        failure_signature = signature
+                        if consecutive_failures == 3:
+                            self.store.append('circuit_breaker', {'status': 'TRIPPED', 'tool': name,
+                                'code': signature[1], 'exitCode': signature[2], 'consecutiveFailures': consecutive_failures,
+                                'lastCallId': call['id'], 'decision': 'USER_REVIEW_REQUIRED',
+                                'hint': result.get('hint') or '根据失败回执确认下一步后，再发起明确的新请求。'}, wid, tid)
+                            self._finish(turn,'BLOCKED','TOOL_FAILURE_CIRCUIT_BREAKER')
+                            return
                     if name=='run_checks' and result.get('data',{}).get('checks'):
                         previous_checks={**result['data'],'status':result['data']['validationStatus']}
+                for notice in post_edit_notices:
+                    self._context_notice(turn, messages, notice)
                 if changed and command_ran and not proactive_check and not turn['payload'].get('evaluation'):
                     # Offer the configured result before the model spends more
                     # turns debugging an improvised test command. Run once here.
@@ -447,7 +621,7 @@ class AgentService:
                         if any(c['result']['status']=='UNKNOWN' for c in report['checks']):
                             self._finish(turn,'UNKNOWN','FIXED_CHECK_OUTCOME_UNKNOWN')
                             return
-                        messages.append(self._delivery_feedback(report))
+                        self._context_notice(turn, messages, self._delivery_feedback(report))
                         previous_checks=report
             self._finish(turn,'LIMIT_REACHED','ROUND_LIMIT')
         except PlanningTransportError as error:
@@ -456,6 +630,19 @@ class AgentService:
             elif time.monotonic()>deadline:
                 self._finish(turn,'LIMIT_REACHED','TURN_DEADLINE')
             else:
+                if (error.category == 'authorized_acceptance_budget' and changed
+                        and not turn['payload'].get('evaluation') and not self._unknown_write(turn)
+                        and self.workspaces.get(wid)['revision'] == turn['payload']['workspaceRevision']):
+                    # Check delivery independently within the existing policy
+                    # and deadline. Additional checks cannot change the model
+                    # stop or consume another request.
+                    try:
+                        self._delivery_check(turn, previous_checks)
+                    except Exception as check_error:
+                        code = check_error.code if isinstance(check_error, ApiError) else 'VERIFICATION_UNCONFIRMED'
+                        self.store.append('host_delivery_check', {
+                            'validationStatus': 'UNCONFIRMED', 'checks': [], 'code': code,
+                        }, wid, tid)
                 self._finish(turn,'FAILED','PROVIDER_'+error.category.upper())
         except ApiError as error:
             if self._cancelled(turn):
@@ -469,6 +656,20 @@ class AgentService:
                 self._active.pop(tid,None)
                 self._deadlines.pop(tid,None)
 
+    @staticmethod
+    def _tool_failure(name, result):
+        data = result.get('data', {})
+        exit_code = data.get('exitCode')
+        if name == 'run_command' and type(exit_code) is int and exit_code != 0:
+            return (name, 'COMMAND_EXIT_NONZERO', exit_code)
+        if name == 'run_checks' and data.get('validationStatus') == 'FAILED':
+            failures = tuple((check['name'], check['result'].get('code'), check['result'].get('exitCode'))
+                             for check in data.get('checks', []) if not check['passed'])
+            return (name, 'FIXED_CHECKS_FAILED', None, failures)
+        if result['status'] in ('FAILED', 'REJECTED'):
+            return (name, result.get('code') or data.get('code') or result['status'], exit_code)
+        return None
+
     def _delivery_check(self,turn,previous):
         # Only user-configured, read-only container checks. Reuse a result
         # within this turn only when the actual input and policy match.
@@ -476,8 +677,14 @@ class AgentService:
         result=self.execution.verify(wid,tid,previous=previous,
             cancelled=lambda:self._cancelled(turn) or time.monotonic()>self._deadlines[tid])
         if result['status']!='NOT_CONFIGURED' and result is not previous:
-            self.store.append('host_delivery_check',{'validationStatus':result['status'],**result},wid,tid)
+            outcome = ('UNKNOWN' if any(c['result']['status'] == 'UNKNOWN' for c in result['checks'])
+                       else result['status'])
+            self.store.append('host_delivery_check',{'validationStatus':outcome,**result},wid,tid)
         return result
+
+    def _context_notice(self, turn, messages, message):
+        self.store.append('context_notice', {'message': message}, turn['workspaceId'], turn['id'])
+        messages.append(message)
 
     @staticmethod
     def _delivery_feedback(report):
@@ -510,33 +717,26 @@ class AgentService:
                     target_key=target_keys[0]
             except ApiError as error:
                 result={'status':'REJECTED','code':error.code}
-                if error.code=='AGENT_TOOL_ARGUMENTS':
-                    result['hint']=error.message
+                hint = self.tools.repair_hint(name, error)
+                if hint:
+                    result['hint']=hint
                 return self._result(turn,call_id,None,result)
             except (OSError,ValueError):
                 return self._result(turn,call_id,None,{'status':'REJECTED','code':'WORKSPACE_PATH_DENIED'})
             # The physical target is fenced across aliases, overlapping workspaces
             # and the full journal, not just the last UI page of this workspace.
             if mutating:
-                receipt_cache={}
-                for old in self.store.iter_records('tool_intent'):
+                if self.store.has_fenced_path(target_keys):
+                    return self._result(turn,call_id,None,{'status':'REJECTED','code':'PREVIOUS_OUTCOME_UNKNOWN',
+                        'hint':'该目标有未确认的操作回执。请用户核对原操作结果，不要重复写入。'})
+                receipts = {row['payload'].get('intentId'): row for row in
+                            self.store.iter_records('tool_result', parent_id=tid)}
+                for old in self.store.iter_records('tool_intent', parent_id=tid):
                     payload=old['payload']
-                    if not payload.get('mutating'):
+                    if not payload.get('mutating') or payload.get('fingerprint') != fingerprint:
                         continue
-                    old_key=payload.get('canonicalPath')
-                    if old_key is None:  # Earlier M4 journals retain their protection.
-                        old_root=Path(self.store.get(old['workspaceId'],'workspace')['payload']['path'])
-                        old_key=os.path.normcase(str((old_root/relative_path(payload['path'])).resolve()))
-                    old_keys=payload.get('canonicalPaths') or [old_key]
-                    if not any(a==b or a.startswith(b+os.sep) or b.startswith(a+os.sep) for a in target_keys for b in old_keys):
-                        continue
-                    if old['parentId'] not in receipt_cache:
-                        receipt_cache[old['parentId']]={r['payload'].get('intentId'):r for r in
-                            self.store.iter_records('tool_result',parent_id=old['parentId'])}
-                    receipt=receipt_cache[old['parentId']].get(old['id'])
-                    if receipt is None or receipt['payload']['status']=='UNKNOWN':
-                        return self._result(turn,call_id,None,{'status':'REJECTED','code':'PREVIOUS_OUTCOME_UNKNOWN'})
-                    if payload.get('fingerprint')==fingerprint and receipt['payload']['status']=='SUCCESS' and old['parentId']==tid:
+                    receipt=receipts.get(old['id'])
+                    if receipt is not None and receipt['payload']['status']=='SUCCESS':
                         if name not in TEXT_EDITS:
                             return self._result(turn,call_id,None,{'status':'REJECTED','code':'OPERATION_ALREADY_RECORDED'})
                         prior_data=receipt['payload'].get('data') or {}
@@ -567,10 +767,8 @@ class AgentService:
             uncertain = mutating and (dispatched or error.code in (
                 'AGENT_STORAGE_LIMIT','AGENT_STORAGE_UNAVAILABLE','AGENT_STORE_INTEGRITY'))
             result={'status':'UNKNOWN' if uncertain else 'REJECTED','code':error.code}
-            if not uncertain and error.code in ('PATCH_AMBIGUOUS','PATCH_RANGE','FILE_CHANGED',
-                    'AGENT_TOOL_ARGUMENTS','WORKSPACE_READ_RANGE','SKILL_ARGUMENTS','SKILL_PATH_INVALID',
-                    'AGENT_SKILL_UNAVAILABLE'):
-                result['hint']=error.message
+            if not uncertain and (hint := self.tools.repair_hint(name, error)):
+                result['hint']=hint
         except (OSError,ValueError,UnicodeError):
             result={'status':'UNKNOWN' if mutating else 'FAILED','code':'TOOL_IO_UNCONFIRMED' if mutating else 'MATERIAL_UNAVAILABLE'}
         except Exception:

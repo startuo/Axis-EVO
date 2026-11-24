@@ -10,10 +10,10 @@ using System.Windows.Forms;
 using System.Reflection;
 
 [assembly: AssemblyTitle("Axis-Evo")]
-[assembly: AssemblyProduct("Axis-Evo 0.1.0 Preview M6.1")]
+[assembly: AssemblyProduct("Axis-Evo 0.1.0 Preview M7")]
 [assembly: AssemblyCompany("Axis-Evo")]
-[assembly: AssemblyFileVersion("0.1.0.61")]
-[assembly: AssemblyVersion("0.1.0.61")]
+[assembly: AssemblyFileVersion("0.1.0.70")]
+[assembly: AssemblyVersion("0.1.0.70")]
 
 namespace AxisEvo.Desktop
 {
@@ -63,7 +63,7 @@ namespace AxisEvo.Desktop
         {
             statePath = state;
             openOnStartup = autoOpen;
-            Text = "Axis-Evo 0.1.0 Preview · M6.1";
+            Text = "Axis-Evo 0.1.0 Preview · M7";
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Font;
