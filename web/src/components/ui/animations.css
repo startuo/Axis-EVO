@@ -1,0 +1,49 @@
+/* Keyframes + Radix data-state wiring for the ui primitives.
+   NO colors here — every color lives in styles/tokens.css and reaches components
+   through the Tailwind @theme mapping in styles/tailwind.css.
+   These classes are intentionally UNLAYERED (like tokens.css) and only touch
+   animation/transform properties, so they never fight the utility layer.
+   Radix Presence waits for `animationend`, which gives us real exit animations
+   without forceMount/AnimatePresence hacks. */
+
+@keyframes ax-overlay-in { from { opacity: 0; } }
+@keyframes ax-overlay-out { to { opacity: 0; } }
+@keyframes ax-content-in { from { opacity: 0; scale: 0.96; } }
+@keyframes ax-content-out { to { opacity: 0; scale: 0.96; } }
+@keyframes ax-pop-in { from { opacity: 0; scale: 0.96; } }
+@keyframes ax-pop-out { to { opacity: 0; scale: 0.96; } }
+@keyframes ax-sheet-in-left { from { translate: -100% 0; } to { translate: 0 0; } }
+@keyframes ax-sheet-out-left { to { translate: -100% 0; } }
+@keyframes ax-sheet-in-right { from { translate: 100% 0; } to { translate: 0 0; } }
+@keyframes ax-sheet-out-right { to { translate: 100% 0; } }
+@keyframes ax-accordion-down { from { height: 0; } to { height: var(--radix-accordion-content-height); } }
+@keyframes ax-accordion-up { from { height: var(--radix-accordion-content-height); } to { height: 0; } }
+@keyframes ax-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+.ax-overlay { animation: ax-overlay-in var(--dur-fast) var(--ease-out) both; }
+.ax-overlay[data-state='closed'] { animation: ax-overlay-out var(--dur-fast) var(--ease-out) both; }
+
+.ax-content { animation: ax-content-in var(--dur-med) var(--ease-out) both; }
+.ax-content[data-state='closed'] { animation: ax-content-out var(--dur-fast) var(--ease-out) both; }
+
+.ax-pop { animation: ax-pop-in var(--dur-fast) var(--ease-out) both; }
+.ax-pop[data-state='closed'] { animation: ax-pop-out var(--dur-fast) var(--ease-out) both; }
+
+.ax-sheet-left { animation: ax-sheet-in-left var(--dur-med) var(--ease-out) both; }
+.ax-sheet-left[data-state='closed'] { animation: ax-sheet-out-left var(--dur-med) var(--ease-out) both; }
+.ax-sheet-right { animation: ax-sheet-in-right var(--dur-med) var(--ease-out) both; }
+.ax-sheet-right[data-state='closed'] { animation: ax-sheet-out-right var(--dur-med) var(--ease-out) both; }
+
+.ax-accordion[data-state='open'] { animation: ax-accordion-down var(--dur-med) var(--ease-out) both; }
+.ax-accordion[data-state='closed'] { animation: ax-accordion-up var(--dur-med) var(--ease-out) both; }
+
+/* Reduced motion: keep state changes instantaneous but still let Radix Presence
+   observe an animationend so closed overlays unmount promptly. */
+@media (prefers-reduced-motion: reduce) {
+  .ax-overlay,
+  .ax-content,
+  .ax-pop,
+  .ax-sheet-left,
+  .ax-sheet-right,
+  .ax-accordion { animation-duration: 1ms; }
+}

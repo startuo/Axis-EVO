@@ -1,0 +1,31 @@
+/* Tailwind v4 entry — theme + utilities only (NO preflight yet) so the existing
+   custom-CSS surfaces keep working during the gradual shadcn migration.
+   Semantic colors map 1:1 to styles/tokens.css variables (single source of truth). */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme inline {
+  --color-background: var(--bg-base);
+  --color-surface: var(--bg-elevated);
+  --color-surface-2: var(--bg-composer);
+  --color-sidebar: var(--bg-sidebar);
+  --color-rail: var(--bg-rail);
+  --color-foreground: var(--text-primary);
+  --color-muted-foreground: var(--text-secondary);
+  --color-faint: var(--text-muted);
+  --color-border: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--accent-brand);
+  --color-primary-soft: var(--accent-brand-soft);
+  --color-success: var(--accent-success);
+  --color-warning: var(--accent-warn);
+  --color-danger: var(--accent-danger);
+  --color-info: var(--accent-info);
+  --color-ring: var(--accent-brand);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-mono);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-btn);
+  --radius-lg: var(--radius-card);
+  --radius-xl: var(--radius-composer);
+}

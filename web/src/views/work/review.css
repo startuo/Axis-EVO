@@ -1,0 +1,190 @@
+/* Review pane (S3): diff scopes, hunk review, annotations, files preview
+   extras and the TaskDetail tab underline. Colors: tokens.css variables only. */
+
+/* ---- TaskDetail: sliding tab underline (replaces the static border) ---- */
+.work-tabs .work-tab,
+.work-tabs .work-tab.active { border-bottom-color: transparent; }
+.work-tab-underline {
+  position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
+  border-radius: 2px; background: var(--accent-brand);
+}
+.work-branch { font-family: var(--font-mono); font-size: var(--fs-tiny); padding: 2px 8px; }
+
+/* ---- DiffTab: scope tabs ---- */
+.rv-scopes {
+  display: flex; gap: 2px; padding: 8px 16px 0; flex: 0 0 auto;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.rv-scope {
+  position: relative; display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; font-size: var(--fs-ui); color: var(--text-muted);
+  transition: color var(--dur-fast);
+}
+.rv-scope:hover { color: var(--text-primary); }
+.rv-scope.active { color: var(--text-primary); font-weight: 500; }
+.rv-scope-underline {
+  position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px;
+  border-radius: 2px; background: var(--accent-brand);
+}
+
+/* ---- DiffTab: head extras ---- */
+.rv-head { padding: 10px 16px; }
+.rv-branch { font-family: var(--font-mono); font-size: var(--fs-tiny); padding: 2px 8px; }
+.rv-mergebase { font-family: var(--font-mono); font-size: var(--fs-tiny); padding: 2px 8px; }
+.rv-base-select {
+  background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); font-size: var(--fs-label); padding: 3px 6px; max-width: 180px;
+}
+.rv-base-select:focus-visible { outline: 2px solid var(--accent-info); outline-offset: 1px; }
+.rv-error { margin: 10px 16px 0; flex: 0 0 auto; align-items: center; }
+.rv-error .text-button { margin-left: auto; flex: 0 0 auto; color: var(--accent-danger); }
+.rv-commit-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; font-size: var(--fs-label); color: var(--text-secondary); }
+.rv-commit-form input { min-width: 0; flex: 1 1 120px; padding: 4px 6px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); }
+
+/* ---- DiffTab: file cards ---- */
+.rv-list { max-width: none; padding: 12px 16px; gap: 10px; }
+.rv-empty { height: auto; padding: 40px 20px; }
+.rv-loading { justify-content: center; padding: 24px; }
+.rv-note { padding: 8px 12px; font-size: var(--fs-label); color: var(--text-faint); }
+.rv-file {
+  border: 1px solid var(--border-subtle); border-radius: 10px;
+  background: var(--bg-elevated); overflow: hidden;
+  box-shadow: var(--shadow-card);
+  transition: border-color var(--dur-fast);
+}
+.rv-file:hover { border-color: var(--border-strong); }
+.rv-file-head {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  cursor: pointer; user-select: none; transition: background var(--dur-fast);
+}
+.rv-file-head:hover { background: var(--bg-hover); }
+.rv-expand {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 4px; color: var(--text-muted); flex: 0 0 auto;
+}
+.rv-expand:hover { background: var(--bg-active); color: var(--text-primary); }
+.rv-status {
+  flex: 0 0 auto; min-width: 20px; justify-content: center;
+  font-family: var(--font-mono); font-size: var(--fs-tiny); padding: 1px 5px;
+}
+.rv-path {
+  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-label);
+  color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rv-stat { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--fs-tiny); font-weight: 600; }
+.rv-stat.add { color: var(--accent-success); }
+.rv-stat.del { color: var(--accent-danger); }
+.rv-file-actions { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.rv-action {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px;
+  border-radius: var(--radius-sm); font-size: var(--fs-tiny); font-weight: 500;
+  color: var(--text-secondary); background: var(--bg-composer);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.rv-action:hover { background: var(--bg-active); color: var(--text-primary); }
+.rv-action:disabled { opacity: 0.45; cursor: not-allowed; }
+.rv-action.danger { color: var(--accent-danger); }
+.rv-action.danger:hover { background: var(--accent-danger-soft); color: var(--accent-danger); }
+.rv-action.confirm { background: var(--accent-danger-soft); color: var(--accent-danger); }
+.rv-file-body { overflow: hidden; }
+.rv-hunk + .rv-hunk { border-top: 1px solid var(--border-subtle); }
+.rv-hunk-head {
+  display: flex; align-items: center; gap: 8px; padding: 5px 10px;
+  background: var(--bg-composer); border-top: 1px solid var(--border-subtle);
+}
+.rv-hunk-label {
+  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-tiny);
+  color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---- DiffTab: unified diff lines ---- */
+.rv-lines { background: var(--bg-code); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; }
+.rv-line { display: flex; align-items: stretch; min-width: 0; }
+.rv-line:hover { background: var(--bg-hover); }
+.rv-line.add { background: var(--accent-success-soft); }
+.rv-line.add:hover { background: var(--bg-hover); }
+.rv-line.del { background: var(--accent-danger-soft); }
+.rv-line.del:hover { background: var(--bg-hover); }
+.rv-ln {
+  flex: 0 0 38px; padding: 0 6px; text-align: right; color: var(--text-faint);
+  font-size: var(--fs-tiny); line-height: inherit; user-select: none;
+  border-right: 1px solid var(--border-subtle);
+}
+.rv-line .rv-ln:first-child { border-right: none; }
+.rv-sign { flex: 0 0 18px; text-align: center; user-select: none; color: var(--text-faint); }
+.rv-line.add .rv-sign { color: var(--accent-success); }
+.rv-line.del .rv-sign { color: var(--accent-danger); }
+.rv-text {
+  flex: 1; min-width: 0; padding-right: 8px; color: var(--text-secondary);
+  white-space: pre; overflow: hidden; text-overflow: ellipsis;
+}
+.rv-line.add .rv-text { color: var(--text-primary); }
+.rv-line.del .rv-text { color: var(--text-primary); }
+.rv-annotate {
+  flex: 0 0 auto; align-self: center; display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; margin-right: 6px; border-radius: 4px;
+  color: var(--text-faint); opacity: 0; transition: opacity var(--dur-fast), background var(--dur-fast);
+}
+.rv-line:hover .rv-annotate, .rv-annotate:focus-visible { opacity: 1; }
+.rv-annotate:hover { background: var(--accent-info-soft); color: var(--accent-info); }
+
+/* ---- DiffTab: inline annotation editor ---- */
+.rv-an-editor {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+  background: var(--bg-sidebar); border-top: 1px solid var(--border-subtle);
+}
+.rv-an-editor input {
+  flex: 1; min-width: 0; background: var(--bg-input); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); padding: 5px 9px; font-size: var(--fs-label);
+  color: var(--text-primary); outline: none;
+}
+.rv-an-editor input:focus { border-color: var(--accent-info); }
+.rv-an-editor input::placeholder { color: var(--text-faint); }
+
+/* ---- DiffTab: annotation bar ---- */
+.rv-an-bar {
+  flex: 0 0 auto; overflow: hidden; border-top: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+}
+.rv-an-list { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px 0; max-height: 132px; overflow-y: auto; }
+.rv-an-item {
+  display: flex; align-items: center; gap: 7px; padding: 4px 8px;
+  border-radius: var(--radius-sm); background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle); font-size: var(--fs-label);
+}
+.rv-an-item code { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--fs-tiny); color: var(--accent-info); }
+.rv-an-text { flex: 1; min-width: 0; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-an-remove {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px; color: var(--text-faint);
+}
+.rv-an-remove:hover { background: var(--accent-danger-soft); color: var(--accent-danger); }
+.rv-an-send-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.rv-an-count { font-size: var(--fs-label); color: var(--text-muted); }
+.rv-send { padding: 5px 12px; font-size: var(--fs-label); }
+.rv-an-sent { padding: 8px 12px; font-size: var(--fs-label); color: var(--accent-success); }
+
+/* ---- FilesTab: markdown preview toggle + body ---- */
+.rv-view-toggle {
+  display: inline-flex; flex: 0 0 auto; border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.rv-view-toggle button {
+  padding: 3px 10px; font-size: var(--fs-tiny); color: var(--text-muted);
+  background: var(--bg-input); transition: background var(--dur-fast), color var(--dur-fast);
+}
+.rv-view-toggle button + button { border-left: 1px solid var(--border-subtle); }
+.rv-view-toggle button[aria-pressed='true'] { background: var(--bg-active); color: var(--text-primary); font-weight: 500; }
+.files-preview-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.files-preview-body > * { flex: 1; min-height: 0; }
+.files-preview-md { overflow: auto; padding: 16px 20px; background: var(--bg-base); }
+
+/* ---- a11y helper (self-contained; Tailwind also provides sr-only) ---- */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rv-scope, .rv-action, .rv-annotate, .rv-file-head { transition: none; }
+}

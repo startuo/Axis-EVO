@@ -194,8 +194,10 @@ def changes(service, tid):
                 matches=service.workspaces.read(turn['workspaceId'],'workspace',path)['sha256']==after_sha
         except (OSError,ValueError,ApiError):
             matches=False
-        diff = ''.join(difflib.unified_diff((old or b'').decode('utf-8-sig').splitlines(True),
-            (after or b'').decode('utf-8-sig').splitlines(True), fromfile='before/'+path, tofile='after/'+path))
+        lines = difflib.unified_diff((old or b'').decode('utf-8-sig').splitlines(keepends=True),
+            (after or b'').decode('utf-8-sig').splitlines(keepends=True), fromfile='before/'+path, tofile='after/'+path)
+        diff = ''.join(line.rstrip('\r\n') + '\n' if line.endswith(('\n', '\r'))
+            else line + '\n\\ No newline at end of file\n' for line in lines)
         total += len(diff.encode('utf-8'))
         if total > 192 * 1024:
             fail('PROJECT_DIFF_LIMIT', '差异超过显示上限，请分别查看交付版本。', 409)

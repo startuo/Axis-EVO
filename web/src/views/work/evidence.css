@@ -1,0 +1,25 @@
+.evidence-drawer { display: grid; align-content: start; gap: 12px; padding: 12px 16px 18px; overflow: auto; min-width: 0; height: 100%; }
+.evidence-head { display: flex; justify-content: space-between; align-items: center; min-width: 0; }
+.evidence-head h3, .evidence-section h4 { margin: 0; font-size: var(--fs-label); color: var(--text-primary); }
+.evidence-section { display: grid; gap: 6px; min-width: 0; }
+.evidence-entry { border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); min-width: 0; background: var(--bg-elevated); }
+.evidence-trigger { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 7px 9px; min-width: 0; }
+.evidence-trigger:hover { background: var(--bg-hover); }
+.evidence-trigger:focus-visible { outline: 2px solid var(--accent-info); outline-offset: 1px; }
+.evidence-trigger .chip { flex: 0 0 auto; }
+.evidence-chevron { flex: 0 0 auto; }
+.evidence-chevron.open { transform: rotate(90deg); }
+.evidence-entry-title { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.evidence-entry-title svg { flex: 0 0 auto; }
+.evidence-identity { margin: 0; font-size: var(--fs-tiny); color: var(--text-secondary); min-width: 0; padding: 1px 9px 7px; }
+.evidence-identity dt { margin-top: 4px; color: var(--text-muted); }
+.evidence-identity dd { margin: 0; }
+.evidence-identity code, .evidence-note code { overflow-wrap: anywhere; }
+.evidence-body { border-top: 1px solid var(--border-subtle); min-width: 0; }
+.evidence-body pre { padding: 8px; margin: 0; font-size: var(--fs-tiny); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-primary); }
+.evidence-note { margin: 5px 8px; font-size: var(--fs-label); color: var(--text-secondary); }
+.evidence-error { color: var(--accent-danger); }
+.execution-decision { display: grid; gap: 6px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-elevated); padding: 11px 13px; color: var(--text-primary); font-size: var(--fs-label); min-width: 0; overflow-wrap: anywhere; }
+.execution-decision-heading { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+.execution-decision p { margin: 0; color: var(--text-secondary); }
+.execution-decision code { color: var(--text-muted); font-size: var(--fs-tiny); }

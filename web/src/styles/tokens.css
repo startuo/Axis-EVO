@@ -1,73 +1,246 @@
-@import url('@radix-ui/colors/sand.css');
-@import url('@radix-ui/colors/sand-dark.css');
-@import url('@radix-ui/colors/sand-alpha.css');
-@import url('@radix-ui/colors/sand-dark-alpha.css');
-@import url('@radix-ui/colors/bronze.css');
-@import url('@radix-ui/colors/bronze-dark.css');
-@import url('@radix-ui/colors/green.css');
-@import url('@radix-ui/colors/green-dark.css');
-@import url('@radix-ui/colors/amber.css');
-@import url('@radix-ui/colors/amber-dark.css');
-@import url('@radix-ui/colors/red.css');
-@import url('@radix-ui/colors/red-dark.css');
-@import url('@radix-ui/colors/blue.css');
-@import url('@radix-ui/colors/blue-dark.css');
-@import url('@radix-ui/colors/black-alpha.css');
-@import url('@radix-ui/colors/white-alpha.css');
-@import url('./cds-theme.css');
+/* Axis-Evo design tokens — Claude/Cursor warm editorial light & warm-obsidian Linear-craft dark.
+   Self-hosted variable fonts (Inter, JetBrains Mono, Newsreader), layered physical shadows,
+   specular top-edge highlights, and muted semantic colors. Single source of truth for color. */
 
-/* Semantic colors resolve against the same Radix scale in both themes. */
-:root {
-  color-scheme: light;
-  --font-sans: Inter, 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  --font-serif: Newsreader, Georgia, 'Songti SC', SimSun, serif;
-  --font-mono: 'JetBrains Mono', Consolas, 'Microsoft YaHei', monospace;
-  --ui-canvas: var(--sand-1);
-  --ui-surface: var(--sand-2);
-  --ui-surface-hover: var(--sand-3);
-  --ui-border: var(--sand-6);
-  --ui-border-control: var(--sand-8);
-  --ui-text-primary: var(--sand-12);
-  --ui-text-secondary: var(--sand-11);
-  --ui-accent: var(--bronze-11);
-  --ui-accent-hover: var(--bronze-12);
-  --ui-success: var(--green-12);
-  --ui-warning: var(--amber-12);
-  --ui-danger: var(--red-12);
-  --ui-info: var(--blue-11);
-  --ui-overlay: var(--black-a5);
-  --ui-shadow: var(--black-a3);
-  --ui-border-width: .5px;
-  --ui-radius-control: 6px;
-  --ui-radius-surface: 10px;
-  --ui-radius-floating: 14px;
-  --ui-space-1: 4px;
-  --ui-space-2: 8px;
-  --ui-space-3: 12px;
-  --ui-space-4: 16px;
-  --ui-space-6: 24px;
-  --ui-space-8: 32px;
-  --canvas: var(--ui-canvas);
-  --surface: var(--ui-surface);
-  --surface-subtle: var(--sand-3);
-  --sidebar: var(--sand-2);
-  --text: var(--ui-text-primary);
-  --muted: var(--ui-text-secondary);
-  --border: var(--ui-border);
-  --border-strong: var(--ui-border-control);
-  --accent: var(--ui-accent);
-  --on-accent: var(--sand-1);
-  --hover: var(--sand-3);
-  --active: var(--sand-4);
-  --neutral-bg: var(--sand-3);
-  --success: var(--ui-success);
-  --success-bg: var(--green-3);
-  --warning: var(--ui-warning);
-  --warning-bg: var(--amber-3);
-  --warning-border: var(--amber-7);
-  --error: var(--ui-danger);
-  --error-bg: var(--red-3);
-  --code: var(--sand-12);
-  --composer-shadow: var(--ui-shadow);
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-latin-variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
 }
-:root[data-theme='dark'] { color-scheme: dark; }
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/jetbrains-mono-latin-variable.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  src: url("/fonts/newsreader-latin-variable.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* surfaces — warm obsidian ladder with subtle tonal warmth */
+  --bg-rail: #0d0d0c;
+  --bg-base: #111110;
+  --bg-sidebar: #161614;
+  --bg-tray: #181816;
+  --bg-elevated: #1c1c1a;
+  --bg-composer: #21211e;
+  --bg-user-bubble: #232220;
+  --bg-hover: rgba(255, 252, 245, 0.055);
+  --bg-active: rgba(255, 252, 245, 0.095);
+  --bg-input: #151513;
+  --bg-code: #141412;
+  --glass-bg: rgba(28, 28, 25, 0.86);
+
+  /* hairline borders & specular highlights */
+  --border-subtle: rgba(255, 252, 245, 0.075);
+  --border-strong: rgba(255, 252, 245, 0.145);
+  --highlight-top: inset 0 1px 0 rgba(255, 252, 245, 0.07);
+  --focus-aura: rgba(212, 146, 114, 0.16);
+
+  /* warm-tinted ink ladder */
+  --text-primary: #f4f3ef;
+  --text-secondary: #b9b6ae;
+  --text-muted: #8c887f;
+  --text-faint: #636058;
+
+  /* restrained brand + warm terracotta micro-accent + muted semantics */
+  --accent-brand: #f4f3ef;
+  --accent-brand-soft: rgba(255, 252, 245, 0.08);
+  --accent-warm: #d4896a;
+  --accent-warm-soft: rgba(212, 137, 106, 0.14);
+  --accent-warn: #d29c3a;
+  --accent-warn-soft: rgba(210, 156, 58, 0.13);
+  --accent-success: #5aa878;
+  --accent-success-soft: rgba(90, 168, 120, 0.12);
+  --accent-danger: #e06259;
+  --accent-danger-soft: rgba(224, 98, 89, 0.13);
+  --accent-info: #689fe3;
+  --accent-info-soft: rgba(104, 159, 227, 0.13);
+  --ring: rgba(212, 137, 106, 0.45);
+
+  /* typography */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-editorial: "Newsreader", "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, SFMono-Regular, Consolas, monospace;
+  --fs-hero: 30px;
+  --fs-title: 16px;
+  --fs-body: 14px;
+  --fs-ui: 13px;
+  --fs-label: 12px;
+  --fs-tiny: 11px;
+
+  /* geometry */
+  --rail-w: 0px;
+  --sidebar-w: 264px;
+  --composer-max: 748px;
+  --radius-pill: 999px;
+  --radius-composer: 16px;
+  --radius-card: 12px;
+  --radius-btn: 8px;
+  --radius-sm: 6px;
+
+  /* layered physical shadows */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 252, 245, 0.05);
+  --shadow-composer: 0 2px 6px rgba(0, 0, 0, 0.38), 0 12px 30px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 252, 245, 0.075);
+  --shadow-pop: 0 0 0 1px rgba(255, 252, 245, 0.08), 0 8px 20px rgba(0, 0, 0, 0.48), 0 20px 44px rgba(0, 0, 0, 0.38);
+
+  /* Apple / Linear motion curves */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 130ms;
+  --dur-med: 230ms;
+}
+
+/* Claude / Cursor warm editorial light theme */
+:root[data-theme='light'] {
+  --bg-rail: #f0ede5;
+  --bg-base: #faf9f5;
+  --bg-sidebar: #f3f1ea;
+  --bg-tray: #efece3;
+  --bg-elevated: #ffffff;
+  --bg-composer: #ffffff;
+  --bg-user-bubble: #f1eee6;
+  --bg-hover: rgba(28, 27, 24, 0.048);
+  --bg-active: rgba(28, 27, 24, 0.082);
+  --bg-input: #f7f5ef;
+  --bg-code: #f5f3ec;
+  --glass-bg: rgba(255, 254, 251, 0.88);
+
+  --border-subtle: rgba(28, 27, 24, 0.085);
+  --border-strong: rgba(28, 27, 24, 0.16);
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  --focus-aura: rgba(184, 107, 75, 0.14);
+
+  --text-primary: #1c1b18;
+  --text-secondary: #4e4c46;
+  --text-muted: #78756d;
+  --text-faint: #a19d94;
+
+  --accent-brand: #1c1b18;
+  --accent-brand-soft: rgba(28, 27, 24, 0.065);
+  --accent-warm: #b86b4b;
+  --accent-warm-soft: rgba(184, 107, 75, 0.12);
+  --accent-warn: #a96d14;
+  --accent-warn-soft: rgba(169, 109, 20, 0.10);
+  --accent-success: #247855;
+  --accent-success-soft: rgba(36, 120, 85, 0.095);
+  --accent-danger: #c44343;
+  --accent-danger-soft: rgba(196, 67, 67, 0.10);
+  --accent-info: #376db0;
+  --accent-info-soft: rgba(55, 109, 176, 0.10);
+  --ring: rgba(184, 107, 75, 0.42);
+
+  --shadow-card: 0 1px 2px rgba(28, 27, 24, 0.045), 0 4px 12px rgba(28, 27, 24, 0.028);
+  --shadow-composer: 0 1px 2px rgba(28, 27, 24, 0.05), 0 6px 20px rgba(28, 27, 24, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --shadow-pop: 0 0 0 0.5px rgba(28, 27, 24, 0.08), 0 6px 18px rgba(28, 27, 24, 0.09), 0 18px 40px rgba(28, 27, 24, 0.10);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: 1.58;
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  transition: background-color var(--dur-med) var(--ease-out), color var(--dur-med) var(--ease-out);
+}
+button { font-family: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+input, textarea, select { font-family: inherit; color: inherit; }
+a { color: var(--accent-info); text-decoration: none; }
+a:hover { text-decoration: underline; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; border: 2.5px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); border: 2.5px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+::selection { background: var(--accent-warm-soft); color: var(--text-primary); }
+
+/* shared tactile primitives */
+.icon-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: background var(--dur-fast), color var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+.icon-button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.icon-button:active { transform: scale(0.94); }
+.text-button {
+  color: var(--text-muted); font-size: var(--fs-ui); padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-fast), color var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+.text-button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.text-button:active { transform: scale(0.97); }
+.button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 13px;
+  border-radius: var(--radius-btn); font-size: var(--fs-ui); font-weight: 500;
+  background: var(--bg-elevated); color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+.button:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.button:active { transform: scale(0.975); }
+.button.primary {
+  background: var(--accent-brand); color: var(--bg-base); border-color: transparent;
+  font-weight: 500; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+.button.primary:hover { filter: brightness(0.92); }
+.button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px;
+  border-radius: var(--radius-pill); font-size: var(--fs-tiny); font-weight: 500;
+  white-space: nowrap; flex-shrink: 0; border: 1px solid transparent;
+}
+.chip.warn { color: var(--accent-warn); background: var(--accent-warn-soft); }
+.chip.success { color: var(--accent-success); background: var(--accent-success-soft); }
+.chip.danger { color: var(--accent-danger); background: var(--accent-danger-soft); }
+.chip.info { color: var(--accent-info); background: var(--accent-info-soft); }
+.chip.muted { color: var(--text-muted); background: var(--bg-hover); }
+
+/* Claude Code / Codex text shimmer sweep for live thinking & running ops */
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--text-muted) 0%,
+    var(--text-muted) 36%,
+    var(--text-primary) 50%,
+    var(--text-muted) 64%,
+    var(--text-muted) 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: axis-shimmer-sweep 2.1s linear infinite;
+}
+@keyframes axis-shimmer-sweep {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; }
+  .shimmer-text {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}

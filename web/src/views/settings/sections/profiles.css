@@ -1,0 +1,23 @@
+/* API 接入 form (api-connect-ui stream). Colors: tokens.css variables only. */
+
+.api-span2 { grid-column: 1 / -1; min-width: 0; }
+
+.api-key-wrap { position: relative; display: flex; flex: 1; min-width: 0; }
+.api-key-wrap .set-input { padding-right: 40px; }
+.api-key-toggle {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px;
+}
+.api-enroll { margin-top: 10px; }
+
+.api-fetch-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.api-models-hint { font-size: var(--fs-label); color: var(--text-muted); }
+.api-error {
+  padding: 8px 12px; border-radius: var(--radius-btn);
+  background: var(--accent-danger-soft); color: var(--accent-danger);
+  font-size: var(--fs-label); line-height: 1.5;
+}
+
+/* Pink primary action, per the desktop visual language. */
+.button.api-save { background: var(--accent-brand); color: var(--bg-rail); }
+.button.api-save:hover { background: var(--accent-brand); filter: brightness(1.1); }

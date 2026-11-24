@@ -13,6 +13,10 @@ message = provider.complete(messages, tools)
 
 ## 网络与凭据
 
+M7 支持 `anthropic-compatible` Profile。管理员在本地网络配置中授权完整的 HTTPS Messages URL，例如 Token Plan Base URL 加 `/v1/messages`。Profile 使用模型 ID `qwen4-max` 和已授权的 `credentialRef`，可设置 `contextWindow`、`maxOutputTokens` 和 `reasoningEffort`。兼容接口使用原生 `tool_use`、`tool_result` 与缓存标记。签名上下文仅存于本机日志，按原配置与授权回送。模型连接测试使用短文本探针，Anthropic 兼容 Profile 的模型 ID 由用户指定。[百炼 Messages 文档](https://help.aliyun.com/zh/model-studio/anthropic-api-messages)
+
+运行时将实际返回的输入、输出、缓存读写和未缓存 Token 分开记录。界面的上下文占用来自最近一次有用量的响应。上下文上限标明来自 Profile 或 Harness 默认估算，Token 与缓存统计以 Provider 回执为依据。
+
 每次 complete 重新调用 `ProviderStore.adapter()` 验证配置版本与当前权限。沿用已授权 HTTPS、明确配置的 CONNECT route 或 literal loopback Gateway；不增加 endpoint、不读取代理环境变量、不跟随 redirect。请求和完整响应都经过既有敏感内容检查；凭据只在请求时从已配置环境引用读取，不写入消息或磁盘。
 
 HTTPS 沿用既有 socket operation timeout，DNS 检查和操作系统调度不构成总墙钟期限保证；上层需负责任务取消和 Worker 生命周期。此边界并非 OS 级沙箱。Local Gateway 沿用现有总 deadline 与严格 framing 检查。

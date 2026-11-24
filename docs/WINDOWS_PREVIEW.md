@@ -1,10 +1,10 @@
-# Axis-Evo Windows Preview M6.1
+# Axis-Evo Windows Preview M7
 
 安装程序面向 Windows 10/11 x64，版本为 **0.1.0 Preview**。安装包未签名。下载后可用随包的 SHA-256 校验文件。
 
 ## 安装和使用
 
-1. 运行 `Axis-Evo-0.1.0-Preview-M6.1-Setup.exe`。安装范围为当前 Windows 用户，默认程序位置为 `%LocalAppData%\Programs\Axis-Evo`。可在安装时选择其他目录。
+1. 运行 `Axis-Evo-0.1.0-Preview-M7-Setup.exe`。安装范围为当前 Windows 用户，默认程序位置为 `%LocalAppData%\Programs\Axis-Evo`。可在安装时选择其他目录。
 2. 从开始菜单打开 **Axis-Evo**。启动窗口在本机随机可用的回环端口运行服务，工作台在默认系统浏览器中打开。可从启动窗口再次点击「打开工作台」。
 3. 点击「添加工作区」，输入已有文件夹的绝对路径，选择读写权限并确认授权。然后从「模型连接」配置模型。内置 DeepSeek 登记使用 Windows 凭据管理器。
 4. 关闭 **Axis-Evo 启动窗口**或点击「退出 Axis-Evo」可停止服务。单独关掉浏览器标签页时，本地服务继续运行。
@@ -29,6 +29,6 @@
 python desktop/windows/build.py
 ```
 
-产物默认写到 `.local/m61-build`，包含 Setup.exe 和 SHA-256。可用 `--output` 选择新的目录。构建固定 CPython 3.13.17 x64 便携运行库、NSIS 3.11 和带 SHA-256 的 Windows Python 依赖，并编译前端与启动器。[CPython 发行记录](https://www.python.org/downloads/release/python-31317/) · [NSIS 源分发](https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/)
+产物默认写到 `.local/m7-build`，包含 Setup.exe 和 SHA-256。可用 `--output` 选择新的目录。构建固定 CPython 3.13.17 x64 便携运行库、NSIS 3.11 和带 SHA-256 的 Windows Python 依赖，并编译前端与启动器。重复构建可在同一工作树执行 `--skip-npm-ci`，构建器核对已有流水凭据、Node、锁文件以及依赖树后仍运行生产构建与许可证收集。[CPython 发行记录](https://www.python.org/downloads/release/python-31317/) · [NSIS 源分发](https://sourceforge.net/projects/nsis/files/NSIS%203/3.11/)
 
 图标使用用户提供的 Axis 亮图。仓库中同字节源文件为 `web/public/axis-light.png`，SHA-256 为 `bffd60400b400f30dc69cea3bf6b5072ff95af6df01fc20788558c97c0a8b6b8`。Windows 构建按原比例生成多尺寸透明图标。许可材料位于安装目录内的 `app/licenses`、`runtime/packages` 和相应组件目录。[实测范围](TEST_RESULTS.md)

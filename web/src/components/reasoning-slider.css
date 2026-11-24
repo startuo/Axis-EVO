@@ -1,0 +1,52 @@
+/* Reasoning-effort slider (api-connect-ui stream). Colors: tokens.css variables only. */
+
+.rs { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rs-disabled { opacity: 0.5; }
+.rs-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.rs-label { font-size: var(--fs-label); font-weight: 500; color: var(--text-muted); }
+.rs-current { font-size: var(--fs-label); font-weight: 600; color: var(--accent-brand); }
+
+.rs-track { position: relative; height: 20px; display: flex; align-items: center; }
+.rs-input {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer;
+}
+.rs-input:disabled { cursor: not-allowed; }
+.rs-input::-webkit-slider-runnable-track {
+  height: 4px; border-radius: var(--radius-pill);
+  background: linear-gradient(to right, var(--accent-brand) var(--rs-fill, 0%), var(--bg-hover) var(--rs-fill, 0%));
+}
+.rs-input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
+  background: var(--accent-brand); border: 2px solid var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.rs-input:hover::-webkit-slider-thumb,
+.rs-input:focus-visible::-webkit-slider-thumb { transform: scale(1.15); }
+.rs-input::-moz-range-track { height: 4px; border-radius: var(--radius-pill); background: var(--bg-hover); }
+.rs-input::-moz-range-progress { height: 4px; border-radius: var(--radius-pill); background: var(--accent-brand); }
+.rs-input::-moz-range-thumb {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent-brand); border: 2px solid var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+/* Tick dots aligned with thumb centers (7px = half thumb inset). */
+.rs-ticks {
+  position: absolute; left: 7px; right: 7px; top: 50%; transform: translateY(-50%);
+  display: flex; justify-content: space-between; pointer-events: none;
+}
+.rs-tick { width: 4px; height: 4px; border-radius: 50%; background: var(--text-faint); }
+.rs-tick.on { background: var(--bg-base); }
+
+/* Placement inside the composer's model popover. */
+.model-effort-slider { padding: 4px 10px 8px; }
+
+.rs-stops { display: flex; justify-content: space-between; gap: 4px; }
+.rs-stop {
+  padding: 2px 6px; border-radius: var(--radius-sm); font-size: var(--fs-tiny);
+  color: var(--text-muted); transition: color var(--dur-fast), background var(--dur-fast);
+}
+.rs-stop:hover { color: var(--text-primary); background: var(--bg-hover); }
+.rs-stop.on { color: var(--accent-brand); font-weight: 600; }

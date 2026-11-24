@@ -21,7 +21,7 @@ from .schemas import (ApiError, MAX_RESPONSE_BYTES, MAX_LIST_ITEMS, MAX_EVENT_IT
 
 _STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
                  ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
-                 ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".ico": "image/x-icon",
+                 ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon",
                  ".woff2": "font/woff2", ".woff": "font/woff"}
 _MAX_STATIC_BYTES = 8 * 1024 * 1024
 _CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "

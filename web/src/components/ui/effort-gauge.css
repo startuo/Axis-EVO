@@ -1,0 +1,113 @@
+/* Codex / Claude Code 风格可拖拽离散刻度推理滑轨 */
+.eg { display: flex; flex-direction: column; gap: 8px; }
+.eg-disabled { opacity: 0.5; pointer-events: none; }
+
+.eg-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.eg-label {
+  font-size: var(--fs-label); font-weight: 500; color: var(--text-secondary);
+}
+.eg-current {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-label); font-weight: 500; color: var(--text-primary);
+}
+.eg-tier-tag {
+  padding: 1px 6px; border-radius: var(--radius-sm);
+  background: var(--accent-warm-soft); color: var(--accent-warm);
+  font-size: 11px; font-weight: 500; line-height: 1.4;
+}
+
+.eg-signal { flex: 0 0 auto; display: block; }
+.eg-signal .bar-on { fill: var(--accent-warm); transition: fill var(--dur-fast); }
+.eg-signal .bar-dim { fill: var(--border-strong); transition: fill var(--dur-fast); }
+.eg-signal.is-off .bar-dim { opacity: 0.5; }
+
+/* 轨道与下方标签共享左右 16px 内边距，确保 4 颗刻度点与文字严格同轴 */
+.eg-slider-box {
+  padding: 2px 16px 0;
+  display: flex; flex-direction: column; gap: 4px;
+  touch-action: none; user-select: none;
+}
+
+.eg-rail-hit {
+  position: relative; height: 24px;
+  display: flex; align-items: center;
+  cursor: pointer; outline: none;
+}
+.eg-rail-hit.dragging { cursor: grabbing; }
+.eg-rail-hit:focus-visible .eg-handle {
+  box-shadow: 0 0 0 3px var(--ring), 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.eg-rail-bg {
+  position: relative; width: 100%; height: 4px; border-radius: 999px;
+  background: var(--bg-active); overflow: hidden;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.14);
+}
+:root[data-theme='light'] .eg-rail-bg {
+  background: var(--border-subtle);
+  box-shadow: inset 0 1px 1px rgba(28, 27, 24, 0.08);
+}
+
+.eg-rail-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-warm), var(--text-primary));
+}
+:root[data-theme='light'] .eg-rail-fill {
+  background: linear-gradient(90deg, var(--accent-warm), #8d4d32);
+}
+
+.eg-notch {
+  position: absolute; top: 50%; width: 7px; height: 7px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-elevated); border: 1.5px solid var(--border-strong);
+  box-shadow: 0 0 0 1.5px var(--bg-elevated);
+  transition: border-color var(--dur-fast), transform var(--dur-fast), background var(--dur-fast);
+  pointer-events: none;
+}
+.eg-notch.reached {
+  border-color: var(--accent-warm);
+  background: var(--accent-warm);
+}
+.eg-notch.current { transform: translate(-50%, -50%) scale(1.1); }
+
+.eg-handle {
+  position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--accent-warm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 0.5px var(--border-subtle);
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast);
+}
+:root[data-theme='light'] .eg-handle {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(28, 27, 24, 0.22), 0 0 0 0.5px var(--border-subtle);
+}
+.eg-rail-hit:hover .eg-handle,
+.eg-rail-hit.dragging .eg-handle {
+  transform: translate(-50%, -50%) scale(1.14);
+}
+.eg-handle-core {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent-warm);
+}
+
+.eg-stops {
+  position: relative; height: 22px; width: 100%;
+}
+.eg-stop {
+  position: absolute; top: 0; transform: translateX(-50%);
+  padding: 2px 6px; border-radius: var(--radius-sm);
+  font-size: var(--fs-label); font-weight: 400; color: var(--text-faint);
+  white-space: nowrap;
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.eg-stop:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.eg-stop.active { color: var(--text-primary); font-weight: 600; }
+
+.eg-desc {
+  margin: 0; font-size: var(--fs-label); line-height: 1.45; color: var(--text-muted);
+}
