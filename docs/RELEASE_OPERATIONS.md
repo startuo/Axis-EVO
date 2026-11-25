@@ -101,7 +101,9 @@ upgrade-copy 锁住已停用的源协调器，在新目录复制 metadata，校�
 
 ## 安全边界与诊断
 
-Web 只注册 read_file/write_file/patch_file，run_tests 与 pytest Acceptance 禁用；Core 程序 API 另有受控 pytest 合同。执行 Worker 不接收 Provider 凭据，但同 OS 用户进程隔离不等于文件系统/网络权限沙箱。任务 seed 由所有者去密，不提供全面 DLP。无自动重规划、UNKNOWN 重放或自动演化批准。
+此段约定适用于旧 Runtime 的已批准 Skill 计划。它只注册 `read_file`、`write_file`、`patch_file`，并禁用 `run_tests` 和 pytest Acceptance。M7 Work 的固定检查由工作区所有者配置，通过无网络 Docker 运行。[Agent 工作区约定](AGENT_WORKSPACE.md)
+
+Core 程序 API 另有受控 pytest 合同。执行 Worker 不接收 Provider 凭据。同 OS 用户的进程隔离范围有限。任务 seed 由所有者去密。无自动重规划、UNKNOWN 重放或自动演化批准。
 
 生产 HTTP 要求完整 Web store；既有直接程序 API 可显式初始化 schema，并允许只用011的单轮兼容路径。该模式不是正常 HTTP startup 的隐式迁移。conversation/evolution 分别校验其012/013 schema；Worker 仅使用其必要 schema 且不迁移。
 

@@ -39,7 +39,7 @@ Axis-Evo 是一个本地优先的 AI Agent 工作台，面向代码修改、文�
 | --- | --- |
 | [`src/axis_evo/`](src/axis_evo) | 执行核心、事件、验收、检查点与 Skill 版本 |
 | [`web_api/`](web_api) | Agent Runtime、工作区权限、Provider 和容器执行 |
-| [`web/`](web) | Chat、Work 和设置界面 |
+| [`web/`](web) | Work 工作台、技能与设置界面 |
 | [`desktop/windows/`](desktop/windows) | Windows 启动器与安装构建 |
 | [`browser/edge-extension/`](browser/edge-extension) | Edge 页面连接 |
 
