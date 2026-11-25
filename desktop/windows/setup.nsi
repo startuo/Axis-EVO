@@ -89,6 +89,7 @@ Function RetireM61Assets
 
   ; Exact paths from the official M6.1 Setup that are absent from the M7 payload.
   StrCpy $0 "$INSTDIR\app\web\dist\assets"
+  ClearErrors
   Delete "$0\AgentConversation-tKaywrus.js"
   Delete "$0\AgentSettings-CwjHB5mS.js"
   Delete "$0\AgentWork-BI-J5sx5.js"
@@ -113,6 +114,11 @@ Function RetireM61Assets
   Delete "$0\save-DC4-GxdC.js"
   Delete "$0\sun-CoY8IZyG.js"
   Delete "$0\terminal-Dbd94qKM.js"
+  ${If} ${Errors}
+    MessageBox MB_ICONSTOP|MB_OK "无法清理 M6.1 的旧资源。请关闭占用文件的程序后重试。" /SD IDOK
+    SetErrorLevel 1
+    Abort
+  ${EndIf}
 FunctionEnd
 
 Section "Axis-Evo"

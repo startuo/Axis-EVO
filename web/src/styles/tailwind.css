@@ -2,7 +2,9 @@
    custom-CSS surfaces keep working during the gradual shadcn migration.
    Semantic colors map 1:1 to styles/tokens.css variables (single source of truth). */
 @import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../";
+@source "../../index.html";
 
 @theme inline {
   --color-background: var(--bg-base);
