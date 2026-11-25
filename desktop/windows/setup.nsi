@@ -4,6 +4,7 @@ SetCompressor /SOLID lzma
 !include "MUI2.nsh"
 !include "x64.nsh"
 !include "LogicLib.nsh"
+!include "FileFunc.nsh"
 
 !define APP "Axis-Evo"
 !define RELEASE "0.1.0 Preview M7"
@@ -61,12 +62,66 @@ Function RequireClosed
   !insertmacro RequireAxisClosed "请退出 Axis-Evo 后再继续。"
 FunctionEnd
 
+Function RetireM61Assets
+  ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "DisplayVersion"
+  ${If} $0 S!= "0.1.0 Preview M6.1"
+    Return
+  ${EndIf}
+  ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "InstallLocation"
+  ${If} $0 != $INSTDIR
+    Return
+  ${EndIf}
+
+  StrCpy $1 "$INSTDIR\app\web\dist\assets"
+  ${GetRoot} "$1" $2
+  ${If} $2 == ""
+    Return
+  ${EndIf}
+  ${While} $1 != $2
+    System::Call 'kernel32::GetFileAttributesW(w r1) i.r3'
+    ; Require a directory and reject FILE_ATTRIBUTE_REPARSE_POINT.
+    IntOp $3 $3 & 0x410
+    ${If} $3 <> 0x10
+      Return
+    ${EndIf}
+    ${GetParent} "$1" $1
+  ${EndWhile}
+
+  ; Exact paths from the official M6.1 Setup that are absent from the M7 payload.
+  StrCpy $0 "$INSTDIR\app\web\dist\assets"
+  Delete "$0\AgentConversation-tKaywrus.js"
+  Delete "$0\AgentSettings-CwjHB5mS.js"
+  Delete "$0\AgentWork-BI-J5sx5.js"
+  Delete "$0\FilesView-C9VhpiXw.js"
+  Delete "$0\LegacyWorkbench-D8_eDzAB.js"
+  Delete "$0\ResearchArchive-BIEVtUWz.js"
+  Delete "$0\ResearchArchive-CVGZ1oXg.css"
+  Delete "$0\RuntimeProviders-BCglSh5I.js"
+  Delete "$0\RuntimeWorkbench-CyknVHT6.js"
+  Delete "$0\RuntimeWorkbench-DQYavCdC.css"
+  Delete "$0\SafeMarkdown-DhI1xtLt.js"
+  Delete "$0\SkillEvolutionWorkbench-CdXZ6wdm.js"
+  Delete "$0\arrow-left-CWv4mbVI.js"
+  Delete "$0\arrow-up-right-bRUiUnWi.js"
+  Delete "$0\chevron-right-CyXM9_OE.js"
+  Delete "$0\createLucideIcon-DV7PPjHH.js"
+  Delete "$0\git-branch-CkDEzHCM.js"
+  Delete "$0\git-compare-arrows-BgcE5fEx.js"
+  Delete "$0\index-4EM2brsI.js"
+  Delete "$0\index-CHs2UWfx.css"
+  Delete "$0\lock-keyhole-DXYxcrW7.js"
+  Delete "$0\save-DC4-GxdC.js"
+  Delete "$0\sun-CoY8IZyG.js"
+  Delete "$0\terminal-Dbd94qKM.js"
+FunctionEnd
+
 Section "Axis-Evo"
   SetShellVarContext current
   Call RequireClosed
   SetOutPath "$INSTDIR"
   SetOverwrite on
   !include "${INSTALL_FILES}"
+  Call RetireM61Assets
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\Axis-Evo"
   CreateShortCut "$SMPROGRAMS\Axis-Evo\Axis-Evo.lnk" "$INSTDIR\Axis-Evo.exe"
