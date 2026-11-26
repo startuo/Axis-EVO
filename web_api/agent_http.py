@@ -1,6 +1,16 @@
 """Agent routes run behind Runtime's existing Origin/session/CSRF boundary."""
+from dataclasses import dataclass
+from pathlib import PurePosixPath
 from .app import WorkbenchHandler
+from .agent_documents import MAX_DOCUMENT_BYTES, RAW_MIME, checked_raw_type, read_preview
 from .schemas import ApiError
+
+
+@dataclass(frozen=True)
+class AgentFileResponse:
+    data: bytes
+    media_type: str
+    download_name: str | None = None
 
 
 def _read_fields(tail):
@@ -12,6 +22,10 @@ def _read_fields(tail):
             return {'path'}
         if suffix == ['files', 'read']:
             return {'path', 'maxBytes'}
+        if suffix == ['files', 'preview']:
+            return {'path', 'sheet', 'startRow', 'rowCount', 'startPage', 'endPage'}
+        if suffix == ['files', 'raw']:
+            return {'path', 'sha256'}
         if suffix == ['git', 'diff']:
             return {'path', 'staged'}
         if suffix == ['git', 'compare']:
@@ -35,6 +49,10 @@ def read(service,tail,raw_query=''):
         return service.conversation_summary(tail[1], cursor)
     if len(tail)==2 and tail[0]=='artifacts':
         return service.artifact_by_id(tail[1])
+    if len(tail)==3 and tail[0]=='artifacts' and tail[2]=='download':
+        row=service.store.get(tail[1],'artifact')
+        service._public_turn_record(row)
+        return AgentFileResponse(service.artifact_bytes(row), 'application/octet-stream', row['payload']['filename'])
     if len(tail)==2 and tail[0]=='events':
         return service.event_by_id(tail[1])
     if tail==['browser','status']:
@@ -45,12 +63,29 @@ def read(service,tail,raw_query=''):
         return service.browser.tabs(params)
     if len(tail)==2 and tail[0]=='turns':
         return service.turn(tail[1])
+    if len(tail)==4 and tail[0]=='turns' and tail[2]=='images':
+        media_type, data = service.turn_image(tail[1], tail[3])
+        return AgentFileResponse(data, media_type)
     if len(tail)==3 and tail[0]=='turns' and tail[2]=='changes':
         from .agent_project import changes
         return changes(service,tail[1])
     if len(tail)>=3 and tail[0]=='workspaces':
         wid=tail[1]
-        service.workspaces.get(wid)
+        workspace=service.workspaces.get(wid)
+        if tail[2:] in (['files','preview'], ['files','raw']) and workspace.get('internalEvaluation'):
+            raise ApiError('AGENT_RECORD_MISSING','工程记录不存在。',404)
+        if tail[2:]==['files','preview']:
+            integer = WorkbenchHandler._integer
+            return read_preview(service.workspaces, wid, params.get('path',''), sheet=params.get('sheet'),
+                start_row=integer(values,'startRow',1,1,1_048_576),row_count=integer(values,'rowCount',60,1,60),
+                start_page=integer(values,'startPage',1,1,100_000),
+                end_page=integer(values,'endPage',1,1,100_000) if 'endPage' in values else None)
+        if tail[2:]==['files','raw']:
+            meta, data=service.workspaces.read_material(wid, 'workspace', params.get('path',''),
+                suffixes=RAW_MIME, limit=MAX_DOCUMENT_BYTES)
+            if 'sha256' in params and meta['sha256'] != params['sha256']:
+                raise ApiError('FILE_CHANGED','文件版本已更新，请重新读取预览。',409)
+            return AgentFileResponse(data,checked_raw_type(PurePosixPath(meta['path']).suffix.lower(),data))
         if tail[2:]==['conversations']:
             return service.conversations(wid)
         if tail[2:]==['skills']:

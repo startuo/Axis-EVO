@@ -21,7 +21,8 @@ def monitor(service, task):
             for document in row['documents']:
                 path=document['path']
                 artifact=latest.get(path)
-                if document['candidatePassed'] and artifact and artifact['verified'] and not check_document(artifact['content'],row['check']):
+                if (document['candidatePassed'] and artifact and artifact['verified']
+                        and isinstance(artifact['content'],str) and not check_document(artifact['content'],row['check'])):
                     failed.append({'path':path,'check':row['check']})
         payload={'skillId':skill['skillId'],'version':skill['version'],'adoptionId':adoption['id'],
             'failedChecks':failed,'status':'REGRESSION_SIGNAL' if failed else 'NO_OBSERVED_LITERAL_REGRESSION',

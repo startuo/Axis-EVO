@@ -17,6 +17,9 @@ from axis_evo.validators import validate_acceptance
 from .agent_store import canonical
 from .agent_workspace import MAX_FILE_BYTES, relative_path, fail
 from .agent_project import overview, update_plan, changes
+from .agent_documents import read_document
+from .agent_document_writer import write_document
+from .agent_workspace import DOCUMENT_SUFFIXES, TEXT_SUFFIXES
 from .agent_execution import validate_argv, encode_stdin
 from .agent_fileops import MUTATIONS, TEXT_EDITS, directory_path, paths as mutation_paths, execute as file_operation
 from .agent_git import observe as git_observe
@@ -56,6 +59,17 @@ CATALOG = sorted([
         {'path':TEXT,'sourceId':TEXT,'startChar':{'type':'integer','minimum':0},
          'startLine':{'type':'integer','minimum':1},'endLine':{'type':'integer','minimum':2},
          'maxChars':{'type':'integer','minimum':1,'maximum':24000},'expectedSha256':TEXT},['path']),
+    _function('read_document','读取授权来源中的 PDF、DOCX、XLSX、PPTX 或 TSV/CSV。PDF/PPTX 的起止页包含边界；表格可指定工作表和起始行。返回 SHA-256 与截断标志。',
+        {'path':TEXT,'sourceId':TEXT,'sheet':TEXT,'startPage':LINE,'endPage':LINE,'startRow':LINE,
+         'rowCount':{'type':'integer','minimum':1,'maximum':60},
+         'maxChars':{'type':'integer','minimum':1,'maximum':24000}},['path']),
+    _function('write_document','在授权工作区保存 PDF、DOCX、XLSX 或 PPTX。新文件 expectedSha256 为 null；覆盖须提供 read_document 返回的原字节摘要。',
+        {'path':TEXT,'expectedSha256':{'type':['string','null']},
+         'document':{'type':'object','description':
+            'DOCX/PDF: {title?,blocks:[{type:"heading",text,level?}|{type:"paragraph",text}|{type:"list",items:[text]}|{type:"table",rows:[[cell]]}]}. '
+            'XLSX: {sheets:[{name,headers?,rows:[[cell]],columnWidths?}]}. PPTX: {slides:[{title,points?,notes?,table?}]}. '
+            'Cells are scalar values; spreadsheet strings are saved as literal data.'}},
+        ['path','expectedSha256','document']),
     _function('write_file','写入工作区文本。新文件 expectedSha256 为 null；覆盖必须先读取并传原字节 SHA256。旧内容自动保留。',
         {'path':TEXT,'content':TEXT,'expectedSha256':{'type':['string','null']}},['path','content','expectedSha256']),
     _function('patch_file','按读取所得 SHA-256 在同一文件替换一到八处原文。每项 old 必须在同一原文件中恰好出现一次，new 为替换文本，可为空。单处也传一个 replacements 元素。',
@@ -78,7 +92,10 @@ CATALOG = sorted([
 _REPAIR_HINTS = {
     'PATCH_AMBIGUOUS': '用 read_file 重读待改范围和 SHA-256，再提供唯一原文或精确行范围。',
     'PATCH_RANGE': '用 read_file 核对起止行。endLine 为不包含的结束边界，保留后续行时检查换行。',
-    'FILE_EXPECTED_DIGEST': '用 read_file 取得原字节 SHA-256，覆盖时将该值传入 expectedSha256。',
+    'FILE_EXPECTED_DIGEST': '读取原字节 SHA-256，覆盖时将该值传入 expectedSha256。文档使用 read_document。',
+    'AGENT_COMMAND_READ_ONLY': '本轮是只读模式。先交付规划或审查，再等待用户发起下一轮。',
+    'DOCUMENT_OUTLINE_INVALID': '按 write_document 中与扩展名对应的大纲字段提交。',
+    'DOCUMENT_PDF_FONT_UNAVAILABLE': '本机缺少覆盖这些字符的字体，请选用 DOCX 或由用户安装适合的中文字体。',
     'FILE_CHANGED': '文件状态已变化。重新读取并以实际版本设计编辑，再提交一次新的操作。',
     'WORKSPACE_READ_RANGE': '检查 startChar 或 startLine/endLine。重读前先根据同一文件的实际范围调整。',
     'SKILL_ARGUMENTS': '先执行 find_skills，再按结果的 useArguments 调用 use_skill。',
@@ -264,7 +281,15 @@ class AgentTools:
                 if type(value) is not int or value < 1:
                     fail('AGENT_TOOL_ARGUMENTS','行边界须为从1开始的整数。')
                 continue
-            if key=='expectedSha256' and name=='write_file' and value is None:
+            if name=='read_document' and key in ('startPage','endPage','startRow','rowCount','maxChars'):
+                if type(value) is not int or value < 1:
+                    fail('AGENT_TOOL_ARGUMENTS','文档范围参数须为正整数。')
+                continue
+            if name=='write_document' and key=='document':
+                if type(value) is not dict:
+                    fail('AGENT_TOOL_ARGUMENTS','请提交结构化文档大纲。')
+                continue
+            if key=='expectedSha256' and name in ('write_file','write_document') and value is None:
                 continue
             if type(value) is not str:
                 fail('AGENT_TOOL_ARGUMENTS',f'参数 {key} 需要 JSON 字符串。')
@@ -296,7 +321,8 @@ class AgentTools:
             return changes(self.service,turn['id'])
         if name=='list_files':
             prefix=directory_path(args['pathPrefix'].removesuffix('/'))+'/' if args.get('pathPrefix') else ''
-            listing=self.workspaces.files(wid,args.get('sourceId','workspace'))
+            listing=self.workspaces.files(wid,args.get('sourceId','workspace'),
+                suffixes=TEXT_SUFFIXES | DOCUMENT_SUFFIXES)
             files=[row for row in listing['files'] if row['path'].startswith(prefix)]
             offset=args.get('offset',0)
             if offset>len(files):
@@ -311,6 +337,12 @@ class AgentTools:
                 start_char=args.get('startChar',0),max_chars=args.get('maxChars',8000),
                 start_line=args.get('startLine'),end_line=args.get('endLine'),
                 expected_sha256=args.get('expectedSha256'))
+        if name=='read_document':
+            return read_document(self.workspaces,wid,args['path'],source=args.get('sourceId','workspace'),
+                sheet=args.get('sheet'), start_page=args.get('startPage',1), end_page=args.get('endPage'),
+                start_row=args.get('startRow',1), row_count=args.get('rowCount',60), max_chars=args.get('maxChars',8000))
+        if name=='write_document':
+            return write_document(self.service,turn,call_id,args)
         if name in TEXT_EDITS:
             return self.write(turn,call_id,name,args)
         if name=='find_skills':

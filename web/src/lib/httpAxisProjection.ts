@@ -1,3 +1,4 @@
+import { agentCommand, turnImage } from '@axis/protocol';
 import type {
   ConversationSummary, Item, JournalEvent, Profile, ServerEvent, Session, Skill, Task,
   ToolKind, ToolStatus, TurnDecision, TurnStatus, Workspace,
@@ -129,7 +130,11 @@ export class ConversationProjection {
       const task: Task = { id: turnId, sessionId, workspacePath: this.session.workspacePath,
         title: prompt.slice(0, 300), status: 'pending', steps: [], createdAt, updatedAt: createdAt };
       this.turns.set(turnId, { profileId: text(object(payload.profile).id), task, lastAssistant: '' });
-      append({ ...start, kind: 'message', role: 'user', text: prompt });
+      const command = agentCommand.safeParse(payload.command);
+      const images = array(payload.images).slice(0, 4).map(entry => turnImage.safeParse(entry))
+        .flatMap(result => result.success && result.data.turnId === turnId ? [result.data] : []);
+      append({ ...start, kind: 'message', role: 'user', text: prompt, metadata: { ...start.metadata,
+        ...(command.success ? { command: command.data } : {}), ...(images.length ? { images } : {}) } });
       output.push({ type: 'task.updated', task });
     } else if (kind === 'started') {
       if (turn) {
@@ -166,6 +171,9 @@ export class ConversationProjection {
       } else {
         append({ ...start, kind: 'tool_result', ...patch, callId });
       }
+    } else if (kind === 'artifact' && payload.document && payload.verification === 'EXACT_BYTES') {
+      append({ ...start, kind: 'tool_result', data: { ...payload, artifactId: id },
+        metadata: { ...start.metadata, artifactId: id } });
     } else if (kind === 'model_usage') {
       const usage = object(payload.usage);
       this.inputTokens += number(usage.promptTokens ?? usage.prompt_tokens) ?? 0;

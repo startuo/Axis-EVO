@@ -265,6 +265,9 @@ export class HttpAxisClient implements AxisClient {
         const suffix = method === 'fs.list' ? 'files' : 'files/read';
         return this.get(withQuery(`${workspaceRoute(text(params.workspaceId))}/${suffix}`, params, ['path', 'maxBytes']));
       }
+      case 'fs.preview':
+        return this.get(withQuery(`${workspaceRoute(text(params.workspaceId))}/files/preview`, params,
+          ['path', 'sheet', 'startRow', 'startPage', 'endPage']));
       case 'git.status': case 'git.diff': case 'git.branch': case 'git.compare': case 'git.log': {
         return this.get(withQuery(`${workspaceRoute(text(params.workspaceId))}/git/${method.slice(4)}`, params,
           ['path', 'staged', 'base', 'limit']));
@@ -437,6 +440,8 @@ export class HttpAxisClient implements AxisClient {
     const profile = await this.preferredProfile(text(params.profileId) || session.profileId);
     const attachments = array(params.attachments).map(object);
     const browser = attachments.filter((entry) => entry.kind === 'browser-binding');
+    const images = attachments.filter((entry) => entry.kind === 'image');
+    if (images.length > 4) fail('IMAGE_COUNT_LIMIT', '每轮最多可附加 4 张图片。');
     if (browser.length > 1) fail('INVALID_ATTACHMENTS', '每轮只能关联一个已选定的网页。');
     const files = attachments.filter((entry) => entry.kind === 'file').map((entry) => text(entry.value));
     if (files.some((path) => !path || /^[\\/]|:|[\u0000-\u001f]/u.test(path) || path.split(/[\\/]/).includes('..'))) {
@@ -447,6 +452,7 @@ export class HttpAxisClient implements AxisClient {
     const body = { workspaceId: session.workspaceId, requestId, prompt,
       profileId: profile.id, profileRevision: profile.revision,
       ...(!draft ? { conversationId: sid } : {}), ...(browser[0] ? { browserBindingId: browser[0].value } : {}),
+      ...(images.length ? { attachments: images } : {}),
       ...(params.continueFrom ? { continueFrom: params.continueFrom } : {}) };
     const turnId = `turn_${requestId}`;
     let conversation: string;

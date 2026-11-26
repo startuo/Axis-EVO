@@ -28,10 +28,11 @@ export interface ConversationProps {
   loading: boolean;
   error: string | null;
   onReviewEvidence?: () => void;
+  onOpenFile?: (path: string) => void;
 }
 
 /** Scrolling transcript: grouped assistant turns (reasoning on top + compact tool runs) + inline approvals. */
-export function ThreadTranscript({ items, approvals, loading, error, onReviewEvidence }: ConversationProps) {
+export function ThreadTranscript({ items, approvals, loading, error, onReviewEvidence, onOpenFile }: ConversationProps) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const turns = useMemo(() => groupTranscriptTurns(items), [items]);
@@ -73,13 +74,13 @@ export function ThreadTranscript({ items, approvals, loading, error, onReviewEvi
             ))}
             {turn.blocks.map((block) => {
               if (block.kind === 'activity_group') {
-                return <ToolActivityGroup key={block.id} entries={block.entries} />;
+                return <ToolActivityGroup key={block.id} entries={block.entries} onOpenFile={onOpenFile} />;
               }
               if (block.kind === 'artifacts') {
                 return (
                   <div key={block.id} className="turn-artifacts">
                     {block.artifacts.map((a) => (
-                      <ArtifactCard key={a.path} artifact={a} />
+                      <ArtifactCard key={a.path} artifact={a} onOpenFile={onOpenFile} />
                     ))}
                   </div>
                 );
@@ -87,7 +88,7 @@ export function ThreadTranscript({ items, approvals, loading, error, onReviewEvi
               if (block.item.metadata?.decision) {
                 return <ExecutionDecisionCard key={block.id} decision={block.item.metadata.decision} onReviewEvidence={onReviewEvidence} />;
               }
-              return <MessageView key={block.id} item={block.item} />;
+              return <MessageView key={block.id} item={block.item} onOpenFile={onOpenFile} />;
             })}
           </div>
         );
@@ -110,13 +111,14 @@ export interface ThreadDialogProps {
   settings: Settings;
   onSessionCreated: (s: Session) => void;
   onReviewEvidence?: () => void;
+  onOpenFile?: (path: string) => void;
   onOpenModelSettings: () => void;
   drafts: ComposerDrafts;
 }
 
 export function ThreadDialog({
   sessionId, session, conv, workspaces, profiles, settings, onSessionCreated, onReviewEvidence,
-  onOpenModelSettings, drafts,
+  onOpenModelSettings, drafts, onOpenFile,
 }: ThreadDialogProps) {
   const sender = useTurnSender({
     sessionId,
@@ -125,16 +127,16 @@ export function ThreadDialog({
     nextSeq: conv.nextSeq,
   });
 
-  const [profileId, setProfileId] = useState<string | null>(
-    session?.profileId ?? settings.defaultProfileId ?? profiles[0]?.id ?? null,
-  );
+  const [profileOverride, setProfileOverride] = useState<{ sessionId: string; profileId: string } | null>(null);
+  const retainedProfile = profiles.find(profile => profile.id === session?.profileId);
+  const profileId = (profileOverride?.sessionId === sessionId ? profileOverride.profileId : retainedProfile?.id)
+    ?? settings.defaultProfileId ?? profiles[0]?.id ?? null;
   const [workspaceId, setWorkspaceId] = useState<string | null>(session?.workspaceId ?? workspaces[0]?.id ?? null);
   const { effort, changeEffort, savingEffort } = useModelEffort(profiles, profileId);
 
   // Follow the selected thread's fixed attributes when switching threads.
   useEffect(() => {
     if (!session) return;
-    setProfileId(session.profileId);
     setWorkspaceId(session.workspaceId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
@@ -160,7 +162,8 @@ export function ThreadDialog({
           </span>
         )}
       </div>
-      <ThreadTranscript items={conv.items} approvals={conv.approvals} loading={conv.loading} error={conv.error} onReviewEvidence={onReviewEvidence} />
+      <ThreadTranscript items={conv.items} approvals={conv.approvals} loading={conv.loading} error={conv.error}
+        onReviewEvidence={onReviewEvidence} onOpenFile={onOpenFile} />
       <div className="chat-footer thread-footer">
         <Composer
           key={sessionId}
@@ -174,7 +177,7 @@ export function ThreadDialog({
           modeInteractive={false}
           profiles={profiles}
           profileId={profileId}
-          onProfileChange={setProfileId}
+          onProfileChange={profileId => setProfileOverride({ sessionId, profileId })}
           onOpenModelSettings={onOpenModelSettings}
           effort={effort}
           onEffortChange={changeEffort}

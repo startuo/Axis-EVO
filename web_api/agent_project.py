@@ -9,7 +9,7 @@ import tarfile
 import time
 
 from .agent_store import digest
-from .agent_workspace import EXCLUDED, PUBLIC_DOTFILES, fail, relative_path
+from .agent_workspace import EXCLUDED, PREVIEW_SUFFIXES, PUBLIC_DOTFILES, fail, relative_path
 from .schemas import ApiError, no_redirected_parents
 
 MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
@@ -47,7 +47,7 @@ def list_directory(workspaces, wid, path):
                     entries.append({'name': name, 'type': 'dir', 'size': 0})
                 elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
                     try:
-                        relative_path((Path(path) / name).as_posix())
+                        relative_path((Path(path) / name).as_posix(), suffixes=PREVIEW_SUFFIXES)
                     except ApiError:
                         continue
                     entries.append({'name': name, 'type': 'file', 'size': info.st_size})
@@ -155,11 +155,21 @@ def update_plan(service, turn, steps):
 def changes(service, tid):
     turn = service.store.get(tid, 'turn')
     grouped = {}
+    documents = {}
     directories=[]
     from .agent_fileops import retained
     for row in service.store.iter_records(parent_id=tid):
         payload=row['payload']
         if row['kind']=='artifact':
+            if payload.get('document'):
+                current = service.artifact(row)
+                if payload['previousSha256'] is not None:
+                    service.artifact_bytes(row, before=True)
+                observed = documents.get(payload['path'])
+                documents[payload['path']] = {'path':payload['path'], 'document':payload['document'],
+                    'beforeSha256':observed['beforeSha256'] if observed else payload['previousSha256'],
+                    'afterSha256':payload['sha256'], 'matchesCurrentFile':current['verified'], 'diff':''}
+                continue
             old=None
             if payload['previousSha256'] is not None:
                 directory=Path(payload['directory'])
@@ -180,7 +190,7 @@ def changes(service, tid):
             for change in payload['changes']:
                 grouped.setdefault(change['path'],[]).append((raw if change['beforeSha256'] else None,
                     raw if change['afterSha256'] else None))
-    results, total = [], 0
+    results, total = list(documents.values()), 0
     for path, rows in grouped.items():
         old,after=rows[0][0],rows[-1][1]
         before_sha=hashlib.sha256(old).hexdigest() if old is not None else None

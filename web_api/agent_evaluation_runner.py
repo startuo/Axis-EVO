@@ -28,6 +28,10 @@ def capture_inputs(service, workspace_id, source_turn_id, check_current=lambda:N
     if source['workspaceId']!=workspace['id']:
         raise ApiError('EVALUATION_SCOPE','原任务与工作区不一致。',409)
     source_events=list(service.store.iter_records(parent_id=source['id']))
+    if source['payload'].get('images') or any(event['kind']=='tool_intent' and event['payload'].get('tool') in
+            ('read_document', 'write_document') for event in source_events):
+        raise ApiError('EVALUATION_MEDIA_CONTEXT_UNAVAILABLE',
+            '原任务使用了图片或二进制文档，当前隔离对照无法重建同一输入；保留反馈。',409)
     if any(e['kind']=='file_operation' and e['payload']['operation'] in ('move_file','delete_file') for e in source_events):
         raise ApiError('EVALUATION_FILE_LIFECYCLE_UNAVAILABLE',
             '原任务包含文件移动或删除，当前演化比较未实现其完整重建；保留证据。',409)

@@ -3,6 +3,7 @@ import time
 import threading
 
 from axis_evo.planning_adapter import PlanningTransportError
+from .agent_images import image_context_reserve
 from .agent_store import canonical
 
 MAX_OUTPUT_TOKENS = 4096
@@ -183,6 +184,7 @@ class ModelBudget:
 
     def __call__(self, providers, profile, messages, tools, cancelled):
         reserved_input = len(canonical({'messages': messages, 'tools': tools}).encode('utf-8')) + 1024
+        reserved_input += sum(image_context_reserve(message.get('_images', ())) for message in messages)
         max_output = output_token_limit(profile)
         reserved_tokens = reserved_input + max_output
         reserved_cost = (reserved_input * self.input_rate + max_output * self.output_rate) / 1_000_000

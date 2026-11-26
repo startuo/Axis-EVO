@@ -148,7 +148,7 @@ function buildAssistantTurn(slice: Item[], turnIndex: number): TranscriptTurn {
       // 若协议未填 callId，尝试配对紧随其后的 tool_result
       if (!result) {
         const next = rest[i + 1];
-        if (next && next.kind === 'tool_result' && !next.callId && !pairedResultIds.has(next.id)) {
+        if (next && next.kind === 'tool_result' && !next.callId && !next.metadata?.artifactId && !pairedResultIds.has(next.id)) {
           result = next;
           pairedResultIds.add(next.id);
         }

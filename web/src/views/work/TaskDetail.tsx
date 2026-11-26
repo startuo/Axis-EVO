@@ -8,6 +8,7 @@ import type { GitBranchResult, Session, Task, Workspace } from '@axis/protocol';
 import { useConversation, type ConversationHook } from '../../hooks/useConversation';
 import { useSocket, useSocketEvent } from '../../hooks/useSocket';
 import { springSnappy } from '../../lib/motion';
+import type { FileSelection } from '../../lib/filePreview';
 import { ActivityTab } from './ActivityTab';
 import { DiffTab } from './DiffTab';
 import { EvidenceDrawer } from './EvidenceDrawer';
@@ -39,9 +40,10 @@ export interface TaskDetailProps {
   onBack: () => void;
   conversation?: ConversationHook;
   openEvidenceAt?: number;
+  requestedFile?: FileSelection;
 }
 
-export function TaskDetail({ task, session, workspaces, onOpenInChat, onBack, conversation, openEvidenceAt }: TaskDetailProps) {
+export function TaskDetail({ task, session, workspaces, onOpenInChat, onBack, conversation, openEvidenceAt, requestedFile }: TaskDetailProps) {
   const sessionId = session?.id ?? task?.sessionId ?? null;
   const workspacePath = session?.workspacePath ?? task?.workspacePath ?? null;
   const workspace =
@@ -54,12 +56,15 @@ export function TaskDetail({ task, session, workspaces, onOpenInChat, onBack, co
   const conv = conversation ?? standaloneConversation;
   const { request } = useSocket();
   const reduce = useReducedMotion();
-  const [tab, setTab] = useState<WorkTab>('diff');
+  const [tab, setTab] = useState<WorkTab>(requestedFile ? 'files' : 'diff');
   const [terminalMounted, setTerminalMounted] = useState(false);
   const [branch, setBranch] = useState<GitBranchResult | null>(null);
   useEffect(() => {
     if (openEvidenceAt) setTab('evidence');
   }, [openEvidenceAt]);
+  useEffect(() => {
+    if (requestedFile) setTab('files');
+  }, [requestedFile]);
 
   // Current git branch for the header chip; silent when the workspace is not
   // a repository (or git is unavailable). Refreshed when a turn completes.
@@ -156,7 +161,8 @@ export function TaskDetail({ task, session, workspaces, onOpenInChat, onBack, co
       <div className="work-tabpanes" id={`work-pane-${tab}`} role="presentation">
         {tab === 'activity' && <ActivityTab task={task} sessionId={sessionId} conv={conv} />}
         {tab === 'diff' && <DiffTab items={conv.items} workspaceId={workspaceId} sessionId={sessionId} writeAuthorized={workspace?.mode !== 'read-only' && workspaceId !== null} />}
-        {tab === 'files' && <FilesTab workspaceId={workspaceId} workspacePath={workspacePath} sessionId={sessionId} />}
+        {tab === 'files' && <FilesTab key={workspaceId} workspaceId={workspaceId} workspacePath={workspacePath}
+          sessionId={sessionId} requestedFile={requestedFile} />}
         {tab === 'evidence' && <EvidenceDrawer workspaceId={workspaceId} sessionId={sessionId} />}
         {terminalMounted && FixtureTerminal && (
           <Suspense><FixtureTerminal workspaceId={workspaceId} workspacePath={workspacePath} active={tab === 'terminal'} /></Suspense>

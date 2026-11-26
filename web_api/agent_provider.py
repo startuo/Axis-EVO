@@ -8,6 +8,7 @@ Wire contract: https://api-docs.deepseek.com/guides/tool_calls/
 Thinking history: https://api-docs.deepseek.com/guides/thinking_mode/
 Anthropic Messages: https://help.aliyun.com/zh/model-studio/anthropic-api-messages
 """
+from base64 import b64encode
 from copy import deepcopy
 import os
 import re
@@ -21,7 +22,9 @@ from .local_gateway import LocalGatewayPlanningAdapter
 from .provider_network import RoutedPlanningAdapter, request_provider_json
 from .provider_store import _RestrictedAdapter, _configured, _public_addresses
 from .agent_context import HOST_POLICY_PREFIX
+from .agent_images import MAX_IMAGES, MAX_IMAGE_BASE64, image_capable, load_image
 from .agent_metrics import output_token_limit, usage
+from .schemas import ApiError
 
 
 MAX_REQUEST_BYTES = 256 * 1024
@@ -98,6 +101,7 @@ def _messages(value, *, local_gateway=False, anthropic=False):
     if type(value) is not list or not 1 <= len(value) <= MAX_MESSAGES:
         raise ValueError('A bounded message history is required')
     result, pending, seen = [], set(), set()
+    has_images = False
     reasoning_fields = {'reasoning_content','reasoning'} if local_gateway else {'reasoning_content'}
     block_fields = {'_anthropicBlocks'} if anthropic else set()
     for item in value:
@@ -105,9 +109,16 @@ def _messages(value, *, local_gateway=False, anthropic=False):
             raise ValueError('Invalid message')
         role = item.get('role')
         if role in ('system', 'user'):
-            if item.keys() != {'role', 'content'} or pending:
+            required = {'role', 'content'}
+            allowed = required | {'_images'} if role == 'user' else required
+            if not required <= item.keys() <= allowed or pending:
                 raise ValueError('Invalid message or incomplete tool history')
             _text(item['content'])
+            if '_images' in item:
+                refs = item['_images']
+                if has_images or type(refs) is not list or not 1 <= len(refs) <= MAX_IMAGES:
+                    raise ValueError('Only one user message may attach images')
+                has_images = True
         elif role == 'tool':
             if (item.keys() != {'role', 'tool_call_id', 'content'}
                     or type(item['tool_call_id']) is not str or item['tool_call_id'] not in pending):
@@ -231,7 +242,7 @@ def _anthropic_assistant(envelope, names, historical_ids):
         raise PlanningTransportError('assistant_content') from None
 
 
-def _anthropic_wire(model, history, tools, max_tokens, effort, hostname):
+def _anthropic_wire(model, history, tools, max_tokens, effort, hostname, image_sources=()):
     supports_qwen4 = model == 'qwen4-max' or bool(re.fullmatch(r'qwen4-max-\d{4}-\d{2}-\d{2}', model))
     supports_cache = supports_qwen4 or hostname == 'api.anthropic.com'
     system, messages = [], []
@@ -268,7 +279,8 @@ def _anthropic_wire(model, history, tools, max_tokens, effort, hostname):
                     for call in item.get('tool_calls', []))
             messages.append({'role':'assistant', 'content':blocks})
         else:
-            messages.append({'role':'user', 'content':[{'type':'text','text':item['content']}]})
+            blocks = [{'type':'image', 'source':source} for source in image_sources] if item.get('_images') else []
+            messages.append({'role':'user', 'content':[*blocks, {'type':'text','text':item['content']}]})
     if pending:
         messages.append({'role':'user', 'content':pending})
     wire = {'model':model, 'max_tokens':max_tokens, 'messages':messages, 'stream':False}
@@ -332,7 +344,8 @@ class AgentProvider:
         else:
             native_openai = hostname == 'api.openai.com'
             cap_field = 'max_completion_tokens' if native_openai else 'max_tokens'
-            wire = {'model':self.model_id,'stream':False,'messages':history,cap_field:max_tokens}
+            wire = {'model':self.model_id,'stream':False,'messages':[
+                {key:value for key,value in item.items() if key != '_images'} for item in history],cap_field:max_tokens}
             if not native_openai:
                 wire['n'] = 1
             if tools:
@@ -348,6 +361,26 @@ class AgentProvider:
         if len(raw) > MAX_REQUEST_BYTES:
             raise PlanningTransportError('oversized_request')
         self.providers.check_text(raw.decode('utf-8'))
+        attached = next(((index,item['_images']) for index,item in enumerate(history) if '_images' in item), None)
+        if attached is not None:
+            if local_gateway or not image_capable(self.profile):
+                raise PlanningTransportError('vision_unsupported')
+            index, refs = attached
+            self.providers.check_text(canonical_json_bytes(refs).decode('utf-8'))
+            try:
+                sources = [{'type':'base64', 'media_type':ref['mediaType'],
+                    'data':b64encode(load_image(self.providers.config.data_dir,ref)).decode('ascii')} for ref in refs]
+            except ApiError as error:
+                raise PlanningTransportError('image_store_integrity') from error
+            if anthropic:
+                wire = _anthropic_wire(self.model_id, history, tools, max_tokens, effort, hostname, sources)
+            else:
+                wire['messages'][index]['content'] = [{'type':'text','text':history[index]['content']}, *[
+                    {'type':'image_url', 'image_url':{'url':f"data:{source['media_type']};base64,{source['data']}"}}
+                    for source in sources]]
+            raw = canonical_json_bytes(wire)
+            if len(raw) > MAX_REQUEST_BYTES + MAX_IMAGES * (MAX_IMAGE_BASE64 + 256):
+                raise PlanningTransportError('oversized_request')
         if not _configured(adapter.credential_env):
             raise PlanningTransportError('credentials')
         if local_gateway:

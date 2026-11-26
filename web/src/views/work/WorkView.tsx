@@ -8,7 +8,7 @@
  *
  * MOUNT POINT: WorkViewProps + default export are kept stable for the shell.
  */
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ListChecks, MessageSquareText } from 'lucide-react';
 import type { Profile, Session, Settings, Workspace } from '@axis/protocol';
@@ -18,6 +18,7 @@ import { useConversation } from '../../hooks/useConversation';
 import type { Route } from '../../hooks/useHashRoute';
 import { useTurnSender, type TurnAttachment } from '../../hooks/useTurnSender';
 import { DEFAULT_GREETING, pickNextGreeting } from '../../lib/greetings';
+import type { FileSelection } from '../../lib/filePreview';
 import { fadeIn, motionProps, slideSide, springSoft, transitionFast } from '../../lib/motion';
 import { TaskDetail } from './TaskDetail';
 import { ThreadDialog } from './ThreadDialog';
@@ -53,6 +54,16 @@ const SUGGESTIONS = import.meta.env.MODE === 'test' ? [
   { icon: MessageSquareText, text: '梳理当前工作区，告诉我从哪里开始' },
   { icon: ListChecks, text: '审查最近的改动并列出可验证的下一步' },
 ];
+
+const REVIEW_WIDTH_KEY = 'axis.work.reviewWidth';
+const MIN_REVIEW_WIDTH = 360;
+const MAX_REVIEW_WIDTH = 760;
+const clampReviewWidth = (width: number) => Math.min(MAX_REVIEW_WIDTH, Math.max(MIN_REVIEW_WIDTH, width));
+
+function initialReviewWidth() {
+  const saved = Number(window.localStorage.getItem(REVIEW_WIDTH_KEY));
+  return Number.isFinite(saved) && saved >= MIN_REVIEW_WIDTH ? clampReviewWidth(saved) : 460;
+}
 
 function mergeSessions(live: Session[], shell: Session[]): Session[] {
   const map = new Map<string, Session>();
@@ -112,6 +123,10 @@ export function WorkView({
   const [workspaceId, setWorkspaceId] = useState<string | null>(workspaces[0]?.id ?? null);
   const [prefill, setPrefill] = useState<string | null>(null);
   const [evidenceRequest, setEvidenceRequest] = useState<{ sessionId: string; serial: number } | null>(null);
+  const [fileRequest, setFileRequest] = useState<(FileSelection & { sessionId: string }) | null>(null);
+  const [reviewWidth, setReviewWidth] = useState(initialReviewWidth);
+  const drag = useRef<{ x: number; width: number } | null>(null);
+  const requestSerial = useRef(0);
   const { effort, changeEffort, savingEffort } = useModelEffort(profiles, profileId);
   const effectiveMode = import.meta.env.MODE === 'test' ? mode
     : workspaces.find(workspace => workspace.id === workspaceId)?.mode ?? 'read-only';
@@ -141,7 +156,7 @@ export function WorkView({
   };
 
   return (
-    <div className="work-wrap">
+    <div className="work-wrap" style={{ '--work-review-width': `${reviewWidth}px` } as CSSProperties}>
       <div className="work-center">
         {selectedSession ? (
           <ThreadDialog
@@ -155,7 +170,13 @@ export function WorkView({
             onOpenModelSettings={onOpenModelSettings}
             drafts={drafts}
             onReviewEvidence={() => {
-              setEvidenceRequest(previous => ({ sessionId: selectedSession.id, serial: (previous?.serial ?? 0) + 1 }));
+              setFileRequest(null);
+              setEvidenceRequest({ sessionId: selectedSession.id, serial: ++requestSerial.current });
+              if (!reviewOpen) onToggleReview();
+            }}
+            onOpenFile={path => {
+              setEvidenceRequest(null);
+              setFileRequest({ sessionId: selectedSession.id, path, serial: ++requestSerial.current });
               if (!reviewOpen) onToggleReview();
             }}
           />
@@ -213,6 +234,28 @@ export function WorkView({
             aria-label="审查面板"
             {...motionProps(reduce, slideSide, springSoft)}
           >
+            <div className="work-review-resize" role="separator" aria-label="调整审查面板宽度"
+              aria-orientation="vertical" aria-valuemin={MIN_REVIEW_WIDTH} aria-valuemax={MAX_REVIEW_WIDTH}
+              aria-valuenow={reviewWidth} tabIndex={0}
+              onPointerDown={event => {
+                if (event.button !== 0) return;
+                drag.current = { x: event.clientX, width: event.currentTarget.parentElement!.getBoundingClientRect().width };
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={event => {
+                if (drag.current) setReviewWidth(clampReviewWidth(drag.current.width + drag.current.x - event.clientX));
+              }}
+              onLostPointerCapture={() => {
+                drag.current = null;
+                window.localStorage.setItem(REVIEW_WIDTH_KEY, String(reviewWidth));
+              }}
+              onKeyDown={event => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                event.preventDefault();
+                const width = clampReviewWidth(reviewWidth + (event.key === 'ArrowLeft' ? 24 : -24));
+                setReviewWidth(width);
+                window.localStorage.setItem(REVIEW_WIDTH_KEY, String(width));
+              }} />
             <TaskDetail
               key={selectedSession?.id ?? selectedTask?.id}
               task={selectedTask}
@@ -220,6 +263,7 @@ export function WorkView({
               workspaces={workspaces}
               conversation={conv}
               openEvidenceAt={evidenceRequest?.sessionId === selectedSession?.id ? evidenceRequest?.serial : undefined}
+              requestedFile={fileRequest && fileRequest.sessionId === selectedSession?.id ? fileRequest : undefined}
               onOpenInChat={(s) => select({ kind: 'session', id: s.id })}
               onBack={() => select(null)}
             />

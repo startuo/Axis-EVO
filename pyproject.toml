@@ -12,7 +12,16 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
-web = ["keyring==25.7.0; sys_platform == 'win32'"]
+web = [
+    "defusedxml==0.7.1",
+    "keyring==25.7.0; sys_platform == 'win32'",
+    "openpyxl==3.1.5",
+    "pillow==13.0.0",
+    "pypdf==7.0.1",
+    "python-docx==1.2.0",
+    "python-pptx==1.0.2",
+    "reportlab==4.5.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

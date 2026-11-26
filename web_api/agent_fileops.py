@@ -7,11 +7,11 @@ import re
 from uuid import uuid4
 
 from axis_evo.sandbox import _pin_windows_parents
-from .agent_workspace import EXCLUDED, MAX_FILE_BYTES, fail, relative_path
+from .agent_workspace import DOCUMENT_SUFFIXES, EXCLUDED, MAX_FILE_BYTES, fail, relative_path
 from .schemas import no_redirected_parents
 
 TEXT_EDITS = frozenset(('write_file', 'patch_file', 'patch_lines'))
-MUTATIONS = TEXT_EDITS | {'create_directory', 'move_file', 'delete_file'}
+MUTATIONS = TEXT_EDITS | {'create_directory', 'move_file', 'delete_file', 'write_document'}
 
 
 def directory_path(value):
@@ -25,6 +25,11 @@ def directory_path(value):
 def paths(name, args):
     if name not in MUTATIONS:
         return []
+    if name == 'write_document':
+        path = relative_path(args['path'], suffixes=DOCUMENT_SUFFIXES)
+        if PurePosixPath(path).suffix.lower() not in DOCUMENT_SUFFIXES:
+            fail('DOCUMENT_FORMAT_UNSUPPORTED', '请选择 .docx、.xlsx、.pptx 或 .pdf。', 415)
+        return [path]
     result = [directory_path(args['path']) if name == 'create_directory' else relative_path(args['path'])]
     if name == 'move_file':
         result.append(relative_path(args['destination']))

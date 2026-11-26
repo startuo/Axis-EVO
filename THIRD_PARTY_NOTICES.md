@@ -56,3 +56,16 @@ GFM table parsing uses [remark-gfm](https://github.com/remarkjs/remark-gfm)
 4.0.1, Copyright (c) Titus Wormer, under the same MIT terms.
 Their complete notices are also included in the installed packages. Markdown
 HTML is disabled; remote images are rendered as text, with no image request.
+
+## Document and image support
+
+The Python runtime uses pypdf 7.0.1 (BSD-3-Clause) and ReportLab 4.5.1
+(BSD-3-Clause) for PDF processing, python-docx 1.2.0 (MIT) for Word,
+openpyxl 3.1.5 (MIT) for Excel, and python-pptx 1.0.2 (MIT) for PowerPoint.
+The parser uses defusedxml 0.7.1 (PSFL) to reject unsafe XML constructs and
+Pillow 13.0.0 (MIT-CMU) to verify image attachments.
+
+Their packaged dependencies are charset-normalizer 3.5.3 (MIT), et-xmlfile
+2.0.0 (MIT), lxml 6.1.3 (BSD-3-Clause), typing-extensions 4.16.0 (PSF-2.0),
+and XlsxWriter 3.3.4 (BSD-2-Clause). The Windows runtime includes the
+license files from the pinned wheels, including notices for bundled libraries.

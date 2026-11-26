@@ -8,6 +8,8 @@ const descriptions = new Map<string, string>([
   ['WORKSPACE_POLICY_CHANGED', '运行期间工作区权限已发生变化。请核对当前权限，再发起新任务。'],
   ['TOOL_OUTCOME_UNKNOWN', '工具执行结果待核对。请先查看执行证据和实际文件，再决定下一步。'],
   ['FIXED_CHECKS_FAILED', '固定验收未通过。请打开检查回执，定位失败项后继续修复。'],
+  ['PROVIDER_VISION_UNSUPPORTED', '所选端点和模型未启用视觉输入，请切换支持图片的 Provider。'],
+  ['PROVIDER_IMAGE_STORE_INTEGRITY', '本机图片附件无法核对，请重新附加图片。'],
 ]);
 
 export function TurnErrorDetails({ code }: { code: string }) {

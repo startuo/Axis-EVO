@@ -2,14 +2,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Brain, Check, ChevronRight } from 'lucide-react';
-import type { Item } from '@axis/protocol';
+import type { Item, TurnImage } from '@axis/protocol';
 import { extractArtifacts } from '../lib/artifacts';
+import { turnImageUrl } from '../lib/composerImages';
 import { truncate } from '../lib/format';
 import { ApprovalCard } from './ApprovalCard';
 import { ArtifactCard } from './ArtifactCard';
 import { DiffCard } from './DiffCard';
 import { Markdown } from './Markdown';
 import { PlanCard } from './PlanCard';
+import { PreviewDialog } from './PreviewDialog';
 import { ToolCard } from './ToolCard';
 import { TurnError } from './TurnError';
 
@@ -72,19 +74,37 @@ function ResultCard({ item }: { item: Item }) {
   );
 }
 
-export function MessageView({ item }: { item: Item }) {
+function UserMessage({ item }: { item: Item }) {
+  const [expanded, setExpanded] = useState<TurnImage | null>(null);
+  const { command, images } = item.metadata ?? {};
+  return (
+    <div className="msg-user">
+      <div className="msg-user-bubble">
+        {command && <span className="chip muted user-command">{command.toUpperCase()}</span>}
+        <span>{item.text ?? ''}</span>
+        {!!images?.length && <div className="sent-image-list">
+          {images.map((image, index) => <button className="sent-image" type="button" key={`${image.sha256}-${index}`}
+            onClick={() => setExpanded(image)} aria-label={`放大 ${image.name}`} title={`${image.name} / ${image.width} × ${image.height}`}>
+            <img src={turnImageUrl(image)} alt={image.name} loading="lazy" />
+          </button>)}
+        </div>}
+        {expanded && <PreviewDialog title={expanded.name} onClose={() => setExpanded(null)}>
+          <img className="message-expanded-image" src={turnImageUrl(expanded)} alt={expanded.name} />
+        </PreviewDialog>}
+      </div>
+    </div>
+  );
+}
+
+export function MessageView({ item, onOpenFile }: { item: Item; onOpenFile?: (path: string) => void }) {
   switch (item.kind) {
     case 'message':
       if (item.role === 'user') {
-        return (
-          <div className="msg-user">
-            <div className="msg-user-bubble">{item.text ?? ''}</div>
-          </div>
-        );
+        return <UserMessage item={item} />;
       }
       return (
         <div className="msg-assistant">
-          <Markdown text={item.text ?? ''} />
+          <Markdown text={item.text ?? ''} onOpenFile={onOpenFile} />
           {item.streaming && <span className="stream-cursor" aria-hidden />}
         </div>
       );
@@ -98,7 +118,7 @@ export function MessageView({ item }: { item: Item }) {
         return (
           <>
             {artifacts.map((a) => (
-              <ArtifactCard key={a.path} artifact={a} />
+              <ArtifactCard key={a.path} artifact={a} onOpenFile={onOpenFile} />
             ))}
           </>
         );

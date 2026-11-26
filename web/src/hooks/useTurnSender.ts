@@ -6,14 +6,12 @@
 import { useCallback, useRef, useState } from 'react';
 import type { Item, PermissionMode, Session } from '@axis/protocol';
 import { errorMessage } from '../lib/format';
+import type { ImageAttachment } from '../lib/composerImages';
 import { useToast } from '../components/Toasts';
 import { OPTIMISTIC_PREFIX } from './useConversation';
 import { useSocket } from './useSocket';
 
-export interface TurnAttachment {
-  kind: 'file' | 'browser-binding';
-  value: string;
-}
+export type TurnAttachment = { kind: 'file' | 'browser-binding'; value: string } | ImageAttachment;
 
 export interface TurnPrefs {
   mode: PermissionMode;
@@ -82,7 +80,8 @@ export function useTurnSender(opts: TurnSenderOpts) {
           sessionId,
           text: trimmed,
           ...(nativeRuntime && prefs.profileId ? { profileId: prefs.profileId } : {}),
-          ...(attachments.length > 0 ? { attachments } : {}),
+          ...(attachments.length > 0 ? { attachments: attachments.map(attachment => attachment.kind === 'image'
+            ? { kind: 'image', data: attachment.data, name: attachment.name, mediaType: attachment.mediaType } : attachment) } : {}),
         });
         if (nativeRuntime && result?.session) {
           if (sessionId !== result.session.id) o.onSessionCreated(result.session);

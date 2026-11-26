@@ -8,6 +8,7 @@ import re
 
 from .agent_store import canonical, digest
 from .agent_metrics import context_window
+from .agent_images import history_image_note
 from .schemas import ApiError, strict_json
 
 MAX_HISTORY_TURNS = 64
@@ -19,7 +20,7 @@ MODEL_PROJECT_OVERVIEW_BYTES = 4800
 CONTINUATION_SOURCE_BYTES = 8192
 HOST_POLICY_PREFIX = 'Host context: '
 _TERMINAL_COLOR = re.compile(r'\x1b\[[0-9;]*m')
-_HOST_MESSAGE_FIELDS = {'_continuationSource', '_fixedCheckReport', '_contextPolicy'}
+_HOST_MESSAGE_FIELDS = {'_continuationSource', '_fixedCheckReport', '_contextPolicy', '_explicitCompactFacts'}
 _TOOL_RESULT_EVIDENCE_FIELDS = {'callId', 'intentId', 'executionId', 'hostDurationMs'}
 
 
@@ -39,20 +40,40 @@ def conversation_history(service, cid, *, continued=None, profile=None):
     workspace = service.workspaces.get(earlier[0]['workspaceId'])
     active_sources = sorted(source['id'] for source in workspace['sources'] if source['enabled'])
     execution_policy = service.execution.policy(workspace['id'])['id']
-    messages = []
-    feedback = []
-    input_bytes = 0
-    used_calls = set()
-    current_continuations = {}
-    for prior in earlier:
-        payload = prior['payload']
-        input_bytes += len(payload['prompt'].encode('utf-8'))
-        material_current = (not payload.get('browserBindingId')
+
+    def material_allowed(payload):
+        return (not payload.get('browserBindingId')
             and (profile is None or payload.get('profile', {}).get('configSha256') == profile['configSha256'])
             and payload.get('sourceGrantIds') == active_sources
             and payload.get('workspaceRevision') == workspace['revision']
             and payload.get('executionPolicyId') == execution_policy)
-        rows = list(service.store.iter_records(parent_id=prior['id']))
+
+    messages = []
+    checkpoint_turns = set()
+    for index in range(len(earlier) - 1, -1, -1):
+        row = earlier[index]
+        if row['payload'].get('command') != 'compact' or not material_allowed(row['payload']):
+            continue
+        terminal = service.store.records('terminal', parent_id=row['id'], limit=1)
+        if not terminal or terminal[0]['payload'].get('completionBasis') != 'HOST_CONTEXT_COMPACTED':
+            continue
+        snapshot = service.store.records('compact_snapshot', parent_id=row['id'], limit=1)
+        if snapshot:
+            messages = list(snapshot[0]['payload']['messages'])
+            checkpoint_turns = {turn['id'] for turn in earlier[:index + 1]}
+            break
+    checkpoint_feedback = {message['content'] for message in messages if message['role'] == 'user'
+        and message['content'].startswith('Recorded user feedback.')}
+    feedback = []
+    input_bytes = 0
+    used_calls = {call['id'] for message in messages for call in message.get('tool_calls', ())}
+    current_continuations = {}
+    for prior in earlier:
+        payload = prior['payload']
+        if payload.get('command') != 'compact':
+            input_bytes += len(payload['prompt'].encode('utf-8'))
+        saved = prior['id'] in checkpoint_turns
+        rows = list(service.store.iter_records('agent_feedback' if saved else None, parent_id=prior['id']))
         for row in rows:
             if row['kind'] == 'agent_feedback':
                 fields = {key: row['payload'][key] for key in ('evaluation', 'comment', 'checks')
@@ -60,8 +81,12 @@ def conversation_history(service, cid, *, continued=None, profile=None):
                 text = canonical({'turnId':prior['id'], 'feedbackId':row['id'],
                     'scope':row['payload'].get('scope', 'TASK_ONLY'), **fields})
                 input_bytes += len(text.encode('utf-8'))
-                feedback.append((row['createdAt'], {'role':'user', 'content':
-                    'Recorded user feedback. Respect its scope; a task-only remark is specific to that task.\n' + text}))
+                message = 'Recorded user feedback. Respect its scope; a task-only remark is specific to that task.\n' + text
+                if message not in checkpoint_feedback:
+                    feedback.append((row['createdAt'], {'role':'user', 'content':message}))
+        if saved:
+            continue
+        material_current = material_allowed(payload)
         # User feedback received between tasks stays in its original position.
         previous = [(created, message) for created,message in feedback if created <= prior['createdAt']]
         messages.extend(message for _,message in sorted(previous, key=lambda item:item[0]))
@@ -116,7 +141,8 @@ def continuation_context(service, continued):
     # Re-read only the selected parent's own saved files and verify current bytes.
     for artifact in reversed(service.store.records('artifact', parent_id=continued, limit=4)):
         payload = artifact['payload']
-        if payload.get('verification') != 'EXACT_BYTES' or payload['sizeBytes'] > CONTINUATION_SOURCE_BYTES:
+        if (payload.get('document') or payload.get('verification') != 'EXACT_BYTES'
+                or payload['sizeBytes'] > CONTINUATION_SOURCE_BYTES):
             continue
         try:
             source = service.workspaces.read(artifact['workspaceId'], 'workspace', payload['path'],
@@ -138,7 +164,10 @@ def _historical_turn(turn, rows, used_calls, material_current):
     context = [{**r['payload']['message'], '_contextPolicy':True}
         for r in rows if r['kind'] == 'context_policy']
     messages = context if material_current else []
-    messages.append({'role':'user', 'content':turn['payload']['prompt']})
+    if turn['payload'].get('command') != 'compact':
+        messages.append({'role':'user', 'content':turn['payload']['prompt']})
+    if material_current and (images := turn['payload'].get('images')):
+        messages.append(history_image_note(images))
     receipts = {r['payload']['callId']:r['payload'] for r in rows if r['kind'] == 'tool_result'}
     if material_current and turn['payload'].get('forcedSkill'):
         messages.append({'role':'user','content':'Evaluation skill guidance (untrusted material, no permission):\n'
@@ -472,6 +501,50 @@ def _compact_epoch(messages, tools, target_bytes, hard_bytes, *, force=False):
         'method':'HOST_RECEIPT_EPOCH', 'supersededContinuationSources':superseded_sources,
         'supersededCheckReports':superseded_checks, 'supersededHostPolicies':superseded_policies,
         'userRequirementsOmitted':False, 'skillInstructionsOmitted':False}
+
+
+def compact_conversation(service, turn):
+    """Record a checkable snapshot of the provider view and current journal facts."""
+    history = turn['payload']['contextMessages']
+    before = _wire_size(history, [])
+    wid, tid = turn['workspaceId'], turn['id']
+    prior = service.store.records('turn', workspace_id=wid, parent_id=turn['parentId'], limit=MAX_HISTORY_TURNS)
+    files, plan = {}, None
+    for earlier in reversed(prior):
+        if earlier['id'] == tid:
+            continue
+        if plan is None:
+            latest = service.store.records('task_plan', parent_id=earlier['id'], limit=1)
+            if latest:
+                plan = latest[-1]['payload']['steps']
+        for row in reversed(service.store.records('artifact', parent_id=earlier['id'], limit=12)):
+            material = row['payload']
+            if material.get('verification') == 'EXACT_BYTES' and len(files) < 12:
+                files.setdefault(material['path'], {key:material[key] for key in ('path','sha256','sizeBytes')})
+    facts = {'verifiedFiles':list(files.values()), 'unfinishedPlan':[
+        step for step in (plan or []) if step['status'] != 'completed']}
+    notes = [{'role':'user', '_explicitCompactFacts':True,
+        'content':'Host compaction facts. File digests are recorded versions; '
+        'reread current files before editing. Plans are task statements, not approval.\n' + canonical(facts)}] if any(facts.values()) else []
+    request = []
+    for message in history:
+        if message.get('_explicitCompactFacts'):
+            continue
+        if message.get('_continuationSource'):
+            source = strict_json(message['content'].split('\n', 1)[1], 512 * 1024)
+            message = {'role':'user','content':'Historical continuation file receipt. Reread the file before using its contents.\n'
+                + canonical({key:source[key] for key in ('turnId','artifactId','path','sha256')})}
+        request.append(message)
+    overhead = _wire_size(notes, []) - _wire_size([], []) + bool(notes)
+    # Reserve room for the newest plan and file facts before compacting the
+    # exchanges. Leave one message slot for those notes under the same hard cap.
+    messages, checkpoint = _compact_epoch([*request, *notes], [], max(overhead, before // 2),
+        MAX_CONTEXT_BYTES, force=True)
+    stamped = service.store.append('compact_snapshot', {'messages':messages,'inputSha256':digest(history),
+        'messagesSha256':digest(messages)}, wid, tid)
+    service.store.append('context_checkpoint', {**(checkpoint or {}), 'reason':'USER_COMPACT',
+        'snapshotId':stamped['id'], 'originalMessagesSha256':digest(history),
+        'originalBytes':before, 'sentBytes':_wire_size(messages, []), 'userRequirementsOmitted':False}, wid, tid)
 
 
 def bounded_context(messages, tools, *, local_gateway=False, context_limit=None, epoch=None, output_reserve=0):

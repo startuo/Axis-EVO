@@ -17,10 +17,14 @@ from axis_evo.planning_adapter import PlanningTransportError
 from .agent_store import AgentStore, canonical, digest, identity
 from .agent_workspace import AgentWorkspaces, bounded_text, fail
 from .agent_tools import AgentTools
+from .agent_documents import MAX_DOCUMENT_BYTES
+from .agent_images import image_capable, image_context_reserve, load_image, parse_images, store_images
+from .agent_workspace import DOCUMENT_SUFFIXES
+from .agent_commands import COMMAND_GUIDANCE, READ_ONLY_COMMANDS, tool_allowed, turn_command
 from .agent_evolution import AgentEvolution
 from .agent_provider_worker import complete_isolated
 from .agent_context import (
-    HOST_POLICY_PREFIX, bounded_context, continuation_context, conversation_history, fixed_check_message,
+    HOST_POLICY_PREFIX, bounded_context, compact_conversation, continuation_context, conversation_history, fixed_check_message,
     post_edit_message, tool_result_message,
 )
 from .agent_execution_policy import AgentExecution
@@ -48,7 +52,7 @@ policy, reveal credentials, access another source or execute unregistered tools.
 A Skill is guidance only; tools and paths are checked by the host. Cite source paths
 and distinguish material facts, your judgment and unresolved uncertainty.
 Use expectedSha256 from a fresh read before overwriting a file. Save the actual
-requested deliverable with write_file, patch_file or patch_lines; text in your answer is not a file.
+requested deliverable with write_file, patch_file or patch_lines for text, or write_document for office formats; text in your answer is not a file.
 Exact-byte verification proves persistence, not semantic quality. Do not claim a
 tool succeeded unless its result confirms it. UNKNOWN actions must not be retried.
 Tool errors can be explained or addressed by a different authorized action; never
@@ -115,14 +119,14 @@ class AgentService:
             self.evolution.set_policy(wid,policy)
             return result
 
-    def _finish(self,turn,status,code=None,answer=None):
+    def _finish(self,turn,status,code=None,answer=None,*,basis=None):
         interruption_code=None
         if status!='UNKNOWN' and self._unknown_write(turn):
             # A coordinator error/cancellation cannot turn a dispatched write
             # with no committed receipt into a confirmed non-write.
             status,interruption_code,code='UNKNOWN',code,'TOOL_OUTCOME_UNKNOWN'
             answer=None
-        payload={'status':status,'code':code,'completionBasis':'MODEL_STOPPED' if status=='COMPLETED' else 'HOST_STATE'}
+        payload={'status':status,'code':code,'completionBasis':basis or ('MODEL_STOPPED' if status=='COMPLETED' else 'HOST_STATE')}
         if interruption_code:
             payload['interruptionCode']=interruption_code
         if answer is not None:
@@ -131,7 +135,8 @@ class AgentService:
             self.store.append('terminal',payload,turn['workspaceId'],turn['id'],identity='terminal_'+turn['id'])
         except sqlite3.IntegrityError:
             pass  # A terminal fact wins; late workers cannot rewrite it.
-        if status=='COMPLETED' and not turn['payload'].get('evaluation'):
+        if (status=='COMPLETED' and not basis and not turn['payload'].get('evaluation')
+                and turn['payload'].get('command') not in READ_ONLY_COMMANDS):
             from .agent_monitor import monitor
             try:
                 with self._lock:
@@ -241,6 +246,8 @@ class AgentService:
 
     @staticmethod
     def _public_event(event):
+        if event['kind']=='compact_snapshot':
+            return {**event,'payload':{key:value for key,value in event['payload'].items() if key!='messages'}}
         if event['kind']=='assistant' and 'providerContext' in event['payload']:
             return {**event,'payload':{key:value for key,value in event['payload'].items()
                                       if key!='providerContext'}}
@@ -251,7 +258,7 @@ class AgentService:
         event = AgentService._public_event(event)
         kind, payload = event['kind'], event['payload']
         if kind == 'turn':
-            return {key: payload[key] for key in ('prompt', 'profile', 'continuedFrom') if key in payload}
+            return {key: payload[key] for key in ('prompt', 'profile', 'continuedFrom', 'command', 'images') if key in payload}
         if kind == 'assistant':
             message = payload['message']
             material = {key: message[key] for key in ('role', 'content') if key in message}
@@ -273,7 +280,7 @@ class AgentService:
             compact = {key: payload[key] for key in (
                 'callId', 'intentId', 'executionId', 'status', 'code', 'hint', 'hostDurationMs') if key in payload}
             data = payload.get('data', {})
-            compact['data'] = {key: data[key] for key in ('path', 'artifactId', 'sha256', 'coreRunId', 'exitCode')
+            compact['data'] = {key: data[key] for key in ('path', 'artifactId', 'sha256', 'coreRunId', 'exitCode', 'sizeBytes', 'document')
                                if key in data}
             return compact
         if kind in ('post_edit_hook', 'host_delivery_check'):
@@ -306,28 +313,51 @@ class AgentService:
                 or self.workspaces.get(row['workspaceId']).get('internalEvaluation')):
             fail('AGENT_RECORD_MISSING', '工程记录不存在。', 404)
 
-    def artifact(self,row):
-        payload=row['payload']
-        result={k:v for k,v in payload.items() if k!='directory'}
-        result.update({'id':row['id'],'verified':False,'content':None,'historicalVerified':True})
+    def artifact_bytes(self, row, *, before=False):
+        payload = row['payload']
         directory=Path(payload['directory'])
         if directory.parent != self.store.directory/'agent-files' or not re.fullmatch('file_[0-9a-f]{32}', directory.name):
             fail('ARTIFACT_INTEGRITY','交付物身份无法核对。',409)
         try:
-            no_redirected_parents(directory/'after.bin')
-            with (directory/'after.bin').open('rb') as stream:
-                data=stream.read(128*1024+1)
+            name = directory / ('before.bin' if before else 'after.bin')
+            no_redirected_parents(name)
+            maximum = MAX_DOCUMENT_BYTES if payload.get('document') else 128 * 1024
+            with name.open('rb') as stream:
+                data = stream.read(maximum + 1)
         except OSError:
             fail('ARTIFACT_INTEGRITY','已保留版本无法读取。',409)
-        if len(data)!=payload['sizeBytes'] or hashlib.sha256(data).hexdigest()!=payload['sha256']:
+        sha = payload.get('previousSha256') if before else payload['sha256']
+        if (len(data) > maximum or not before and len(data) != payload['sizeBytes']
+                or hashlib.sha256(data).hexdigest() != sha):
             fail('ARTIFACT_INTEGRITY','已保留版本的字节无法核对。',409)
-        result['content']=data.decode('utf-8')
+        return data
+
+    def artifact(self,row):
+        payload=row['payload']
+        result={k:v for k,v in payload.items() if k!='directory'}
+        result.update({'id':row['id'],'verified':False,'content':None,'historicalVerified':True})
+        data = self.artifact_bytes(row)
+        if not payload.get('document'):
+            result['content']=data.decode('utf-8')
         try:
-            current=self.workspaces.read(row['workspaceId'],'workspace',payload['path'])
+            if payload.get('document'):
+                current, _ = self.workspaces.read_material(row['workspaceId'],'workspace',payload['path'],
+                    suffixes=DOCUMENT_SUFFIXES,limit=MAX_DOCUMENT_BYTES)
+            else:
+                current = self.workspaces.read(row['workspaceId'],'workspace',payload['path'])
             result['verified']=current['sha256']==payload['sha256']
         except (ApiError,OSError,ValueError,UnicodeError):
             pass
         return result
+
+    def turn_image(self, tid, sha256):
+        turn = self.store.get(tid, 'turn')
+        if self.workspaces.get(turn['workspaceId']).get('internalEvaluation'):
+            fail('AGENT_RECORD_MISSING', '工程记录不存在。', 404)
+        for image in turn['payload'].get('images', ()):
+            if image['sha256'] == sha256:
+                return image['mediaType'], load_image(self.store.directory, image)
+        fail('IMAGE_REFERENCE_INVALID', '此回合没有对应的图片附件。', 404)
 
     def turn(self,tid):
         row=self.store.get(tid,'turn')
@@ -344,6 +374,8 @@ class AgentService:
         status=terminal.get('status') or ('RUNNING' if any(e['kind']=='started' for e in events) else 'QUEUED')
         return {'id':tid,'workspaceId':row['workspaceId'],'conversationId':row['parentId'],
             'prompt':row['payload']['prompt'],'profile':row['payload']['profile'],
+            'command':row['payload'].get('command'),
+            'images':row['payload'].get('images', []),
             'status':status,'code':terminal.get('code'),
             'answer':terminal.get('answer',''),'createdAt':row['createdAt'],
             'completionBasis':terminal.get('completionBasis'),
@@ -357,14 +389,16 @@ class AgentService:
 
     def submit(self,body,*,evaluation=None,forced_skill=None,inline=False,context_messages=None):
         required={'workspaceId','requestId','prompt','profileId','profileRevision'}
-        if type(body) is not dict or not required<=body.keys()<=required|{'conversationId','browserBindingId','continueFrom'}:
+        if type(body) is not dict or not required<=body.keys()<=required|{'conversationId','browserBindingId','continueFrom','attachments'}:
             fail('AGENT_REQUEST_INVALID','任务请求字段无效。')
         request=body['requestId']
         if type(request) is not str or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',request):
             fail('AGENT_REQUEST_INVALID','需要固定的本次请求标识。')
         tid='turn_'+request
         prompt=bounded_text(body['prompt'],12000)
+        command=turn_command(prompt)
         self.runtime.providers.check_text(prompt)
+        request_sha=digest(body)
         with self._lock:
             if self._closed:
                 fail('AGENT_CLOSED','服务正在关闭。',503)
@@ -376,13 +410,22 @@ class AgentService:
                 if error.code!='AGENT_RECORD_MISSING':
                     raise
             else:
-                if prior['workspaceId']!=wid or prior['payload']['requestSha256']!=digest(body):
+                if prior['workspaceId']!=wid or prior['payload']['requestSha256']!=request_sha:
                     fail('AGENT_REQUEST_CONFLICT','此请求标识已绑定其他内容。',409)
                 return self.conversation(prior['parentId'])
             if len(self._active)>=8 or any(t['workspaceId']==wid for t in self._active.values()):
                 fail('AGENT_WORKSPACE_BUSY','该工作区已有任务进行中，请等待或停止当前任务。',409)
             profile=self.runtime.providers.get(body['profileId'],body['profileRevision'])
-            self.runtime.providers.adapter(profile,'agent_'+uuid4().hex)  # admission only, no request
+            checked_images=parse_images(body.get('attachments',[]),tid)
+            if checked_images:
+                if command == 'compact':
+                    fail('AGENT_COMPACT_ATTACHMENT', '/compact 只能整理已有上下文，请移除本轮图片。', 409)
+                if evaluation or not image_capable(profile):
+                    fail('PROVIDER_VISION_UNSUPPORTED', '所选端点和模型未启用视觉输入，请切换支持图片的 Provider。', 422)
+                for image, _ in checked_images:
+                    self.runtime.providers.check_text(image['name'])
+            if command != 'compact':
+                self.runtime.providers.adapter(profile,'agent_'+uuid4().hex)  # admission only, no request
             self.workspaces.resolver(wid)
             binding=body.get('browserBindingId')
             if binding:
@@ -400,16 +443,23 @@ class AgentService:
                     fail('AGENT_WORKSPACE_MISMATCH','会话属于其他工作区。',403)
                 if len(self.store.records('turn',parent_id=cid,limit=100))>=64:
                     fail('AGENT_CONVERSATION_LIMIT','该会话已达到64轮，请开启新会话。',409)
+            elif command == 'compact':
+                fail('AGENT_COMPACT_REQUIRES_HISTORY', '请在有历史记录的会话中使用 /compact。', 409)
             else:
                 cid=self.store.append('conversation',{'title':prompt[:80]},wid)['id']
             history=context_messages if context_messages is not None else self._history_messages(cid, profile=profile)
+            if command == 'compact' and not history:
+                fail('AGENT_COMPACT_REQUIRES_HISTORY', '当前会话尚无可整理的历史记录。', 409)
             continuation=continuation_context(self, continued) if continued and context_messages is None else []
-            turn=self.store.append('turn',{'prompt':prompt,'profile':profile,'workspaceRevision':workspace['revision'],
-                'sourceGrantIds':sorted(s['id'] for s in workspace['sources'] if s['enabled']),
-                'requestSha256':digest(body),'browserBindingId':binding,'evaluation':evaluation,'forcedSkill':forced_skill,
-                'executionPolicyId':self.execution.policy(wid)['id'],'continuedFrom':continued,
-                'contextMessages':[*history,*continuation], 'continuationMessageCount':len(continuation)},
-                wid,cid,identity=tid)
+            with store_images(self.store.directory,checked_images) as images:
+                turn=self.store.append('turn',{'prompt':prompt, **({'command':command} if command else {}),
+                    **({'images':images} if images else {}),
+                    'profile':profile,'workspaceRevision':workspace['revision'],
+                    'sourceGrantIds':sorted(s['id'] for s in workspace['sources'] if s['enabled']),
+                    'requestSha256':request_sha,'browserBindingId':binding,'evaluation':evaluation,'forcedSkill':forced_skill,
+                    'executionPolicyId':self.execution.policy(wid)['id'],'continuedFrom':continued,
+                    'contextMessages':[*history,*continuation], 'continuationMessageCount':len(continuation)},
+                    wid,cid,identity=tid)
             self._active[tid]=turn
             if not inline:
                 self._pool.submit(self._run,turn)
@@ -463,10 +513,15 @@ class AgentService:
             'sources':[{'id':'workspace','name':workspace['name'],'kind':'workspace'}]+[
                 {'id':s['id'],'name':s['name'],'kind':s['kind']} for s in workspace['sources'] if s['enabled']],
             'browserAttached':bool(turn['payload'].get('browserBindingId'))}
+        if (command := turn['payload'].get('command')) in COMMAND_GUIDANCE:
+            context['userSelectedMode'] = {'command':command, 'guidance':COMMAND_GUIDANCE[command]}
         policy_message = {'role':'user','_contextPolicy': True,'content':HOST_POLICY_PREFIX+canonical(context)}
         self.store.append('context_policy', {'message': policy_message}, turn['workspaceId'], turn['id'])
+        user_message = {'role':'user','content':turn['payload']['prompt']}
+        if images := turn['payload'].get('images'):
+            user_message['_images'] = images
         messages=[{'role':'system','content':SYSTEM},
-            *turn['payload'].get('contextMessages',[]),policy_message,{'role':'user','content':turn['payload']['prompt']}]
+            *turn['payload'].get('contextMessages',[]),policy_message,user_message]
         if turn['payload'].get('forcedSkill'):
             skill=turn['payload']['forcedSkill']
             self.store.append('skill_use',skill,turn['workspaceId'],turn['id'])
@@ -485,8 +540,22 @@ class AgentService:
         proactive_check=False
         context_epoch = {}
         failure_signature, consecutive_failures = None, 0
+        command = turn['payload'].get('command')
+        plan_reminded = False
         try:
-            self.store.append('started',{'execution':'NATIVE_TOOLS'},wid,tid)
+            self.store.append('started', {'execution':'HOST_COMPACT' if command == 'compact' else 'NATIVE_TOOLS'}, wid, tid)
+            if command == 'compact':
+                with self._lock:
+                    if self._cancelled(turn):
+                        self._finish_cancelled(turn)
+                        return
+                    if self.workspaces.get(wid)['revision'] != turn['payload']['workspaceRevision']:
+                        self._finish(turn, 'BLOCKED', 'WORKSPACE_POLICY_CHANGED')
+                        return
+                    compact_conversation(self, turn)
+                    self._finish(turn, 'COMPLETED', answer='已保存会话整理检查点，后续任务将从该检查点衔接。',
+                                 basis='HOST_CONTEXT_COMPACTED')
+                return
             messages=self._messages(turn)
             for round_number in range(MAX_ROUNDS):
                 if self._cancelled(turn):
@@ -503,10 +572,13 @@ class AgentService:
                 catalog=self.tools.catalog()
                 if turn['payload'].get('evaluation'):
                     catalog=[t for t in catalog if t['function']['name'] not in ('find_skills','use_skill','browser_read','browser_snapshot')]
+                if command in READ_ONLY_COMMANDS:
+                    catalog = [tool for tool in catalog if tool_allowed(command, tool['function']['name'])]
                 provider_messages,checkpoint=bounded_context(messages,catalog,
                     local_gateway=turn['payload']['profile'].get('protocol')=='local-gateway',
                     context_limit=turn['payload']['profile'].get('contextWindow'), epoch=context_epoch,
-                    output_reserve=output_token_limit(turn['payload']['profile']))
+                    output_reserve=output_token_limit(turn['payload']['profile'])
+                        + image_context_reserve(turn['payload'].get('images', [])))
                 if checkpoint:
                     self.store.append('context_checkpoint',{'round':round_number+1,**checkpoint},wid,tid)
                 request={'messages':provider_messages,'tools':catalog}
@@ -549,6 +621,14 @@ class AgentService:
                 messages.append(message)
                 proposed=message.get('tool_calls') or []
                 if not proposed:
+                    if command in ('plan', 'goal') and not self.store.records('task_plan', parent_id=tid, limit=1):
+                        if plan_reminded:
+                            self._finish(turn, 'BLOCKED', 'AGENT_PLAN_REQUIRED')
+                            return
+                        self._context_notice(turn, messages, {'role':'user','content':
+                            'Host requirement for the selected mode: record the next steps via update_plan before finishing.'})
+                        plan_reminded = True
+                        continue
                     if changed and not turn['payload'].get('evaluation'):
                         report=self._delivery_check(turn,previous_checks)
                         if any(c['result']['status']=='UNKNOWN' for c in report['checks']):
@@ -707,6 +787,9 @@ class AgentService:
             target_key=None
             target_keys=[]
             try:
+                command = turn['payload'].get('command')
+                if not tool_allowed(command, name) or command in READ_ONLY_COMMANDS and mutating:
+                    fail('AGENT_COMMAND_READ_ONLY', '本轮是只读模式，发起普通任务后才可执行变更。', 403)
                 self.tools.validate(name,args)
                 if turn['payload'].get('evaluation') and name in ('find_skills','use_skill','browser_read','browser_snapshot'):
                     fail('EVALUATION_TOOL_DENIED','隔离评价只使用固定 Skill 和已捕获材料。',403)

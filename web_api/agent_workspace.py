@@ -14,9 +14,13 @@ MAX_FILE_BYTES = 128 * 1024
 MAX_READ_FILE_BYTES = 4 * 1024 * 1024
 MAX_SCAN_ENTRIES = 2000
 MAX_SEARCH_BYTES = 8 * 1024 * 1024
-TEXT_SUFFIXES = frozenset(('.md','.txt','.rst','.csv','.tsv','.json','.yaml','.yml','.toml',
+TEXT_SUFFIXES = frozenset(('.md','.markdown','.mdx','.txt','.rst','.csv','.tsv','.json','.yaml','.yml','.toml',
     '.py','.js','.mjs','.cjs','.ts','.tsx','.jsx','.html','.css','.scss','.c','.h','.cpp','.rs','.go','.java','.xml','.sql',
     '.sh','.ps1','.bat','.cmd','.ini','.cfg','.lock','.vue','.svelte'))
+DOCUMENT_SUFFIXES = frozenset(('.pdf', '.docx', '.xlsx', '.pptx'))
+RASTER_SUFFIXES = frozenset(('.png', '.jpg', '.jpeg', '.webp', '.gif'))
+LEGACY_DOCUMENT_SUFFIXES = frozenset(('.doc', '.xls', '.ppt'))
+PREVIEW_SUFFIXES = TEXT_SUFFIXES | DOCUMENT_SUFFIXES | RASTER_SUFFIXES | LEGACY_DOCUMENT_SUFFIXES | {'.svg'}
 TEXT_NAMES = frozenset(('makefile','dockerfile','license','readme','py.typed'))
 PUBLIC_DOTFILES = frozenset(('.gitignore','.gitattributes','.editorconfig','.prettierrc','.prettierrc.json','.eslintrc.json'))
 EXCLUDED = frozenset(('.git','.svn','.hg','.local','.axis-evo','.ssh','.aws','.azure','.gnupg','.config',
@@ -43,14 +47,14 @@ def bounded_text(value, limit=256):
     return value.strip()
 
 
-def relative_path(value):
+def relative_path(value, *, suffixes=TEXT_SUFFIXES):
     if type(value) is not str or not value or len(value) > 512 or '\\' in value or ':' in value or '\x00' in value:
         fail('WORKSPACE_PATH_DENIED', '工具需要工作区内的相对路径。', 403)
     path = PurePosixPath(value)
     if path.is_absolute() or any(p in ('..','.') or p.startswith('.') and not (i==len(path.parts)-1 and p in PUBLIC_DOTFILES)
             or p.lower() in EXCLUDED for i,p in enumerate(path.parts)):
         fail('WORKSPACE_PATH_DENIED', '此路径不在可用的材料范围内。', 403)
-    if (path.suffix.lower() not in TEXT_SUFFIXES and path.name.lower() not in TEXT_NAMES and path.name not in PUBLIC_DOTFILES
+    if (path.suffix.lower() not in suffixes and path.name.lower() not in TEXT_NAMES and path.name not in PUBLIC_DOTFILES
             or path.name.lower() in ('credentials.json','secrets.json')):
         fail('WORKSPACE_FILE_TYPE', '当前工具仅处理授权目录中的普通文本文件。', 403)
     return path.as_posix()
@@ -159,6 +163,26 @@ class AgentWorkspaces:
             fail('WORKSPACE_ROOT_CHANGED','工作区目录身份发生变化，请重新选择。',409)
         return WorkspacePathResolver(root)
 
+    def read_material(self, workspace_id, source_id, path, *, suffixes, limit):
+        path = relative_path(path, suffixes=suffixes)
+        if PurePosixPath(path).suffix.lower() not in suffixes:
+            fail('DOCUMENT_FORMAT_UNSUPPORTED', '此文件格式无法预览或解析。', 415)
+        resolver = self.resolver(workspace_id, source_id)
+        try:
+            no_redirected_parents(resolver.root / path)
+            with resolver.resolve(path).open('rb') as stream:
+                data = stream.read(limit + 1)
+        except FileNotFoundError:
+            fail('WORKSPACE_FILE_MISSING', '文件已移动或不存在。', 404)
+        except ValueError:
+            fail('WORKSPACE_PATH_DENIED', '此路径不在可用的材料范围内。', 403)
+        except OSError:
+            fail('WORKSPACE_FILE_UNAVAILABLE', '无法读取此文件。', 409)
+        if len(data) > limit:
+            fail('DOCUMENT_SIZE_LIMIT', f'文件超过 {limit // (1024 * 1024)} MiB 的读取上限。', 413)
+        return {'sourceId':source_id, 'path':path, 'sha256':hashlib.sha256(data).hexdigest(),
+                'sizeBytes':len(data)}, data
+
     def read(self, workspace_id, source_id, path, *, max_chars=24000, start_char=0,
              start_line=None, end_line=None, expected_sha256=None):
         if (type(start_char) is not int or start_char < 0 or type(max_chars) is not int
@@ -207,7 +231,7 @@ class AgentWorkspaces:
             'coverage':'PARTIAL' if partial else 'FULL','truncated':partial,
             'trust':'UNTRUSTED_MATERIAL'}
 
-    def files(self, workspace_id, source_id='workspace'):
+    def files(self, workspace_id, source_id='workspace', *, suffixes=TEXT_SUFFIXES):
         resolver = self.resolver(workspace_id,source_id)
         stack, found, visited = [resolver.root], [], 0
         deadline = time.monotonic()+3
@@ -236,7 +260,7 @@ class AgentWorkspaces:
                         stack.append(Path(entry.path))
                     elif stat.S_ISREG(info.st_mode) and info.st_nlink==1:
                         try:
-                            name=relative_path(Path(entry.path).relative_to(resolver.root).as_posix())
+                            name=relative_path(Path(entry.path).relative_to(resolver.root).as_posix(), suffixes=suffixes)
                         except ApiError:
                             continue
                         if info.st_size>MAX_READ_FILE_BYTES:

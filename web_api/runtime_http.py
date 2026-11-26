@@ -269,6 +269,27 @@ class RuntimeHandler(WorkbenchHandler):
             return self.server.replies.get(parts[3], parts[5])
         raise ApiError("ROUTE_NOT_FOUND", "The runtime route does not exist.", 404)
 
+    def _agent_file(self, result):
+        from urllib.parse import quote
+        self.send_response(200)
+        self.send_header('Content-Type', result.media_type)
+        self.send_header('Content-Length', str(len(result.data)))
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+        is_pdf = result.media_type == 'application/pdf'
+        # Native PDF viewers need same-origin embedding. Other content types
+        # can run in an opaque sandbox when directly navigated to.
+        self.send_header('X-Frame-Options', 'SAMEORIGIN' if is_pdf else 'DENY')
+        self.send_header('Content-Security-Policy',
+            "default-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'; "
+            + ("frame-ancestors 'self'" if is_pdf else "frame-ancestors 'none'; sandbox"))
+        if result.download_name is not None:
+            self.send_header('Content-Disposition', "attachment; filename*=UTF-8''" + quote(result.download_name,safe=''))
+        self.end_headers()
+        self.wfile.write(result.data)
+
     def do_GET(self):
         if not self.path.startswith(('/api/runtime/', '/api/agent/')):
             return super().do_GET()
@@ -277,7 +298,12 @@ class RuntimeHandler(WorkbenchHandler):
             if not self.server._read_slots.acquire(timeout=.25):
                 raise ApiError('RUNTIME_BUSY', '查询繁忙，请稍后重试。', 503)
             try:
-                self._json(200, runtime_envelope(self._runtime_read(path, query)))
+                from .agent_http import AgentFileResponse
+                result = self._runtime_read(path, query)
+                if isinstance(result, AgentFileResponse):
+                    self._agent_file(result)
+                else:
+                    self._json(200, runtime_envelope(result))
             finally:
                 self.server._read_slots.release()
         except ApiError as error:
@@ -307,10 +333,15 @@ class RuntimeHandler(WorkbenchHandler):
                 self._authenticated(mutation=True)
             patch_route = (agent is not None and len(agent) == 4 and agent[0] == 'workspaces'
                            and agent[2] == 'git' and agent[3] in ('stage', 'unstage', 'revert'))
-            body = self._body(2_200_000 if patch_route else 65536)
+            if agent == ['turns']:
+                from .agent_images import MAX_TURN_BODY_BYTES
+                maximum = MAX_TURN_BODY_BYTES
+            else:
+                maximum = 2_200_000 if patch_route else 65536
             if not self.server._write_slots.acquire(timeout=.25):
                 raise ApiError('RUNTIME_BUSY', '操作繁忙，请重新核对当前状态。', 503)
             write_slot = True
+            body = self._body(maximum)
             if session_route:
                 field = 'capability' if path.endswith('/launch') else 'code'
                 if body.keys() != (set() if transparent else {field}):

@@ -1,16 +1,17 @@
 /**
- * 文件 tab: a real fenced file browser — fs.list tree + fs.read preview.
- * Markdown files can toggle between raw source and rendered preview; the
- * tree and the open preview refresh when the session finishes a turn or
- * produces a diff item (debounced), and on manual refresh.
+ * The file tree and read-only preview share the workspace fence. After a
+ * turn finishes, update the selected preview without replacing its view.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ChevronRight, FileText, Folder, FolderOpen, LoaderCircle, RefreshCw } from 'lucide-react';
-import { errorMessage } from '../../lib/format';
-import { fadeIn, motionProps } from '../../lib/motion';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ChevronRight, FileText, Folder, FolderOpen, LoaderCircle, Maximize2, RefreshCw } from 'lucide-react';
+import { errorMessage, formatBytes } from '../../lib/format';
+import { fileExtension, initialPreviewQuery, previewKind, type FileSelection, type PreviewQuery,
+  type StructuredPreview } from '../../lib/filePreview';
 import { Markdown } from '../../components/Markdown';
+import { PreviewDialog } from '../../components/PreviewDialog';
 import { useSocket, useSocketEvent } from '../../hooks/useSocket';
+
+const OfficePreview = lazy(() => import('./OfficePreview'));
 
 interface FsEntry {
   name: string;
@@ -34,35 +35,26 @@ export interface FilesTabProps {
   workspacePath: string | null;
   /** When set, live-refresh events are filtered to this session. */
   sessionId?: string | null;
+  requestedFile?: FileSelection;
 }
 
-const MD_EXTS = new Set(['md', 'markdown', 'mdx']);
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function extOf(path: string): string {
-  const base = path.split(/[\\/]/).pop() ?? '';
-  const dot = base.lastIndexOf('.');
-  return dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
-}
-
-export function FilesTab({ workspaceId, workspacePath, sessionId = null }: FilesTabProps) {
+export function FilesTab({ workspaceId, workspacePath, sessionId = null, requestedFile }: FilesTabProps) {
   const { request } = useSocket();
-  const reduce = useReducedMotion();
   const [cache, setCache] = useState<Record<string, FsEntry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['']));
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [dirErrors, setDirErrors] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<string | null>(null);
-  const [preview, setPreview] = useState<FsReadResult | null>(null);
+  const [preview, setPreview] = useState<FsReadResult | StructuredPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [rendered, setRendered] = useState(false);
+  const [query, setQuery] = useState<PreviewQuery>({});
+  const [wide, setWide] = useState(false);
+  const [revision, setRevision] = useState(0);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workspaceRef = useRef(workspaceId);
+  workspaceRef.current = workspaceId;
 
   const loadDir = useCallback(async (path: string) => {
     if (!workspaceId) return;
@@ -74,11 +66,11 @@ export function FilesTab({ workspaceId, workspacePath, sessionId = null }: Files
     });
     try {
       const res = await request<FsListResult>('fs.list', { workspaceId, path });
-      setCache((cur) => ({ ...cur, [path]: res.entries }));
+      if (workspaceRef.current === workspaceId) setCache((cur) => ({ ...cur, [path]: res.entries }));
     } catch (e) {
-      setDirErrors((cur) => ({ ...cur, [path]: errorMessage(e) }));
+      if (workspaceRef.current === workspaceId) setDirErrors((cur) => ({ ...cur, [path]: errorMessage(e) }));
     } finally {
-      setLoadingDirs((cur) => {
+      if (workspaceRef.current === workspaceId) setLoadingDirs((cur) => {
         const next = new Set(cur);
         next.delete(path);
         return next;
@@ -90,59 +82,60 @@ export function FilesTab({ workspaceId, workspacePath, sessionId = null }: Files
   useEffect(() => {
     setCache({});
     setExpanded(new Set(['']));
+    setLoadingDirs(new Set());
+    setDirErrors({});
     setSelected(null);
     setPreview(null);
     setPreviewError(null);
+    setWide(false);
     if (workspaceId) void loadDir('');
   }, [workspaceId, loadDir]);
 
   const toggleDir = (path: string) => {
-    setExpanded((cur) => {
-      const next = new Set(cur);
-      if (next.has(path)) next.delete(path);
-      else {
-        next.add(path);
-        if (!cache[path]) void loadDir(path);
-      }
-      return next;
-    });
+    const next = new Set(expanded);
+    if (!next.delete(path)) {
+      next.add(path);
+      if (!cache[path]) void loadDir(path);
+    }
+    setExpanded(next);
   };
 
-  const openFile = async (path: string) => {
-    if (!workspaceId) return;
+  const openFile = useCallback((path: string) => {
     setSelected(path);
-    setRendered(false);
+    setRendered(previewKind(path) === 'markdown');
+    setQuery(initialPreviewQuery(path));
+    setWide(false);
     setPreviewLoading(true);
     setPreviewError(null);
     setPreview(null);
-    try {
-      const res = await request<FsReadResult>('fs.read', { workspaceId, path });
-      setPreview(res);
-    } catch (e) {
-      setPreviewError(errorMessage(e));
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
+  }, []);
 
-  /** Re-read the open preview without the loading flicker (live refresh). */
-  const reloadPreview = useCallback(async (path: string) => {
-    if (!workspaceId) return;
-    try {
-      const res = await request<FsReadResult>('fs.read', { workspaceId, path });
-      setPreview(res);
-      setPreviewError(null);
-    } catch {
-      /* keep the last good preview; the tree error surface reports problems */
-    }
-  }, [request, workspaceId]);
+  useEffect(() => {
+    if (requestedFile) openFile(requestedFile.path);
+  }, [requestedFile, workspaceId, openFile]);
+
+  useEffect(() => {
+    if (!workspaceId || !selected) return;
+    let current = true;
+    const method = previewKind(selected) === 'structured' ? 'fs.preview' : 'fs.read';
+    setPreviewLoading(true);
+    request<FsReadResult | StructuredPreview>(method, { workspaceId, path: selected, ...query })
+      .then((result) => {
+        if (!current) return;
+        setPreview(result);
+        setPreviewError(null);
+      })
+      .catch((error: unknown) => { if (current) setPreviewError(errorMessage(error)); })
+      .finally(() => { if (current) setPreviewLoading(false); });
+    return () => { current = false; };
+  }, [request, workspaceId, selected, query, revision]);
 
   /** Reload every expanded directory in place, preserving tree + selection. */
   const refreshDirs = useCallback(() => {
     if (!workspaceId) return;
     for (const path of expanded) void loadDir(path);
-    if (selected) void reloadPreview(selected);
-  }, [workspaceId, expanded, selected, loadDir, reloadPreview]);
+    setRevision(value => value + 1);
+  }, [workspaceId, expanded, loadDir]);
 
   const refresh = () => refreshDirs();
 
@@ -159,7 +152,7 @@ export function FilesTab({ workspaceId, workspacePath, sessionId = null }: Files
   });
   useEffect(() => () => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
-  }, []);
+  }, [workspaceId]);
 
   if (!workspaceId) {
     return (
@@ -211,11 +204,21 @@ export function FilesTab({ workspaceId, workspacePath, sessionId = null }: Files
         >
           <FileText size={14} className="tree-icon" aria-hidden />
           <span className="tree-name">{entry.name}</span>
-          <span className="tree-size">{formatSize(entry.size)}</span>
+          <span className="tree-size">{formatBytes(entry.size)}</span>
         </button>
       );
     });
   };
+
+  const structured = preview && 'kind' in preview ? preview : null;
+  const markdown = selected !== null && previewKind(selected) === 'markdown';
+  const canWiden = structured?.kind === 'table' || structured?.kind === 'presentation' || structured?.kind === 'pdf';
+  const structuredBody = structured && (
+    <Suspense fallback={<div className="tree-note">加载预览…</div>}>
+      <OfficePreview key={selected} preview={structured} query={query} change={setQuery}
+        busy={previewLoading} workspaceId={workspaceId} />
+    </Suspense>
+  );
 
   return (
     <div className="work-files" role="tabpanel" aria-label="文件">
@@ -236,37 +239,36 @@ export function FilesTab({ workspaceId, workspacePath, sessionId = null }: Files
             <span>从左侧文件树选择一个文件，内容会以只读方式显示在这里。</span>
           </div>
         )}
-        {selected && previewLoading && (
+        {selected && previewLoading && !preview && (
           <div className="work-pane-empty"><LoaderCircle size={20} className="spin" aria-hidden /><p>读取中…</p></div>
         )}
         {selected && previewError && <div className="error-card files-error">{previewError}</div>}
-        {selected && preview && !previewLoading && (
+        {selected && preview && (
           <>
             <div className="files-preview-head">
               <span className="files-preview-path" title={selected}>{selected}</span>
-              {extOf(selected) && <span className="chip muted">{extOf(selected)}</span>}
-              <span className="files-preview-size">{formatSize(preview.size)}</span>
+              {fileExtension(selected) && <span className="chip muted">{fileExtension(selected)}</span>}
+              <span className="files-preview-size">{formatBytes('sizeBytes' in preview ? preview.sizeBytes : preview.size)}</span>
               {preview.truncated && <span className="chip warn">已截断</span>}
-              {MD_EXTS.has(extOf(selected)) && (
+              {markdown && (
                 <span className="rv-view-toggle" role="group" aria-label="Markdown 预览方式">
                   <button aria-pressed={!rendered} onClick={() => setRendered(false)}>源码</button>
                   <button aria-pressed={rendered} onClick={() => setRendered(true)}>预览</button>
                 </span>
               )}
+              {canWiden && <button className="icon-button" title="宽屏预览" aria-label="宽屏预览" onClick={() => setWide(true)}>
+                <Maximize2 size={15} aria-hidden />
+              </button>}
             </div>
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={`${selected}:${rendered ? 'md' : 'src'}`}
-                className="files-preview-body"
-                {...motionProps(reduce, fadeIn, { duration: 0.12 })}
-              >
-                {rendered && MD_EXTS.has(extOf(selected)) ? (
-                  <div className="files-preview-md"><Markdown text={preview.content} /></div>
-                ) : (
-                  <pre className="files-preview-code"><code>{preview.content}</code></pre>
-                )}
-              </motion.div>
-            </AnimatePresence>
+            {structured ? (
+              wide && canWiden ? <PreviewDialog title={selected} onClose={() => setWide(false)}>
+                {previewError && <div className="error-card files-error">{previewError}</div>}
+                {structuredBody}
+              </PreviewDialog> : <div className="files-preview-body">{structuredBody}</div>
+            ) : 'content' in preview && <div className="files-preview-body">
+              {rendered && markdown ? <div className="files-preview-md"><Markdown text={preview.content} /></div>
+                : <pre className="files-preview-code"><code>{preview.content}</code></pre>}
+            </div>}
           </>
         )}
       </div>

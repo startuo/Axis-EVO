@@ -123,6 +123,16 @@ export const planStep = z.object({
 export type PlanStep = z.infer<typeof planStep>;
 
 /** One durable, append-only fact in a session transcript. */
+export const agentCommand = z.enum(['plan', 'goal', 'review', 'compact']);
+export const imageMediaType = z.enum(['image/png', 'image/jpeg', 'image/webp']);
+export const turnImage = z.object({
+  turnId: z.string().regex(/^turn_[A-Za-z0-9_-]{8,80}$/), sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  name: z.string().min(1).max(120), mediaType: imageMediaType, sizeBytes: z.number().int().min(1).max(2 * 1024 * 1024),
+  width: z.number().int().min(1).max(4096), height: z.number().int().min(1).max(4096),
+});
+export type AgentCommand = z.infer<typeof agentCommand>;
+export type TurnImage = z.infer<typeof turnImage>;
+
 export const item = z.object({
   id,
   sessionId: id,
@@ -158,6 +168,8 @@ export const item = z.object({
     eventId: id.optional(),
     artifactId: id.optional(),
     turnId: id.optional(),
+    command: agentCommand.optional(),
+    images: z.array(turnImage).max(4).optional(),
   }).optional(),
 });
 export type Item = z.infer<typeof item>;
@@ -337,7 +349,11 @@ export const requestParams = {
   'session.list': z.object({ workspaceId: id.optional(), limit: z.number().int().min(1).max(200).default(50) }),
   'session.get': z.object({ sessionId: id, itemLimit: z.number().int().min(1).max(2000).default(500) }),
   'session.delete': z.object({ sessionId: id }),
-  'turn.start': z.object({ sessionId: id, text: z.string().min(1).max(32000), attachments: z.array(z.object({ kind: z.enum(['browser-binding', 'file']), value: z.string() })).optional() }),
+  'turn.start': z.object({ sessionId: id, text: z.string().min(1).max(32000), attachments: z.array(z.union([
+    z.object({ kind: z.enum(['browser-binding', 'file']), value: z.string() }),
+    z.object({ kind: z.literal('image'), name: z.string().min(1).max(120), mediaType: imageMediaType,
+      data: z.string().min(1).max(2_796_204) }),
+  ])).optional() }),
   'turn.cancel': z.object({ sessionId: id }),
   'approval.respond': z.object({ approvalId: id, decision: z.enum(['approve', 'deny']), scope: z.enum(['once', 'session']).default('once') }),
   'workspace.authorize': z.object({ path: z.string().min(1), name: z.string().max(80).optional(), mode: permissionMode }),
@@ -365,6 +381,9 @@ export const requestParams = {
   'settings.set': z.object({ patch: z.record(z.string(), z.unknown()) }),
   'fs.list': z.object({ workspaceId: id, path: z.string().default('') }),
   'fs.read': z.object({ workspaceId: id, path: z.string().min(1), maxBytes: z.number().int().min(1).max(2_000_000).default(262144) }),
+  'fs.preview': z.object({ workspaceId: id, path: z.string().min(1), sheet: z.string().optional(),
+    startRow: z.number().int().positive().optional(), startPage: z.number().int().positive().optional(),
+    endPage: z.number().int().positive().optional() }),
   'git.status': z.object({ workspaceId: id }),
   'git.diff': z.object({ workspaceId: id, path: z.string().optional(), staged: z.boolean().default(false) }),
   'git.log': z.object({ workspaceId: id, limit: z.number().int().min(1).max(100).default(20) }),

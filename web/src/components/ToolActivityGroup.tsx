@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { Item, ToolStatus } from '@axis/protocol';
 import { diffLines } from '../lib/diff';
+import { workspaceFileLink } from '../lib/filePreview';
 import { TurnError } from './TurnError';
 import { formatDuration, toolArgSummary, truncate } from '../lib/format';
 import { extractToolTargetPath, type ActivityEntry, type PairedToolEntry } from '../lib/transcript';
@@ -28,10 +29,10 @@ function describeTool(call: Item): ActionDescriptor {
   const name = (call.tool ?? '').toLowerCase();
   const path = extractToolTargetPath(call);
 
-  if (name === 'read_file' || name === 'fs.read' || name === 'view_file' || name === 'cat') {
+  if (name === 'read_document' || name === 'read_file' || name === 'fs.read' || name === 'view_file' || name === 'cat') {
     return { verb: '读取', target: path ?? toolArgSummary(call.args), icon: FileText, category: 'read' };
   }
-  if (name === 'write_file' || name === 'fs.write' || name === 'create_file') {
+  if (name === 'write_document' || name === 'write_file' || name === 'fs.write' || name === 'create_file') {
     return { verb: '写入', target: path ?? toolArgSummary(call.args), icon: FilePenLine, category: 'edit' };
   }
   if (name === 'apply_patch' || name === 'edit_file' || name === 'patch' || call.toolKind === 'patch') {
@@ -118,7 +119,9 @@ function CompactDiffPreview({ item }: { item: Item }) {
   );
 }
 
-function CompactToolRow({ entry }: { entry: PairedToolEntry }) {
+type OpenFile = (path: string) => void;
+
+function CompactToolRow({ entry, onOpenFile }: { entry: PairedToolEntry; onOpenFile?: OpenFile }) {
   const reduce = useReducedMotion();
   const { call, result, diff } = entry;
   const status: ToolStatus = call.status ?? (result?.error ? 'failed' : result ? 'success' : 'pending');
@@ -139,9 +142,11 @@ function CompactToolRow({ entry }: { entry: PairedToolEntry }) {
 
   const hasDetail = Boolean(payload || diff || errorText);
   const Icon = desc.icon;
+  const path = onOpenFile && workspaceFileLink(extractToolTargetPath(call) ?? undefined);
 
   return (
     <div className={`act-item status-${status}`}>
+      <div className={path ? 'act-file-row' : undefined}>
       <button
         type="button"
         className={`act-row${hasDetail ? ' expandable' : ''}`}
@@ -158,7 +163,7 @@ function CompactToolRow({ entry }: { entry: PairedToolEntry }) {
           )}
         </span>
         <span className={`act-verb${isRunning ? ' shimmer-text' : ''}`}>{desc.verb}</span>
-        {desc.target && <span className="act-target" title={desc.target}>{desc.target}</span>}
+        {desc.target && !path && <span className="act-target" title={desc.target}>{desc.target}</span>}
         {diffStats && (
           <span className="act-diff-stat" aria-label={`新增 ${diffStats.added} 行，删除 ${diffStats.removed} 行`}>
             <span className="stat-add">+{diffStats.added}</span>
@@ -175,6 +180,9 @@ function CompactToolRow({ entry }: { entry: PairedToolEntry }) {
           <ChevronRight size={12} className={`act-chev${open ? ' open' : ''}`} aria-hidden />
         )}
       </button>
+      {path && <button type="button" className="act-target workspace-file-link" title={path}
+        onClick={() => onOpenFile?.(path)}>{path}</button>}
+      </div>
 
       <AnimatePresence initial={false}>
         {open && hasDetail && (
@@ -201,25 +209,30 @@ function CompactToolRow({ entry }: { entry: PairedToolEntry }) {
   );
 }
 
-function CompactDiffRow({ item }: { item: Item }) {
+function CompactDiffRow({ item, onOpenFile }: { item: Item; onOpenFile?: OpenFile }) {
   const reduce = useReducedMotion();
   const [open, setOpen] = useState(false);
   const lines = useMemo(() => diffLines(item.before ?? '', item.after ?? ''), [item.before, item.after]);
   const added = lines.filter((l) => l.type === 'add').length;
   const removed = lines.filter((l) => l.type === 'del').length;
+  const path = onOpenFile && workspaceFileLink(item.path);
 
   return (
     <div className="act-item">
+      <div className={path ? 'act-file-row' : undefined}>
       <button type="button" className="act-row expandable" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <span className="act-glyph" aria-hidden><FileDiff size={13} /></span>
         <span className="act-verb">变更</span>
-        <span className="act-target" title={item.path}>{item.path ?? 'diff'}</span>
+        {!path && <span className="act-target" title={item.path}>{item.path ?? 'diff'}</span>}
         <span className="act-diff-stat">
           <span className="stat-add">+{added}</span>
           <span className="stat-del">−{removed}</span>
         </span>
         <ChevronRight size={12} className={`act-chev${open ? ' open' : ''}`} aria-hidden />
       </button>
+      {path && <button type="button" className="act-target workspace-file-link" title={path}
+        onClick={() => onOpenFile?.(path)}>{path}</button>}
+      </div>
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
@@ -237,7 +250,7 @@ function CompactDiffRow({ item }: { item: Item }) {
   );
 }
 
-export function ToolActivityGroup({ entries }: { entries: ActivityEntry[] }) {
+export function ToolActivityGroup({ entries, onOpenFile }: { entries: ActivityEntry[]; onOpenFile?: OpenFile }) {
   const reduce = useReducedMotion();
   const isRunning = entries.some((e) => e.kind === 'tool' && (e.call.status === 'running' || e.call.status === 'pending'));
   const hasError = entries.some((e) => e.kind === 'tool' && (e.call.status === 'failed' || Boolean(e.call.error) || Boolean(e.result?.error)));
@@ -255,7 +268,8 @@ export function ToolActivityGroup({ entries }: { entries: ActivityEntry[] }) {
     const only = entries[0]!;
     return (
       <div className="act-single">
-        {only.kind === 'tool' ? <CompactToolRow entry={only} /> : <CompactDiffRow item={only.item} />}
+        {only.kind === 'tool' ? <CompactToolRow entry={only} onOpenFile={onOpenFile} />
+          : <CompactDiffRow item={only.item} onOpenFile={onOpenFile} />}
       </div>
     );
   }
@@ -297,9 +311,9 @@ export function ToolActivityGroup({ entries }: { entries: ActivityEntry[] }) {
           >
             {entries.map((entry) =>
               entry.kind === 'tool' ? (
-                <CompactToolRow key={entry.id} entry={entry} />
+                <CompactToolRow key={entry.id} entry={entry} onOpenFile={onOpenFile} />
               ) : (
-                <CompactDiffRow key={entry.id} item={entry.item} />
+                <CompactDiffRow key={entry.id} item={entry.item} onOpenFile={onOpenFile} />
               ),
             )}
           </motion.div>
