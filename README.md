@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0%20Preview%20(M7.1)-1c1b18?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0%20Preview%20(M8)-1c1b18?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-376db0?style=flat-square">
   <img alt="Stack" src="https://img.shields.io/badge/stack-Python%203.11%2B%20%2F%20React%2019-5aa878?style=flat-square">
   <a href="https://github.com/startuo/Axis-EVO/tree/academic/thesis-freeze-2026-11-02"><img alt="Academic Freeze" src="https://img.shields.io/badge/thesis%20freeze-12c789b-7c56d4?style=flat-square"></a>
@@ -96,6 +96,7 @@ Axis-EVO/
 | Windows 预览交付 | 已在 Windows 11 验证 M7 → M7.1 覆盖升级（含锁定重试）、启动与卸载 | 全新裸机 Windows 10/11 环境仍待独立复验；安装包未代码签名 |
 | 真实模型代码任务（M7） | `qwen4-max` 在 `python-slugify` 分三段续跑（12 次请求，缓存命中 29.24%），产物通过独立 Docker 回归与新增 8/8 项验收 | 模型段触发授权预算门禁停止；尚未证明跨项目的稳定自主完成率 |
 | 提示词缓存优化（M7.1） | Anthropic 兼容协议新增历史滑动缓存断点并统一模型视图，前端实时显示命中 / 写入 / 未命中用量 | **当前仅完成离线契约与单测验证**，实机多轮命中率提升待后续实跑采集 |
+| M8 多模态与办公预览 | Windows Edge 验证 1440px 亮暗主题及 390px 暗主题、办公文档联动与更新后的无闪烁刷新 | 图片 Provider 双协议与缓存断点通过离线契约验证。实机缓存复验因本机缺少可用凭据跳过 |
 
 ---
 
