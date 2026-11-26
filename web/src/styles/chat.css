@@ -200,6 +200,7 @@
 .artifact-path { color: var(--text-muted); font-family: var(--font-mono); font-size: var(--fs-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-summary { font-size: var(--fs-label); color: var(--text-secondary); overflow-wrap: anywhere; }
 .artifact-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; color: var(--text-muted); font-size: var(--fs-label); }
+.artifact-meta [title^='SHA-256'] { white-space: nowrap; }
 .workspace-file-link { color: var(--accent-info); text-align: left; }
 .act-file-row { display: flex; align-items: center; min-width: 0; }
 .act-file-row .act-row { width: auto; flex: 0 0 auto; }
@@ -289,7 +290,7 @@ span.perm-chip { cursor: default; }
 }
 .effort-pill-btn:hover, .effort-pill-btn.open { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-primary); }
 .effort-pill-btn:active { transform: scale(0.97); }
-.model-effort { color: inherit; line-height: 1; }
+.model-effort { color: inherit; line-height: 1; white-space: nowrap; }
 .effort-pop { left: auto; right: 0; min-width: 280px; padding: 12px 14px; transform-origin: bottom right; }
 .send-btn {
   width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
@@ -371,7 +372,7 @@ span.perm-chip { cursor: default; }
 .slash-pop { position: absolute; bottom: calc(100% + 7px); left: 0; min-width: min(260px, 100%); z-index: 12; padding: 4px; margin: 0; }
 .slash-pop .pop-item { display: flex; gap: 10px; align-items: center; font-size: var(--fs-label); cursor: pointer; }
 .slash-pop .pop-item code { font-family: var(--font-mono); min-width: 66px; }
-.attach-remove { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; color: var(--text-muted); }
+.attach-remove { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 auto; border-radius: 50%; color: var(--text-secondary); }
 .attach-remove:hover { color: var(--text-primary); background: var(--bg-active); }
 
 .attach-row {

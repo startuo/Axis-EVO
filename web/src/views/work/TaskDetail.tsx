@@ -3,7 +3,7 @@
  */
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, FolderOpen, GitBranch, MessageCircle } from 'lucide-react';
+import { ArrowLeft, FolderOpen, GitBranch, MessageCircle, X } from 'lucide-react';
 import type { GitBranchResult, Session, Task, Workspace } from '@axis/protocol';
 import { useConversation, type ConversationHook } from '../../hooks/useConversation';
 import { useSocket, useSocketEvent } from '../../hooks/useSocket';
@@ -38,12 +38,13 @@ export interface TaskDetailProps {
   workspaces: Workspace[];
   onOpenInChat: (s: Session) => void;
   onBack: () => void;
+  onClose?: () => void;
   conversation?: ConversationHook;
   openEvidenceAt?: number;
   requestedFile?: FileSelection;
 }
 
-export function TaskDetail({ task, session, workspaces, onOpenInChat, onBack, conversation, openEvidenceAt, requestedFile }: TaskDetailProps) {
+export function TaskDetail({ task, session, workspaces, onOpenInChat, onBack, onClose, conversation, openEvidenceAt, requestedFile }: TaskDetailProps) {
   const sessionId = session?.id ?? task?.sessionId ?? null;
   const workspacePath = session?.workspacePath ?? task?.workspacePath ?? null;
   const workspace =
@@ -131,6 +132,8 @@ export function TaskDetail({ task, session, workspaces, onOpenInChat, onBack, co
             <span>在聊天中打开</span>
           </button>
         )}
+        {onClose && <button className="icon-button work-close-review" type="button" onClick={onClose}
+          aria-label="关闭审查面板" title="关闭审查面板"><X size={16} aria-hidden /></button>}
       </div>
 
       <div className="work-tabs" role="tablist" aria-label="任务详情标签">

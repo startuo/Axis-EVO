@@ -266,6 +266,7 @@ export function WorkView({
               requestedFile={fileRequest && fileRequest.sessionId === selectedSession?.id ? fileRequest : undefined}
               onOpenInChat={(s) => select({ kind: 'session', id: s.id })}
               onBack={() => select(null)}
+              onClose={onToggleReview}
             />
           </motion.aside>
         )}
