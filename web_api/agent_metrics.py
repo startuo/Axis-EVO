@@ -47,9 +47,12 @@ def usage(envelope):
         if not all(map(_token_count, (prompt, output, total))) or total != prompt + output:
             return None
         details = value.get('prompt_tokens_details')
-        nested_hit = details.get('cached_tokens') if type(details) is dict else None
-        hit = value.get('cacheHitTokens', value.get('prompt_cache_hit_tokens', nested_hit))
-        write = value.get('cacheWriteTokens')
+        if type(details) is not dict:
+            details = {}
+        hit = value.get('cacheHitTokens', value.get('prompt_cache_hit_tokens', details.get('cached_tokens')))
+        # Qwen4 Chat Completions reports both names for the same cache write.
+        nested_write = details.get('cache_write_tokens', details.get('cache_creation_input_tokens'))
+        write = value.get('cacheWriteTokens', nested_write)
         miss = value.get('cacheMissTokens', value.get('prompt_cache_miss_tokens'))
         cache_reported = hit is not None or write is not None or miss is not None
         if cache_reported:

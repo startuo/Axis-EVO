@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { LoaderCircle, Plug, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import type { McpServer } from '@axis/protocol';
+import { ConfirmButton } from '../../components/ConfirmButton';
 import { useSocket, useSocketEvent } from '../../hooks/useSocket';
 import './skills.css';
 
@@ -102,7 +103,6 @@ export function McpPanel({ className }: McpPanelProps) {
   };
 
   const remove = async (server: McpServer) => {
-    if (!window.confirm(`移除 MCP 服务器「${server.name}」？其工具将从 Agent 工具集中移除。`)) return;
     setBusy(server.id);
     try {
       await request('mcp.remove', { serverId: server.id });
@@ -196,7 +196,7 @@ export function McpPanel({ className }: McpPanelProps) {
               <div className="sk-mcp-head">
                 <span className="sk-mcp-name">{server.name}</span>
                 <span className="sk-mcp-transport">{server.transport}</span>
-                {server.status === 'connected' && <span className="chip success">已连接 · {server.toolCount} 工具</span>}
+                {server.status === 'connected' && <span className="chip success">已连接（{server.toolCount} 个工具）</span>}
                 {server.status === 'disconnected' && <span className="chip muted">未连接</span>}
                 {server.status === 'error' && <span className="chip danger">连接错误</span>}
                 <span className="sk-mcp-actions">
@@ -211,9 +211,16 @@ export function McpPanel({ className }: McpPanelProps) {
                     <span className="sk-switch-track" aria-hidden />
                     {server.enabled ? '已启用' : '已停用'}
                   </label>
-                  <button className="icon-button" aria-label={`移除 ${server.name}`} title="移除" disabled={busy === server.id} onClick={() => void remove(server)}>
+                  <ConfirmButton
+                    className="icon-button"
+                    label={`移除 ${server.name}`}
+                    confirmLabel="确认移除"
+                    confirmAriaLabel={`确认移除 ${server.name}`}
+                    disabled={busy === server.id}
+                    onConfirm={() => void remove(server)}
+                  >
                     {busy === server.id ? <LoaderCircle size={14} className="spin" aria-hidden /> : <Trash2 size={14} aria-hidden />}
-                  </button>
+                  </ConfirmButton>
                 </span>
               </div>
               <div className="sk-mcp-detail">

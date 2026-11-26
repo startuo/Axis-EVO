@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Activity, ArrowLeft, ArrowUp, BookOpen, Globe2, Link2, FileText, ChevronRight, Folder, LoaderCircle, Moon, PanelRight, RefreshCw, Server, ShieldCheck, Sun, X } from "lucide-react";
 import { useRuntimeWorkbench } from "../../hooks/useRuntimeWorkbench";
 import { useWorkbenchLayout } from "../../hooks/useWorkbenchLayout";
@@ -48,7 +48,7 @@ export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: st
       const draft=await documents.send(data.prompt,data.profile,workContext.kind==='edge'?{bindingId:workContext.id}:{parentDraftId:workContext.id});
       if(draft){
         data.setPrompt('');
-        setWorkContext({kind:'draft',id:draft.id,title:`文档草稿 · v${draft.version}`,projectId:draft.projectId,conversationId:draft.conversationId});
+        setWorkContext({kind:'draft',id:draft.id,title:`文档草稿 / v${draft.version}`,projectId:draft.projectId,conversationId:draft.conversationId});
         setShareContent(false);
         data.openThread(draft.conversationId,draft.projectId);
         data.reload();
@@ -57,7 +57,7 @@ export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: st
     }else await data.plan();
   }
   function attachPage(){if(!edge.binding?.active)return;setWorkContext({kind:'edge',id:edge.binding.id,title:edge.binding.title,projectId:data.projectId,conversationId:parsed.conversationId});setShareContent(false);data.setInteractionMode('chat');if(layout.narrow)layout.setSheet(false);requestAnimationFrame(()=>textarea.current?.focus());}
-  function continueDraft(draft:WorkspaceDraft){setWorkContext({kind:'draft',id:draft.id,title:`${draft.delivery?.filename??'文档草稿'} · v${draft.version}`,projectId:draft.projectId,conversationId:draft.conversationId});setShareContent(false);data.setInteractionMode('chat');if(layout.narrow)layout.setSheet(false);requestAnimationFrame(()=>textarea.current?.focus());}
+  function continueDraft(draft:WorkspaceDraft){setWorkContext({kind:'draft',id:draft.id,title:`${draft.delivery?.filename??'文档草稿'} / v${draft.version}`,projectId:draft.projectId,conversationId:draft.conversationId});setShareContent(false);data.setInteractionMode('chat');if(layout.narrow)layout.setSheet(false);requestAnimationFrame(()=>textarea.current?.focus());}
   const readScope=!data.isChat?project?.taskTemplates?.find(t=>t.id===data.selectedTemplate)?.readPolicy:undefined;
   const submitLabel=documents.busy?'正在处理':workContext?'开始协作':data.isChat?'发送消息':readScope?'读取文件':'生成计划';
   const onHome = parsed.path === "/runtime" || parsed.path === "/runtime/";
@@ -81,17 +81,17 @@ export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: st
     window.dispatchEvent(new Event("axis:new-conversation"));
     requestAnimationFrame(() => textarea.current?.focus());
   }
+  const key = useEffectEvent((event: KeyboardEvent) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); newConversation(); }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault(); if (mobile) openNavigation(); else layout.setCompact(false);
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[aria-label="搜索运行线程"]')?.focus());
+    }
+  });
   useEffect(() => {
-    const key = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); newConversation(); }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault(); if (mobile) openNavigation(); else layout.setCompact(false);
-        requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[aria-label="搜索运行线程"]')?.focus());
-      }
-    };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  });
+  }, []);
   const go = (path: string) => { closeOverlays(); data.go(path); };
   const links: SidebarLink[] = [
     { label: "连接 Microsoft Edge", Icon: Globe2, action: () => showPanel("browser") },
@@ -136,7 +136,7 @@ export function RuntimeWorkbench({ route, navigate, dark, setDark }: { route: st
   const workspace=<RuntimeWorkspacePanel wide={layout.inspectorWidth>520} toggleWidth={()=>layout.setInspectorWidth(layout.inspectorWidth>520?440:Math.min(680,panelMaxWidth))} tab={panelTab} selectTab={setPanelTab} close={closePanel} edge={edge} thread={thread} approve={()=>void data.approve()} busy={data.busy==="approval"} canAct={!!data.token} evidence={evidence} artifacts={<RuntimeArtifactsPanel workspace={documents} thread={thread} mode={artifactMode} setMode={setArtifactMode} onContinue={continueDraft}/>} onAttach={attachPage}/>;
   return <WorkbenchShell layout={layout} sidebar={sidebar} toolbar={toolbar} className="cds-runtime axis-next" mainId="runtime-main" resetKey={`${route}:${data.conversation}`} inspector={workspace} inspectorLabel="工作面板" inspectorMaxWidth={panelMaxWidth}>
     <div className={`runtime-scroll cds-page-scroll ${onHome ? "cds-home-scroll" : ""}`} tabIndex={onHome ? undefined : 0} aria-label="运行页面内容">
-      {onHome ? <div className="cds-home"><div className="cds-welcome next-welcome"><span className="next-eyebrow">AXIS · 你的本地协作空间</span><h1>一起，把事情完成。</h1><p>从一个问题，到可使用的成果。</p></div>{composer}<div className="next-start-actions"><button onClick={()=>showPanel("browser")}><Globe2 size={15}/><span>关联 Edge 网页</span></button><button onClick={()=>{data.setInteractionMode('task');textarea.current?.focus();}}><Folder size={15}/><span>处理项目文件</span></button></div></div> : <>
+      {onHome ? <div className="cds-home"><div className="cds-welcome next-welcome"><span className="next-eyebrow">AXIS / 你的本地协作空间</span><h1>一起，把事情完成。</h1><p>从一个问题，到可使用的成果。</p></div>{composer}<div className="next-start-actions"><button onClick={()=>showPanel("browser")}><Globe2 size={15}/><span>关联 Edge 网页</span></button><button onClick={()=>{data.setInteractionMode('task');textarea.current?.focus();}}><Folder size={15}/><span>处理项目文件</span></button></div></div> : <>
         {data.error && <div className="runtime-error" role="alert"><strong>操作未确认</strong><p>{data.error}</p><button className="text-button" onClick={() => data.setError("")}>关闭提示</button></div>}
         <Suspense fallback={<Loading />}>{data.initializing ? <Loading /> : !knownRoute ? <EmptyState title="运行页面不可用">返回新对话，或选择已有线程。</EmptyState> : onPermissions ? permissions : !data.token ? <EmptyState title="无法连接本地服务" action={<button className="button secondary" onClick={data.refresh}>重新连接</button>}>请确认本地服务已启动。</EmptyState> : onProviders ? <RuntimeProviders data={data.profiles} token={data.token} reload={data.reload} reportError={data.reportError} onChat={profile=>{data.setSelectedProfile(profile.id+"@"+profile.revision);go("/runtime");}} /> : onSkills ? project ? <SkillEvolutionWorkbench key={project.id} projectId={project.id} token={data.token} profiles={data.profiles?.profiles ?? []} onError={data.reportError} onTask={ref => { data.setSelectedSkill(`${ref.skill_id}@${ref.skill_version}`); data.setInteractionMode('task'); data.refresh(); go("/runtime"); }} /> : <EmptyState title="请先配置运行项目">Skills 演化仅面向后端明确配置的项目。</EmptyState> : onActivity ? <div className="runtime-settings-page"><div className="runtime-page-heading"><h1>运行活动</h1><p>查看本地记录的任务状态与执行结果。</p></div>{data.rows.length ? <div className="runtime-activity-list">{[...data.rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(item => <button key={item.id} onClick={() => data.openThread(item.id)}><Activity size={16} /><span><strong>{item.title}</strong><small>{item.updatedAt}</small></span><Badge>{threadLabels[item.status]}</Badge><ChevronRight size={14} /></button>)}</div> : <EmptyState title="没有运行活动">新建任务后会显示真实规划与执行状态。</EmptyState>}</div>  : data.loadingThread && !thread ? <Loading /> : parsed.conversationId && data.sessionConversation?.items ? <div className="runtime-multiturn next-conversation-layout">
           <h1 className="sr-only">{data.sessionConversation.title}</h1>

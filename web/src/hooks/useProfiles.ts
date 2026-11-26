@@ -4,10 +4,11 @@ import type { BootstrapState, Profile } from '@axis/protocol';
 import { useSocketEvent } from './useSocket';
 
 export function useProfiles(bootstrap: BootstrapState | null): Profile[] {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const seed = bootstrap?.profiles;
+  const [profiles, setProfiles] = useState<Profile[]>(() => seed ?? []);
   useEffect(() => {
-    if (bootstrap) setProfiles(bootstrap.profiles);
-  }, [bootstrap]);
+    if (seed) setProfiles(seed);
+  }, [seed]);
   useSocketEvent((e) => {
     if (e.type === 'profile.updated') {
       setProfiles((cur) => {

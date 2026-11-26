@@ -357,9 +357,9 @@
     const header = `# ${document.title} — ${location.href}\n[snapshot ${snapshotId}] ${n} 个可交互元素`
       + (truncated ? '（已截断：元素太多，只列了一部分；要看别处的，先滚动到那里再拍）' : '')
       + (keep.offWindow ? `（视口上下几屏之外还有 ${keep.offWindow} 个，scroll 过去再拍才看得到）` : '') + '\n'
-      + (alerts.length ? `\n⚠️ 页面提示：\n${alerts.map((a) => '  · ' + a).join('\n')}\n` : '')
-      + (overlays.length ? `\n🪟 浮层/对话框（盖在页面上，多半要先处理）：\n${overlays.map((a) => '  · ' + a).join('\n')}\n` : '')
-      + (tools.length ? `\n🔧 页面声明的工具（WebMCP 表单，站方自己写的参数说明，比猜字段准）：\n${tools.map((a) => '  · ' + a).join('\n')}\n` : '');
+      + (alerts.length ? `\n⚠️ 页面提示：\n${alerts.map((a) => '  - ' + a).join('\n')}\n` : '')
+      + (overlays.length ? `\n🪟 浮层/对话框（盖在页面上，多半要先处理）：\n${overlays.map((a) => '  - ' + a).join('\n')}\n` : '')
+      + (tools.length ? `\n🔧 页面声明的工具（WebMCP 表单，站方自己写的参数说明，比猜字段准）：\n${tools.map((a) => '  - ' + a).join('\n')}\n` : '');
     return {
       untrusted: true,
       meta: `url="${location.href}" snapshot="${snapshotId}"`,
@@ -1894,7 +1894,7 @@
       const within = refOfAncestor(el);
       return `${cssPath(el)}${st}  "${t.length > 160 ? t.slice(0, 160) + '…' : t}"${within ? `  ← 在 [${within}] 内` : ''}`;
     });
-    return { data: { untrusted: true, text: `${hits.length} 处含「${p.contains}」（selector 路径 · 文本 · 所在的已编号元素）：\n${lines.join('\n')}` } };
+    return { data: { untrusted: true, text: `${hits.length} 处含「${p.contains}」（selector 路径 / 文本 / 所在的已编号元素）：\n${lines.join('\n')}` } };
   }
 
   // 读一个元素的状态/文本。act 的 read 步走这里：批处理以前只能「做」不能「看」，

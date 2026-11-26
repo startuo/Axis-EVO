@@ -22,7 +22,21 @@ export default defineConfig({
       '/api': { target: backend, changeOrigin: false },
     },
   },
-  build: { manifest: true, sourcemap: false, chunkSizeWarningLimit: 900 },
+  build: {
+    manifest: true,
+    sourcemap: false,
+    chunkSizeWarningLimit: 900,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'motion', test: /[/\\]node_modules[/\\](?:framer-motion|motion-dom|motion-utils)[/\\]/ },
+            { name: 'markdown', test: /[/\\]node_modules[/\\](?:react-markdown|remark-[^/\\]+|rehype-[^/\\]+|unified|micromark[^/\\]*|mdast-[^/\\]+|hast-[^/\\]+)[/\\]/ },
+          ],
+        },
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

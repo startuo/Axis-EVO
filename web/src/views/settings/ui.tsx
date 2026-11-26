@@ -1,6 +1,7 @@
 /** Small shared form primitives for the Settings console (tokens-driven). */
-import { useState, type ReactNode, type SelectHTMLAttributes, type InputHTMLAttributes } from 'react';
+import type { ReactNode, SelectHTMLAttributes, InputHTMLAttributes } from 'react';
 import type { LucideIcon } from 'lucide-react';
+export { ConfirmButton } from '../../components/ConfirmButton';
 
 export function SectionHeader({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description?: string }) {
   return (
@@ -46,31 +47,6 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
       onClick={() => onChange(!checked)}
     >
       <span className="set-toggle-thumb" aria-hidden />
-    </button>
-  );
-}
-
-/** Two-step destructive button: first click arms, second confirms. */
-export function ConfirmButton({ onConfirm, children, confirmLabel = '确认删除', confirmAriaLabel, className = 'button danger', label, disabled }: {
-  onConfirm: () => void; children: ReactNode; confirmLabel?: string; confirmAriaLabel?: string;
-  className?: string; label?: string; disabled?: boolean;
-}) {
-  const [armed, setArmed] = useState(false);
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-label={armed ? confirmAriaLabel ?? confirmLabel : label}
-      className={armed ? 'button danger armed' : className}
-      onClick={() => {
-        if (armed) { setArmed(false); onConfirm(); }
-        else {
-          setArmed(true);
-          setTimeout(() => setArmed(false), 3000);
-        }
-      }}
-    >
-      {armed ? confirmLabel : children}
     </button>
   );
 }

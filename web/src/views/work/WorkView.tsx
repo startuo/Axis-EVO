@@ -12,12 +12,13 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ListChecks, MessageSquareText } from 'lucide-react';
 import type { Profile, Session, Settings, Workspace } from '@axis/protocol';
-import { Composer } from '../../components/Composer';
+import { Composer, type ComposerDrafts } from '../../components/Composer';
 import { EmptyState } from '../../components/EmptyState';
 import { useConversation } from '../../hooks/useConversation';
 import type { Route } from '../../hooks/useHashRoute';
 import { useTurnSender, type TurnAttachment } from '../../hooks/useTurnSender';
 import { DEFAULT_GREETING, pickNextGreeting } from '../../lib/greetings';
+import { fadeIn, motionProps, slideSide, springSoft, transitionFast } from '../../lib/motion';
 import { TaskDetail } from './TaskDetail';
 import { ThreadDialog } from './ThreadDialog';
 import { useModelEffort } from './useModelEffort';
@@ -41,6 +42,8 @@ export interface WorkViewProps {
   onHeroPulse?: (clientX: number, clientY: number) => void;
   /** Reports the resolved center-thread session up to the shell (top/status bar). */
   onThreadChange?: (s: Session | null) => void;
+  onOpenModelSettings: () => void;
+  drafts: ComposerDrafts;
 }
 
 const SUGGESTIONS = import.meta.env.MODE === 'test' ? [
@@ -63,7 +66,7 @@ function mergeSessions(live: Session[], shell: Session[]): Session[] {
 
 export function WorkView({
   workspaces, profiles, settings, sessions, selection, onSelect, onSessionCreated, navigate, reviewOpen, onToggleReview,
-  theme = 'dark', greetingTick = 0, onHeroPulse, onThreadChange,
+  theme = 'dark', greetingTick = 0, onHeroPulse, onThreadChange, onOpenModelSettings, drafts,
 }: WorkViewProps) {
   const { tasks, sessions: liveSessions } = useWorkData();
   const reduce = useReducedMotion();
@@ -115,7 +118,7 @@ export function WorkView({
 
   const handleSend = (text: string, attachments: TurnAttachment[]) => {
     // Creating the session selects it in the center column; we stay in Work.
-    void sender.send(text, attachments, { mode: effectiveMode, profileId, workspaceId });
+    return sender.send(text, attachments, { mode: effectiveMode, profileId, workspaceId });
   };
 
   const hasSelection = selection !== null && (selectedTask !== null || selectedSession !== null);
@@ -149,6 +152,8 @@ export function WorkView({
             profiles={profiles}
             settings={settings}
             onSessionCreated={onSessionCreated}
+            onOpenModelSettings={onOpenModelSettings}
+            drafts={drafts}
             onReviewEvidence={() => {
               setEvidenceRequest(previous => ({ sessionId: selectedSession.id, serial: (previous?.serial ?? 0) + 1 }));
               if (!reviewOpen) onToggleReview();
@@ -162,6 +167,8 @@ export function WorkView({
           >
             <Composer
               variant="work"
+              draftKey="home"
+              drafts={drafts}
               running={false}
               sending={sender.sending || savingEffort}
               mode={effectiveMode}
@@ -170,6 +177,7 @@ export function WorkView({
               profiles={profiles}
               profileId={profileId}
               onProfileChange={setProfileId}
+              onOpenModelSettings={onOpenModelSettings}
               effort={effort}
               onEffortChange={changeEffort}
               workspaces={workspaces}
@@ -193,16 +201,17 @@ export function WorkView({
         )}
       </div>
 
-      {showReview && <div className="work-review-scrim" onClick={onToggleReview} aria-hidden />}
       <AnimatePresence>
         {showReview && (
+          <motion.div key="review-scrim" className="work-review-scrim" onClick={onToggleReview} aria-hidden
+            {...motionProps(reduce, fadeIn, transitionFast)} />
+        )}
+        {showReview && (
           <motion.aside
+            key="review-pane"
             className="work-review"
             aria-label="审查面板"
-            initial={reduce ? false : { x: 48, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={reduce ? { opacity: 0 } : { x: 48, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
+            {...motionProps(reduce, slideSide, springSoft)}
           >
             <TaskDetail
               key={selectedSession?.id ?? selectedTask?.id}

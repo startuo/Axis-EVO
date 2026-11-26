@@ -14,6 +14,7 @@ import {
 import type { Session, Task, Workspace } from '@axis/protocol';
 import type { Route } from '../hooks/useHashRoute';
 import { useSocketEvent } from '../hooks/useSocket';
+import { motionProps, panelReveal, reducedTransition, springSnappy, transitionFast } from '../lib/motion';
 import { useWorkData } from '../views/work/useWorkData';
 import type { WorkSelection } from '../views/work/useWorkData';
 import { BrandMark } from './BrandMark';
@@ -24,12 +25,27 @@ const SEEN_KEY = 'axis.seen.v1';
 const WS_COLLAPSED_KEY = 'axis.ws.collapsed.v1';
 const COLLAPSED_COUNT = 6;
 
-function readJson<T>(key: string, fallback: T): T {
+function readJson(key: string): unknown {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch { return fallback; }
+    return raw === null ? null : JSON.parse(raw);
+  } catch { return null; }
 }
+
+function readPinned(): string[] {
+  const value = readJson(PIN_KEY);
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+}
+
+function readRecord<T>(key: string, isValue: (value: unknown) => value is T): Record<string, T> {
+  const value = readJson(key);
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, T] => isValue(entry[1])));
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string';
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
+
 function writeJson(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
 }
@@ -76,11 +92,13 @@ export function Sidebar({
   const { tasks, sessions: liveSessions, loading, error, reload } = useWorkData();
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [pinned, setPinned] = useState<string[]>(() => readJson<string[]>(PIN_KEY, []));
-  const [seen, setSeen] = useState<Record<string, string>>(() => readJson(SEEN_KEY, {}));
-  const [wsCollapsed, setWsCollapsed] = useState<Record<string, boolean>>(() => readJson(WS_COLLAPSED_KEY, {}));
+  const [pinned, setPinned] = useState(readPinned);
+  const [seen, setSeen] = useState(() => readRecord(SEEN_KEY, isString));
+  const [wsCollapsed, setWsCollapsed] = useState(() => readRecord(WS_COLLAPSED_KEY, isBoolean));
   const [wsShowAll, setWsShowAll] = useState<Record<string, boolean>>({});
   const [liveTasks, setLiveTasks] = useState<Task[]>(tasks);
+  const rowTransition = reducedTransition(reduce, transitionFast);
+  const pillTransition = reducedTransition(reduce, springSnappy);
 
   const toggleWsCollapsed = (id: string) => setWsCollapsed((cur) => {
     const next = { ...cur, [id]: !cur[id] };
@@ -137,7 +155,7 @@ export function Sidebar({
     const isPinned = pinned.includes(s.id);
     const active = selection?.kind === 'session' && selection.id === s.id;
     return (
-      <motion.div key={s.id} layout={!reduce} className={`sb-row-wrap${active ? ' active' : ''}`} transition={{ duration: 0.16, ease: 'easeOut' }}>
+      <motion.div key={s.id} layout={!reduce} className={`sb-row-wrap${active ? ' active' : ''}`} transition={rowTransition}>
         <button className="sb-row" onClick={() => { writeJson(SEEN_KEY, { ...seen, [s.id]: s.updatedAt }); setSeen((c) => ({ ...c, [s.id]: s.updatedAt })); onSelect({ kind: 'session', id: s.id }); }} title={s.title || '未命名会话'} aria-current={active ? 'true' : undefined}>
           {s.status === 'running'
             ? <LoaderCircle size={13} className="spin sb-row-icon" aria-label="运行中" />
@@ -156,7 +174,7 @@ export function Sidebar({
     const active = selection?.kind === 'task' && selection.id === t.id;
     const st = TASK_STATUS[t.status];
     return (
-      <motion.div key={t.id} layout={!reduce} className={`sb-row-wrap${active ? ' active' : ''}`} transition={{ duration: 0.16, ease: 'easeOut' }}>
+      <motion.div key={t.id} layout={!reduce} className={`sb-row-wrap${active ? ' active' : ''}`} transition={rowTransition}>
         <button className="sb-row" onClick={() => onSelect({ kind: 'task', id: t.id })} title={t.title} aria-current={active ? 'true' : undefined}>
           <span className={`sb-task-glyph ${t.status}`} aria-hidden />
           <span className="sb-row-title">{t.title}</span>
@@ -212,8 +230,8 @@ export function Sidebar({
               </button>
               <button
                 className="icon-button sb-collapse-btn"
-                title="收起为图标栏"
-                aria-label="收起侧栏"
+                title={open ? '关闭侧栏' : '收起为图标栏'}
+                aria-label={open ? '关闭侧栏' : '收起侧栏'}
                 aria-expanded={true}
                 onClick={onToggleCollapsed}
               >
@@ -237,7 +255,7 @@ export function Sidebar({
                 layoutId="sb-nav-pill"
                 className="sb-nav-pill"
                 aria-hidden="true"
-                transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 460, damping: 36, mass: 0.7 }}
+                transition={pillTransition}
               />
             )}
             <SquarePen size={15} aria-hidden />
@@ -256,7 +274,7 @@ export function Sidebar({
                 layoutId="sb-nav-pill"
                 className="sb-nav-pill"
                 aria-hidden="true"
-                transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 460, damping: 36, mass: 0.7 }}
+                transition={pillTransition}
               />
             )}
             <Sparkles size={15} aria-hidden />
@@ -275,7 +293,7 @@ export function Sidebar({
                 layoutId="sb-nav-pill"
                 className="sb-nav-pill"
                 aria-hidden="true"
-                transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 460, damping: 36, mass: 0.7 }}
+                transition={pillTransition}
               />
             )}
             <Bot size={15} aria-hidden />
@@ -296,7 +314,20 @@ export function Sidebar({
       </nav>
 
       {!collapsed && searchOpen && (
-        <input className="sb-search" placeholder="搜索会话" aria-label="搜索会话" value={query} autoFocus onChange={(e) => setQuery(e.target.value)} />
+        <input
+          className="sb-search"
+          placeholder="搜索会话"
+          aria-label="搜索会话"
+          value={query}
+          autoFocus
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape' || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            if (query) setQuery('');
+            else setSearchOpen(false);
+          }}
+        />
       )}
 
       {!collapsed ? (
@@ -335,10 +366,7 @@ export function Sidebar({
                     {isWsOpen && (
                       <motion.div
                         className="sb-proj-body"
-                        initial={reduce ? false : { height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={reduce ? { opacity: 0 } : { height: 0, opacity: 0 }}
-                        transition={{ duration: reduce ? 0 : 0.2, ease: [0.16, 1, 0.3, 1] }}
+                        {...motionProps(reduce, panelReveal)}
                       >
                         {tasksVisible.map(rowTask)}
                         {sessionsVisible.map(rowSession)}

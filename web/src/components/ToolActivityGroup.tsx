@@ -1,6 +1,6 @@
 /**
  * Codex / Claude Code 风格的紧凑工具与文件操作折叠组：
- * - 单行极简呈现：动词 + 等宽路径/命令 + 精简状态/耗时（无厚重卡片、无中点 ·）
+ * - 单行极简呈现：动词 + 等宽路径/命令 + 精简状态/耗时
  * - 多步操作自动归拢为单行摘要（运行中展开、全部完成后平滑收起，失败项保持可见）
  * - 点击任意单行可展开查看截断后的输出或 Diff 预览
  */
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { Item, ToolStatus } from '@axis/protocol';
 import { diffLines } from '../lib/diff';
+import { TurnError } from './TurnError';
 import { formatDuration, toolArgSummary, truncate } from '../lib/format';
 import { extractToolTargetPath, type ActivityEntry, type PairedToolEntry } from '../lib/transcript';
 
@@ -192,7 +193,7 @@ function CompactToolRow({ entry }: { entry: PairedToolEntry }) {
               </pre>
             )}
             {call.outputTruncated && <div className="tool-trunc">输出已截断</div>}
-            {errorText && <div className="tool-error">{errorText}</div>}
+            {errorText && <TurnError error={errorText} />}
           </motion.div>
         )}
       </AnimatePresence>

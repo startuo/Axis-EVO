@@ -1,8 +1,8 @@
 # Web Workbench
 
-工作台保留三个独立模式：离线 Demo、Core 只读审查、显式开启的本地 Runtime。Runtime 使用持久化 job/dispatch、独立规划与执行 Worker，以及现有 Skill planner、不可变 Plan Proposal、精确摘要审批、Runner 与独立 Acceptance。进程监督协议见 [RUNTIME_PROCESS_PROTOCOL.md](RUNTIME_PROCESS_PROTOCOL.md)。本轮采用 Web-first 路线，桌面打包延后。
+工作台保留三个独立模式：离线 Demo、Core 只读审查、显式开启的本地 Runtime。Runtime 使用持久化 job/dispatch、独立规划与执行 Worker，以及现有 Skill planner、不可变 Plan Proposal、精确摘要审批、Runner 与独立 Acceptance。这里说明源码启动与管理方式。[Windows 安装版](WINDOWS_PREVIEW.md)可直接启动日常工作台。
 
-生产启动、显式 store 准备、离线备份/副本升级和 Provider 管理员网络路径见 [RELEASE_OPERATIONS.md](RELEASE_OPERATIONS.md)。正常 HTTP 启动不自动建表或迁移；必须先显式准备 store 并完成包含 `.vite/manifest.json` 的前端构建。
+普通任务使用 [Agent 工作区启动入口](AGENT_WORKSPACE.md)。本页后续的受控 Runtime 使用独立配置和存储。正常 HTTP 启动不自动建表或迁移；必须先显式准备 store 并完成包含 `.vite/manifest.json` 的前端构建。
 
 SQLite 也需要核对：`python -c "import sqlite3; print(sqlite3.sqlite_version)"`。本轮完整验证使用 Windows SQLite 3.49.1；Linux 3.46.1 是此前发布稳定性验证，不是本轮 UX 的新回归结果。Linux SQLite 3.40.1 的 JSON 函数标记与 `trusted_schema=OFF` 不兼容，原只读审查会拒绝包含 JSON CHECK 的数据库；此问题在 UX 基线前已复现。该组合未认证，不应通过关闭安全检查来运行。背景见 [SQLite 官方问题记录](https://sqlite.org/forum/forumpost/c88a671ad083d153?t=c)；其它 SQLite 构建须单独验证。
 
@@ -106,7 +106,7 @@ python -m web_api.app --config .local/workbench-runtime/workbench.json --runtime
 
 发现、连接响应、Core 接受计划、批准后执行是不同事实。后两项在具体对话轮次查看；HTTP 200 或连接测试成功不能让任务完成。网关缺席时官方 Provider、离线 Demo 和历史会话读取继续独立工作；不自动切换已固定的 Provider。
 
-DSH/OFM 固定上游源码核查与离线互操作验证范围见 [测试结果](TEST_RESULTS.md)。2026-10-18 刷新核查：PR #377 已关闭，原分支未直接合并；维护者说明功能已整合于 v2.5.2，当前 main 的 v2.5.3 源码和打包产物均含 WorkBuddy 三会话头与 system-first 修补。这些仍由上游 adapter 负责。本机安装版本/补丁与 WorkBuddy live 未验证，兼容性保持 PENDING。
+DSH/OFM 固定上游源码核查与离线互操作验证留存在本地证据中。2026-10-18 刷新核查：PR #377 已关闭，原分支未直接合并；维护者说明功能已整合于 v2.5.2，当前 main 的 v2.5.3 源码和打包产物均含 WorkBuddy 三会话头与 system-first 修补。这些仍由上游 adapter 负责。本机安装版本/补丁与 WorkBuddy live 未验证，兼容性保持 PENDING。
 
 ## 后台 Runtime 配置
 
@@ -155,7 +155,7 @@ TaskSpec 模板提供固定 seed 和 Acceptance；单任务 API 的 prompt 成�
 
 ## 验证与审查
 
-公共仓库按 AGENTS.md 发布实现、说明和 `docs/TEST_RESULTS.md`，不发布私有测试、fixture、报告和 ZIP。完整本地审查包提供这些材料；历史 baseline 测试需要完整 Git clone 历史，将审查包覆盖到该 checkout 后运行：
+公共仓库保留实现、使用说明和 [阶段更新日志](../CHANGELOG.md)。完整测试、fixture、报告和回执随本地审查材料保留。复跑历史基线需完整 Git 历史和与该版本匹配的本地审查材料。
 
 ```powershell
 python -m pip install -e ".[test]"
@@ -169,13 +169,13 @@ npm run build
 npm run test:e2e
 ```
 
-本轮对话 UX QA 使用私有 `web/ux-after.playwright.config.ts`，模型录入与正式 CLI 交接分别使用 `ux-connect` / `ux-launch`，演化使用 `ux-evolution`。它们保留在本地审查包，不随公共仓库发布。对应 harness 只替代 Provider transport，真实 Runner、SQLite、文件副作用与 Acceptance 仍执行；默认测试不调用真实外网模型。此前多轮/Gateway/HMR 的 `step4` / `step5` / `step5-dev` 仍保留历史记录；`runtime` / `step3` 配置等待旧 `/threads` UI 请求，原样保留且失败如实记录，不作为新接口启动指引。完整结果见 [TEST_RESULTS.md](TEST_RESULTS.md)，操作示例见 [CONVERSATION_WORKBENCH.md](CONVERSATION_WORKBENCH.md)，布局约定见 [WORKBENCH_UI_SPEC.md](WORKBENCH_UI_SPEC.md)。目前没有 Windows EXE 或桌面安装包。
+本轮对话 UX QA 使用私有 `web/ux-after.playwright.config.ts`，模型录入与正式 CLI 交接分别使用 `ux-connect` / `ux-launch`，演化使用 `ux-evolution`。它们保留在本地审查包，不随公共仓库发布。对应 harness 只替代 Provider transport，真实 Runner、SQLite、文件副作用与 Acceptance 仍执行；默认测试不调用真实外网模型。此前多轮/Gateway/HMR 的 `step4` / `step5` / `step5-dev` 仍保留历史记录；`runtime` / `step3` 配置等待旧 `/threads` UI 请求，原样保留且失败如实记录，不作为新接口启动指引。完整结果保存在本地审查材料。日常操作见 [Agent 工作区指南](AGENT_WORKSPACE.md)，安装见 [Windows 预览指南](WINDOWS_PREVIEW.md)。
 
 历史 Step 3 进程监督 QA 留存在审查包；当前六尺寸和 UNKNOWN UI 由多轮/Gateway QA 覆盖。Windows 实际 junction、孙进程清理与硬退出已有独立证据；本轮没有可用 Linux 环境。POSIX 文件复制失败时，存在部分文件的目录保守保留，以避免不具备原子身份条件的删除；POSIX 静默脱离后代清理不等同于 Windows Job Object。不要把 Windows 结果外推为 Linux 认证。
 
-Phase 4 / Step 4 已完成实际 DeepSeek 连接和逐轮批准的两轮文件任务，具体模型/网络边界见 `docs/INTERACTIVE_SESSIONS.md` 和测试结果；该结论不表示任意 Endpoint 已认证。可使用 `examples/live_runtime_verification.py` 分别运行 connection、plan、execute、inspect；connection/plan 必须显式提供 `--live-provider`，execute 必须另行提供审阅后的精确摘要。该 CLI 的 plan/execute/inspect 会取得同一协调器锁；先停止该数据目录的 Web Runtime，完成验证后再启动。完整命令和 Provider 参数边界见进程协议文档。
+Phase 4 / Step 4 已完成实际 DeepSeek 连接和逐轮批准的两轮文件任务，具体模型和网络边界保存在本地验收记录中。其它 Endpoint 需要单独验证。可使用 `examples/live_runtime_verification.py` 分别运行 connection、plan、execute、inspect；connection/plan 必须显式提供 `--live-provider`，execute 必须另行提供审阅后的精确摘要。该 CLI 的 plan/execute/inspect 会取得同一协调器锁；先停止该数据目录的 Web Runtime，完成验证后再启动。运行 `python -m examples.live_runtime_verification --help` 查看命令参数。
 
-交互式 Runtime 使用 Web migration 012。每个项目可额外配置 `task_templates`，例如 `{"timeout30":"C:/absolute/assets/timeout30.json"}`；验收来自后台模板，不由模型或 prompt 决定。多轮上下文、逐轮审批和 UNKNOWN 续轮限制见 [INTERACTIVE_SESSIONS.md](INTERACTIVE_SESSIONS.md)。
+交互式 Runtime 使用 Web migration 012。每个项目可额外配置 `task_templates`，例如 `{"timeout30":"C:/absolute/assets/timeout30.json"}`；验收来自后台模板，不由模型或 prompt 决定。多轮交互逐轮审批。遇到 UNKNOWN 时先核对持久记录及目标文件，再决定是否发起新一轮。
 ## 阶段 1 任务反馈
 
-新版 Web 元数据增加 migration 018。新项目继续显式执行 `runtime_storage init`；已有数据缺少反馈 schema 时，正常启动会拒绝并要求管理员显式准备副本，不能用重启代替升级。见 [反馈说明](SKILL_FEEDBACK.md) 与 [数据维护](RELEASE_OPERATIONS.md)。反馈不改变任务批准、独立验收、Skill 状态或授权范围。
+新版 Web 元数据增加 migration 018。新项目继续显式执行 `runtime_storage init`；已有数据缺少反馈 schema 时，正常启动会拒绝并要求管理员显式准备副本，不能用重启代替升级。使用 `python -m web_api.runtime_storage upgrade-copy --help` 查看离线副本升级参数。反馈不改变任务批准、独立验收、Skill 状态或授权范围。

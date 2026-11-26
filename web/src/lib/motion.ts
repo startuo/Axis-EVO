@@ -15,15 +15,19 @@ export const EASE_IN_OUT: [number, number, number, number] = [0.65, 0, 0.35, 1];
 export const EASE = { out: EASE_OUT, inOut: EASE_IN_OUT };
 
 /** Seconds, matching tokens.css --dur-fast / --dur-med (+ one slower step). */
-export const DURATION = { fast: 0.12, med: 0.22, slow: 0.32 };
+export const DURATION = { instant: 0.09, fast: 0.13, med: 0.23, slow: 0.34 };
 
+export const transitionInstant: Transition = { duration: DURATION.instant, ease: EASE_OUT };
 export const transitionFast: Transition = { duration: DURATION.fast, ease: EASE_OUT };
 export const transitionMed: Transition = { duration: DURATION.med, ease: EASE_OUT };
 export const transitionSlow: Transition = { duration: DURATION.slow, ease: EASE_OUT };
 
 /** Spring configs — snappy matches EffortGauge's caret/track spring. */
-export const springSnappy: Transition = { type: 'spring', stiffness: 500, damping: 40 };
-export const springSoft: Transition = { type: 'spring', stiffness: 300, damping: 30 };
+export const SPRING_SNAPPY: Transition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.78, restDelta: 0.4, restSpeed: 4 };
+export const SPRING_SMOOTH: Transition = { type: 'spring', stiffness: 380, damping: 38, mass: 0.85, restDelta: 0.5, restSpeed: 5 };
+export const SPRING_GESTURE: Transition = { type: 'spring', stiffness: 420, damping: 30, mass: 0.72, restDelta: 0.25, restSpeed: 3 };
+export const springSnappy = SPRING_SNAPPY;
+export const springSoft = SPRING_SMOOTH;
 export const springGentle: Transition = { type: 'spring', stiffness: 180, damping: 24 };
 
 /** Plain opacity cross-fade (overlays, tooltips, tab panels). */
@@ -35,9 +39,9 @@ export const fadeIn: Variants = {
 
 /** House entrance: subtle rise + fade (cards, messages, list rows). */
 export const fadeUp: Variants = {
-  hidden: { opacity: 0, y: 8 },
+  hidden: { opacity: 0, y: 6 },
   visible: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
+  exit: { opacity: 0, y: -4 },
 };
 
 /** Popover/dialog zoom (scale only — composes with Tailwind `translate` utils). */
@@ -45,6 +49,24 @@ export const scaleIn: Variants = {
   hidden: { opacity: 0, scale: 0.96 },
   visible: { opacity: 1, scale: 1 },
   exit: { opacity: 0, scale: 0.96 },
+};
+
+export const popoverOrigin: Variants = {
+  hidden: { opacity: 0, y: 6, scale: 0.95 },
+  visible: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: 4, scale: 0.97 },
+};
+
+export const panelReveal: Variants = {
+  hidden: { height: 0, opacity: 0 },
+  visible: { height: 'auto', opacity: 1 },
+  exit: { height: 0, opacity: 0 },
+};
+
+export const iconSwap: Variants = {
+  hidden: { opacity: 0, scale: 0.84 },
+  visible: { opacity: 1, scale: 1 },
+  exit: { opacity: 0, scale: 0.84 },
 };
 
 /**
@@ -85,6 +107,22 @@ export interface SafeMotionProps {
   transition: Transition;
 }
 
+export function reducedTransition(reduce: boolean | null | undefined, transition: Transition = transitionMed): Transition {
+  return reduce ? { duration: 0 } : transition;
+}
+
+/** Damp travel beyond the end of a drag track. */
+export function rubberBand(overshoot: number, dimension: number, constant = 0.55): number {
+  if (overshoot === 0 || dimension <= 0) return 0;
+  const damped = (1 - 1 / ((Math.abs(overshoot) * constant) / dimension + 1)) * dimension;
+  return Math.sign(overshoot) * damped;
+}
+
+/** Project release velocity onto the track with a bounded stopping distance. */
+export function projectMomentum(velocityPerSec: number, factor = 0.055, maxShift = 0.28): number {
+  return Math.max(-maxShift, Math.min(maxShift, velocityPerSec * factor));
+}
+
 /**
  * useReducedMotion-safe prop bundle: `<motion.div {...motionProps(reduce, scaleIn)} />`.
  * `reduce` accepts the hook's `boolean | null` return. When reduced motion is
@@ -96,8 +134,5 @@ export function motionProps(
   variants: Variants = fadeUp,
   transition: Transition = transitionMed,
 ): SafeMotionProps {
-  if (reduce) {
-    return { variants, initial: false, animate: 'visible', exit: 'exit', transition: { duration: 0 } };
-  }
-  return { variants, initial: 'hidden', animate: 'visible', exit: 'exit', transition };
+  return { variants, initial: reduce ? false : 'hidden', animate: 'visible', exit: 'exit', transition: reducedTransition(reduce, transition) };
 }

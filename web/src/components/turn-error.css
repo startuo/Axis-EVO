@@ -1,0 +1,4 @@
+.turn-error-copy { min-width: 0; }
+.turn-error-details { margin-top: 6px; color: var(--text-muted); font-size: var(--fs-label); }
+.turn-error-details summary { cursor: pointer; }
+.turn-error-details code { overflow-wrap: anywhere; }

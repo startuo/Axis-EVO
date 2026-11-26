@@ -1,113 +1,544 @@
-/* Codex / Claude Code 风格可拖拽离散刻度推理滑轨 */
-.eg { display: flex; flex-direction: column; gap: 8px; }
-.eg-disabled { opacity: 0.5; pointer-events: none; }
+/* Claude / DSH 风格动画推理滑轨：玻璃凹槽轨道 + 动态光场 + 蓝紫水波纹 / 紫色像素场 */
+.eg {
+  --eg-thumb-w: 24px;
+  --eg-thumb-h: 26px;
+  --eg-thumb-inset: 2px;
+  --eg-track-radius: 10px;
+  --eg-light-x: 50%;
+  --eg-light-y: 50%;
+  --eg-light-strength: 0;
+  --eg-light-color: #b9c8ff;
+  --eg-level-color: #b9b6ae;
+  --eg-level-soft: #d9d6ce;
+  --eg-accent-violet: #a78bfa;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+:root[data-theme='light'] .eg {
+  --eg-light-color: #8ba8f8;
+  --eg-level-color: #57544d;
+  --eg-level-soft: #e6e2d9;
+  --eg-accent-violet: #7c56d4;
+}
+.eg-tier-medium {
+  --eg-level-color: #8cb7ff;
+  --eg-level-soft: #c9ddff;
+}
+:root[data-theme='light'] .eg-tier-medium {
+  --eg-level-color: #3d6ed8;
+  --eg-level-soft: #bfd5ff;
+}
+.eg-tier-high {
+  --eg-level-color: #b79cf4;
+  --eg-level-soft: #dacaf8;
+}
+:root[data-theme='light'] .eg-tier-high {
+  --eg-level-color: #7a52cc;
+  --eg-level-soft: #d2bff6;
+}
+.eg-disabled { opacity: 0.52; pointer-events: none; }
 
+/* ---- Header + blur-slide level stage ---- */
 .eg-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+}
+.eg-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 .eg-label {
-  font-size: var(--fs-label); font-weight: 500; color: var(--text-secondary);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  color: var(--text-muted);
 }
-.eg-current {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: var(--fs-label); font-weight: 500; color: var(--text-primary);
+.eg-level-stage {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: 20px;
 }
+.eg-level-word {
+  display: inline-block;
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.eg-level-word.eg-tier-medium {
+  background: linear-gradient(90deg, #9ec2ff, #6aa2ff, #9ec2ff);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: eg-gradient-flow 4s linear infinite;
+}
+:root[data-theme='light'] .eg-level-word.eg-tier-medium {
+  background: linear-gradient(90deg, #3567d4, #5d8cf2, #3567d4);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.eg-level-word.eg-tier-high {
+  background: linear-gradient(90deg, #d1c1f2, #ae9aef, #9bc0ff, #c9b2f7, #d1c1f2);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: eg-gradient-flow 3.2s linear infinite;
+}
+:root[data-theme='light'] .eg-level-word.eg-tier-high {
+  background: linear-gradient(90deg, #744cc7, #4e73db, #8a5ad6, #744cc7);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@keyframes eg-gradient-flow {
+  to { background-position: 200% center; }
+}
+
 .eg-tier-tag {
-  padding: 1px 6px; border-radius: var(--radius-sm);
-  background: var(--accent-warm-soft); color: var(--accent-warm);
-  font-size: 11px; font-weight: 500; line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  line-height: 1.45;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.eg-tier-tag.eg-tier-medium {
+  background: rgba(106, 162, 255, 0.14);
+  color: #8cb7ff;
+}
+:root[data-theme='light'] .eg-tier-tag.eg-tier-medium {
+  background: rgba(59, 111, 216, 0.11);
+  color: #3567d4;
+}
+.eg-tier-tag.eg-tier-high {
+  background: rgba(167, 139, 250, 0.16);
+  color: #c7b1f7;
+}
+:root[data-theme='light'] .eg-tier-tag.eg-tier-high {
+  background: rgba(124, 86, 212, 0.12);
+  color: #6d46c4;
 }
 
-.eg-signal { flex: 0 0 auto; display: block; }
-.eg-signal .bar-on { fill: var(--accent-warm); transition: fill var(--dur-fast); }
-.eg-signal .bar-dim { fill: var(--border-strong); transition: fill var(--dur-fast); }
-.eg-signal.is-off .bar-dim { opacity: 0.5; }
+.eg-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
 
-/* 轨道与下方标签共享左右 16px 内边距，确保 4 颗刻度点与文字严格同轴 */
+/* ---- Signal bars ---- */
+.eg-signal { flex: 0 0 auto; display: block; }
+.eg-signal .bar-on {
+  fill: var(--text-secondary);
+  transition: fill var(--dur-fast), filter var(--dur-fast);
+}
+.eg-signal.eg-tier-medium .bar-on {
+  fill: #7cb0ff;
+}
+:root[data-theme='light'] .eg-signal.eg-tier-medium .bar-on {
+  fill: #3d6ed8;
+}
+.eg-signal.eg-tier-high .bar-on {
+  fill: #b498f5;
+  filter: drop-shadow(0 0 3px rgba(180, 152, 245, 0.55));
+}
+:root[data-theme='light'] .eg-signal.eg-tier-high .bar-on {
+  fill: #7b52cf;
+  filter: drop-shadow(0 0 2px rgba(123, 82, 207, 0.35));
+}
+.eg-signal .bar-dim { fill: var(--border-strong); transition: fill var(--dur-fast); }
+.eg-signal.is-off .bar-dim { opacity: 0.45; }
+
+/* ---- Help button + tooltip ---- */
+.eg-help-wrap { position: relative; display: inline-flex; }
+.eg-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  cursor: help;
+  transition: color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast);
+}
+.eg-help-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.eg-help-btn:active { transform: scale(0.94); }
+.eg-tooltip {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  width: min(230px, 72vw);
+  padding: 8px 10px;
+  border-radius: var(--radius-btn);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
+  line-height: 1.5;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition: opacity 130ms var(--ease-out), transform 130ms var(--ease-out), visibility 130ms;
+}
+.eg-help-wrap:hover .eg-tooltip,
+.eg-help-btn:focus-visible + .eg-tooltip,
+.eg-help-wrap[data-tip-open='true'] .eg-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* ---- Axis labels (更快 / 更聪明) ---- */
+.eg-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  color: var(--text-faint);
+  line-height: 1.2;
+  margin-bottom: -2px;
+}
+
+/* ---- Glass recessed slider track + light field + pixel canvas ---- */
 .eg-slider-box {
-  padding: 2px 16px 0;
-  display: flex; flex-direction: column; gap: 4px;
-  touch-action: none; user-select: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  touch-action: none;
+  user-select: none;
 }
 
 .eg-rail-hit {
-  position: relative; height: 24px;
-  display: flex; align-items: center;
-  cursor: pointer; outline: none;
+  position: relative;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  cursor: ew-resize;
+  outline: none;
 }
 .eg-rail-hit.dragging { cursor: grabbing; }
 .eg-rail-hit:focus-visible .eg-handle {
-  box-shadow: 0 0 0 3px var(--ring), 0 2px 6px rgba(0, 0, 0, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 0 0 3px color-mix(in srgb, var(--eg-accent-violet) 38%, transparent),
+    0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
-.eg-rail-bg {
-  position: relative; width: 100%; height: 4px; border-radius: 999px;
-  background: var(--bg-active); overflow: hidden;
-  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.14);
+.eg-track {
+  position: relative;
+  width: 100%;
+  height: 30px;
+  border-radius: var(--eg-track-radius);
+  overflow: hidden;
+  background: rgba(255, 252, 245, 0.065);
+  box-shadow:
+    inset 0 0 0 1px var(--border-subtle),
+    inset 0 1px 2px rgba(0, 0, 0, 0.28),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05);
 }
-:root[data-theme='light'] .eg-rail-bg {
-  background: var(--border-subtle);
-  box-shadow: inset 0 1px 1px rgba(28, 27, 24, 0.08);
+:root[data-theme='light'] .eg-track {
+  background: #edeae3;
+  box-shadow:
+    inset 0 0 0 1px rgba(28, 27, 24, 0.09),
+    inset 0 1px 2px rgba(28, 27, 24, 0.06),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.72);
 }
 
-.eg-rail-fill {
-  position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent-warm), var(--text-primary));
-}
-:root[data-theme='light'] .eg-rail-fill {
-  background: linear-gradient(90deg, var(--accent-warm), #8d4d32);
-}
-
-.eg-notch {
-  position: absolute; top: 50%; width: 7px; height: 7px; border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: var(--bg-elevated); border: 1.5px solid var(--border-strong);
-  box-shadow: 0 0 0 1.5px var(--bg-elevated);
-  transition: border-color var(--dur-fast), transform var(--dur-fast), background var(--dur-fast);
+/* 细微分形噪点层，赋予玻璃磨砂质感而非扁平色块 */
+.eg-track::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0.045;
   pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='30'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='30' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+.eg-track-fill {
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  bottom: 1px;
+  border-radius: calc(var(--eg-track-radius) - 1px) 0 0 calc(var(--eg-track-radius) - 1px);
+  background: rgba(255, 252, 245, 0.09);
+  pointer-events: none;
+  transition: opacity 200ms var(--ease-out), background 240ms var(--ease-out);
+}
+:root[data-theme='light'] .eg-track-fill {
+  background: rgba(28, 27, 24, 0.075);
+}
+.eg-tier-medium .eg-track-fill {
+  background: radial-gradient(
+    ellipse closest-side at var(--eg-fill-x, 50%) 50%,
+    rgba(130, 172, 255, 0.24) 0%,
+    rgba(130, 172, 255, 0.08) 100%
+  );
+}
+.eg-tier-high .eg-track-fill { opacity: 0; }
+
+/* 高档紫色流光渐变底，兼作 reduced-motion 静态降级 */
+.eg-max-fallback {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(218, 206, 238, 0.82) 0%,
+    rgba(204, 184, 234, 0.88) 26%,
+    rgba(178, 148, 224, 0.92) 56%,
+    rgba(148, 108, 214, 0.96) 84%,
+    rgba(134, 90, 208, 0.98) 100%
+  );
+  transition: opacity 280ms var(--ease-out);
+}
+.eg-tier-high .eg-max-fallback { opacity: 1; }
+
+.eg-pixel-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms var(--ease-out);
+}
+.eg-tier-medium .eg-pixel-field,
+.eg-tier-high .eg-pixel-field {
+  opacity: 1;
+}
+
+/* 鼠标动态光场：轨道内光斑 + 外边缘玻璃高光 + 拇指光晕 */
+.eg-track-light {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at var(--eg-light-x) var(--eg-light-y),
+    var(--eg-light-color) 0%,
+    transparent 44%
+  );
+  opacity: calc(var(--eg-light-strength) * 0.24);
+  transition: opacity 180ms ease-out;
+}
+.eg-track-outline {
+  position: absolute;
+  inset: 1px 0;
+  border-radius: var(--eg-track-radius);
+  pointer-events: none;
+  background: radial-gradient(
+    circle at var(--eg-light-x) var(--eg-light-y),
+    #ffffff 0%,
+    var(--eg-light-color) 28%,
+    transparent 54%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  padding: 1px;
+  opacity: calc(var(--eg-light-strength) * 0.78);
+  transition: opacity 180ms ease-out;
+}
+.eg-thumb-light {
+  position: absolute;
+  top: 50%;
+  left: calc(
+    (100% - var(--eg-thumb-w) - var(--eg-thumb-inset) * 2) * var(--eg-progress, 0)
+    + var(--eg-thumb-inset) + var(--eg-thumb-w) * 0.5
+  );
+  width: 72px;
+  height: 48px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, var(--eg-light-color) 0%, transparent 62%);
+  opacity: calc(0.08 + var(--eg-light-strength) * 0.08);
+  pointer-events: none;
+  transition: opacity 180ms ease-out;
+}
+.eg-tier-high .eg-track-light,
+.eg-tier-high .eg-track-outline,
+.eg-tier-high .eg-thumb-light {
+  opacity: 0;
+}
+
+/* 轨道内刻度圆点 */
+.eg-ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.eg-notch {
+  position: absolute;
+  top: 50%;
+  left: calc(
+    (100% - var(--eg-thumb-w) - var(--eg-thumb-inset) * 2) * var(--tick-frac, 0)
+    + var(--eg-thumb-inset) + var(--eg-thumb-w) * 0.5
+  );
+  width: 4.5px;
+  height: 4.5px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: var(--text-faint);
+  opacity: 0.65;
+  transition: background var(--dur-fast), box-shadow var(--dur-fast), opacity var(--dur-fast), transform var(--dur-fast);
 }
 .eg-notch.reached {
-  border-color: var(--accent-warm);
-  background: var(--accent-warm);
+  background: var(--eg-level-color);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--eg-level-color) 60%, transparent);
+  opacity: 0.95;
 }
-.eg-notch.current { transform: translate(-50%, -50%) scale(1.1); }
+.eg-notch.current { transform: translate(-50%, -50%) scale(1.15); }
+.eg-tier-high .eg-notch { opacity: 0.25; }
 
+/* Sculpted 圆角方帽玻璃拇指 */
 .eg-handle {
-  position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: var(--bg-elevated);
-  border: 1.5px solid var(--accent-warm);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 0.5px var(--border-subtle);
-  display: flex; align-items: center; justify-content: center;
+  position: absolute;
+  top: 50%;
+  width: var(--eg-thumb-w);
+  height: var(--eg-thumb-h);
+  border-radius: 8px;
+  transform: translateY(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: linear-gradient(
+    180deg,
+    #fbfaf8 0%,
+    color-mix(in srgb, var(--eg-level-soft) 26%, #f4f3ef) 56%,
+    color-mix(in srgb, var(--eg-level-soft) 45%, #e6e3dc) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 -1px 1px rgba(28, 27, 24, 0.09),
+    0 1px 3px rgba(0, 0, 0, 0.34),
+    0 4px 10px rgba(0, 0, 0, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
-  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast);
+  transition: transform 140ms var(--ease-out), border-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
 }
 :root[data-theme='light'] .eg-handle {
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(28, 27, 24, 0.22), 0 0 0 0.5px var(--border-subtle);
+  border-color: rgba(28, 27, 24, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -1px 1px rgba(28, 27, 24, 0.06),
+    0 1px 2px rgba(28, 27, 24, 0.14),
+    0 3px 8px rgba(28, 27, 24, 0.08);
 }
-.eg-rail-hit:hover .eg-handle,
+.eg-tier-medium .eg-handle,
+.eg-tier-high .eg-handle {
+  border-color: color-mix(in srgb, var(--eg-level-color) 55%, rgba(255, 255, 255, 0.35));
+}
 .eg-rail-hit.dragging .eg-handle {
-  transform: translate(-50%, -50%) scale(1.14);
-}
-.eg-handle-core {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: var(--accent-warm);
+  transform: translateY(-50%) scale(0.95);
 }
 
+/* 双抓握细竖纹：悬停、聚焦或拖拽时轻柔浮现 */
+.eg-handle-grip {
+  position: relative;
+  width: 6px;
+  height: 10px;
+  opacity: 0;
+  transition: opacity 140ms var(--ease-out);
+}
+.eg-handle-grip::before,
+.eg-handle-grip::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  border-radius: 999px;
+  background: rgba(52, 48, 44, 0.34);
+}
+.eg-handle-grip::before { left: 1px; }
+.eg-handle-grip::after { right: 1px; }
+.eg-rail-hit:hover .eg-handle-grip,
+.eg-rail-hit:focus-visible .eg-handle-grip,
+.eg-rail-hit.dragging .eg-handle-grip {
+  opacity: 1;
+}
+
+/* 轨道下方刻度档位按钮（几何同轴于拇指中心） */
 .eg-stops {
-  position: relative; height: 22px; width: 100%;
+  position: relative;
+  height: 22px;
+  width: 100%;
 }
 .eg-stop {
-  position: absolute; top: 0; transform: translateX(-50%);
-  padding: 2px 6px; border-radius: var(--radius-sm);
-  font-size: var(--fs-label); font-weight: 400; color: var(--text-faint);
+  position: absolute;
+  top: 0;
+  left: calc(
+    (100% - var(--eg-thumb-w) - var(--eg-thumb-inset) * 2) * var(--stop-frac, 0)
+    + var(--eg-thumb-inset) + var(--eg-thumb-w) * 0.5
+  );
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-label);
+  font-weight: 400;
+  color: var(--text-faint);
   white-space: nowrap;
-  transition: color var(--dur-fast), background var(--dur-fast);
+  transition: color var(--dur-fast), background var(--dur-fast), opacity var(--dur-fast);
 }
-.eg-stop:hover { color: var(--text-secondary); background: var(--bg-hover); }
-.eg-stop.active { color: var(--text-primary); font-weight: 600; }
+.eg-stop:hover,
+.eg-stop.hovered {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.eg-stop.active {
+  color: var(--text-primary);
+  font-weight: 600;
+}
 
 .eg-desc {
-  margin: 0; font-size: var(--fs-label); line-height: 1.45; color: var(--text-muted);
+  margin: 0;
+  font-size: var(--fs-label);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eg-level-word.eg-tier-medium,
+  .eg-level-word.eg-tier-high {
+    animation: none;
+    background: none;
+    color: var(--eg-level-color);
+  }
+  .eg-signal .bar-on,
+  .eg-signal .bar-dim,
+  .eg-notch,
+  .eg-handle,
+  .eg-stop,
+  .eg-track-light,
+  .eg-track-outline,
+  .eg-thumb-light,
+  .eg-pixel-field,
+  .eg-max-fallback {
+    transition: none;
+  }
+  .eg-pixel-field { display: none; }
 }

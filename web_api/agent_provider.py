@@ -20,6 +20,7 @@ from axis_evo.planning_adapter import (
 from .local_gateway import LocalGatewayPlanningAdapter
 from .provider_network import RoutedPlanningAdapter, request_provider_json
 from .provider_store import _RestrictedAdapter, _configured, _public_addresses
+from .agent_context import HOST_POLICY_PREFIX
 from .agent_metrics import output_token_limit, usage
 
 
@@ -252,6 +253,11 @@ def _anthropic_wire(model, history, tools, max_tokens, effort, hostname):
         elif role == 'assistant':
             blocks = item.get('_anthropicBlocks')
             if blocks is not None:
+                if type(blocks) is list:
+                    # Cache markers belong to this request. Retain the exact
+                    # thinking text/signature and leave the recorded blocks intact.
+                    blocks = [{key:value for key,value in block.items() if key != 'cache_control'}
+                        if type(block) is dict else block for block in blocks]
                 text, calls = _anthropic_blocks(blocks)
                 if text != item['content'] or calls != item.get('tool_calls', []):
                     raise ValueError('Messages assistant echo diverges from validated text and calls')
@@ -267,13 +273,24 @@ def _anthropic_wire(model, history, tools, max_tokens, effort, hostname):
         messages.append({'role':'user', 'content':pending})
     wire = {'model':model, 'max_tokens':max_tokens, 'messages':messages, 'stream':False}
     if system:
-        if supports_cache:
-            system[-1]['cache_control'] = {'type':'ephemeral'}
         wire['system'] = system
     if tools:
         wire['tools'] = [{'name':function['name'], 'input_schema':function['parameters'],
             **({'description':function['description']} if 'description' in function else {})}
-            for function in (tool['function'] for tool in tools)]
+            for function in sorted((tool['function'] for tool in tools), key=lambda fn: fn['name'])]
+    if supports_cache:
+        static = system or wire.get('tools')
+        if static:
+            static[-1]['cache_control'] = {'type':'ephemeral'}
+        # A new user turn without history skips the extra cache write, even
+        # when the runtime precedes that prompt with a host policy block.
+        fresh_user_turn = (len(messages) in (1, 2) and all(message['role'] == 'user' for message in messages)
+            and (len(messages) == 1 or messages[0]['content'][0].get('text', '').startswith(HOST_POLICY_PREFIX)))
+        if messages and not fresh_user_turn:
+            tail = next((block for message in reversed(messages) for block in reversed(message['content'])
+                if block['type'] in ('tool_result', 'tool_use') or block['type'] == 'text' and block['text']), None)
+            if tail is not None:
+                tail['cache_control'] = {'type':'ephemeral'}
     if supports_qwen4:
         enabled = effort not in (None, 'off')
         wire['thinking'] = {'type':'enabled', 'display':'summarized'} if enabled else {'type':'disabled'}

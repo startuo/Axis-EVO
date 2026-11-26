@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowUpRight, FileCheck2, GitBranch, LockKeyhole } from 'luc
 import '../../styles/research-archive.css';
 
 const freeze = '12c789b187a6bf8332b8d5222d00cc0702d4bdc8';
-const base = `https://github.com/startuo/Axis-EVO/blob/${freeze}/docs/`;
+const base = 'https://github.com/startuo/Axis-EVO/blob/academic/thesis-freeze-2026-11-02/docs/';
 const versions = [
   { name: 'S0', ref: 'meeting-minutes.github-pilot@1', state: '隔离 TRUSTED 基线', sha: '9177f38597decdc581dfda5324622b53646d5efba25b2a7085d8769bedccaf9f', note: '经获批的研究生命周期准入。这个历史状态不授予当前产品权限，也不等于已证明语义质量可靠。' },
   { name: 'S1', ref: 'meeting-minutes.github-pilot@2', state: 'SHADOW（未生产采用）', sha: '3bdb6e70d5ec5dc97c5a005a706af1bebf2d5afe19f9e276f451d0594ffd0e34', note: '由所有者确认的反馈驱动，派生自精确 S0。唯一修订响应原样保留，没有在 Gate 之后手工修补。内容评价混合，研究条件 C 仍选择 S0。' },

@@ -72,12 +72,10 @@
   --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-editorial: "Newsreader", "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, SFMono-Regular, Consolas, monospace;
-  --fs-hero: 30px;
+  --fs-hero: 40px;
   --fs-title: 16px;
-  --fs-body: 14px;
   --fs-ui: 13px;
   --fs-label: 12px;
-  --fs-tiny: 11px;
 
   /* geometry */
   --rail-w: 0px;
@@ -152,7 +150,7 @@ body {
   background: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-ui);
-  font-size: var(--fs-body);
+  font-size: var(--fs-ui);
   line-height: 1.58;
   letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
@@ -207,7 +205,7 @@ a:hover { text-decoration: underline; }
 
 .chip {
   display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px;
-  border-radius: var(--radius-pill); font-size: var(--fs-tiny); font-weight: 500;
+  border-radius: var(--radius-pill); font-size: var(--fs-label); font-weight: 500;
   white-space: nowrap; flex-shrink: 0; border: 1px solid transparent;
 }
 .chip.warn { color: var(--accent-warn); background: var(--accent-warn-soft); }

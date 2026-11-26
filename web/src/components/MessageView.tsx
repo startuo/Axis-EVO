@@ -1,7 +1,7 @@
 /** Renders one transcript item by kind: messages, reasoning, tools, diffs, plans, errors. */
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Brain, Check, ChevronRight, CircleAlert } from 'lucide-react';
+import { Brain, Check, ChevronRight } from 'lucide-react';
 import type { Item } from '@axis/protocol';
 import { extractArtifacts } from '../lib/artifacts';
 import { truncate } from '../lib/format';
@@ -11,6 +11,7 @@ import { DiffCard } from './DiffCard';
 import { Markdown } from './Markdown';
 import { PlanCard } from './PlanCard';
 import { ToolCard } from './ToolCard';
+import { TurnError } from './TurnError';
 
 export function ReasoningBlock({ item }: { item: Item }) {
   const reduce = useReducedMotion();
@@ -57,12 +58,7 @@ export function ReasoningBlock({ item }: { item: Item }) {
 
 function ResultCard({ item }: { item: Item }) {
   if (item.error) {
-    return (
-      <div className="error-card">
-        <CircleAlert size={15} aria-hidden />
-        <span>{item.error}</span>
-      </div>
-    );
+    return <TurnError error={item.error} />;
   }
   const json = item.data === undefined ? '' : truncate(JSON.stringify(item.data, null, 2) ?? '', 1600);
   return (
@@ -114,12 +110,7 @@ export function MessageView({ item }: { item: Item }) {
     case 'plan':
       return <PlanCard item={item} />;
     case 'error':
-      return (
-        <div className="error-card">
-          <CircleAlert size={15} aria-hidden />
-          <span>{item.error ?? item.text ?? '发生未知错误'}</span>
-        </div>
-      );
+      return <TurnError error={item.error ?? item.text} />;
     default:
       return null;
   }

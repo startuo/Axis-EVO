@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { Item, ToolKind, ToolStatus } from '@axis/protocol';
 import { formatDuration, TOOL_STATUS_LABEL, toolArgSummary } from '../lib/format';
+import { TurnError } from './TurnError';
 
 export const TOOL_ICONS: Record<ToolKind, LucideIcon> = {
   shell: Terminal,
@@ -78,7 +79,7 @@ export function ToolCard({ item }: { item: Item }) {
               {(status === 'running' || item.streaming) && <span className="stream-cursor" aria-hidden />}
             </pre>
             {item.outputTruncated && <div className="tool-trunc">输出已截断</div>}
-            {item.error && <div className="tool-error">{item.error}</div>}
+            {item.error && <TurnError error={item.error} />}
           </motion.div>
         )}
       </AnimatePresence>

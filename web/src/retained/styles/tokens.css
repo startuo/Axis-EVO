@@ -1,19 +1,4 @@
-@import url('@radix-ui/colors/sand.css');
-@import url('@radix-ui/colors/sand-dark.css');
-@import url('@radix-ui/colors/sand-alpha.css');
-@import url('@radix-ui/colors/sand-dark-alpha.css');
-@import url('@radix-ui/colors/bronze.css');
-@import url('@radix-ui/colors/bronze-dark.css');
-@import url('@radix-ui/colors/green.css');
-@import url('@radix-ui/colors/green-dark.css');
-@import url('@radix-ui/colors/amber.css');
-@import url('@radix-ui/colors/amber-dark.css');
-@import url('@radix-ui/colors/red.css');
-@import url('@radix-ui/colors/red-dark.css');
-@import url('@radix-ui/colors/blue.css');
-@import url('@radix-ui/colors/blue-dark.css');
-@import url('@radix-ui/colors/black-alpha.css');
-@import url('@radix-ui/colors/white-alpha.css');
+@import url('./palette.css');
 @import url('./cds-theme.css');
 
 /* Semantic colors resolve against the same Radix scale in both themes. */

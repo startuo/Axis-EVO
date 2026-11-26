@@ -35,7 +35,7 @@ for(const id of displayOrder){const item=packet.items.find(x=>x.item_id===id),o=
 function current(){return packet.items.find(x=>x.item_id===byId('item').value)}
 function render(){const item=current();byId('content').replaceChildren();byId('issues').replaceChildren();byId('verdict').value='';byId('audit').value='';byId('reason').value='';
  for(const [heading,value] of [['会议原文',item.source_text],['组织规则',item.policy_text],...(!sourcePhase?[['待审输出',item.output_text]]:[])]){const d=node('details');d.open=true;d.append(node('summary',heading),node('pre',value));byId('content').append(d)}
- for(const criterion of item.criteria){const box=node('section');box.className='criterion';box.dataset.id=criterion.id;box.dataset.critical=String(criterion.critical);box.append(node('strong',criterion.id+' · '+criterion.dimension+(criterion.critical?' · 关键':' · 非关键')),node('p',criterion.obligation),node('pre','来源：'+criterion.source_quote));
+ for(const criterion of item.criteria){const box=node('section');box.className='criterion';box.dataset.id=criterion.id;box.dataset.critical=String(criterion.critical);box.append(node('strong',criterion.id+' / '+criterion.dimension+(criterion.critical?' / 关键':' / 非关键')),node('p',criterion.obligation),node('pre','来源：'+criterion.source_quote));
  const choice=node('select');choice.className='finding-verdict';options(choice,sourcePhase?['CONFIRM','CHANGE','UNKNOWN']:['PASS','FAIL','MISSING','UNKNOWN']);box.append(choice);
  const quote=node('textarea');quote.className='finding-quote';quote.placeholder='从待审输出逐字复制支持判断的原文；MISSING 留空';quote.hidden=sourcePhase;box.append(quote);
  const reason=node('textarea');reason.className='finding-reason';reason.placeholder='理由、支持关系或需要修正的标准（必填）';box.append(reason);byId('content').append(box)}

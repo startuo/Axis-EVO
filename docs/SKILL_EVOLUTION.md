@@ -166,7 +166,7 @@ under the repository's publication policy.
 ### Current protocol reproduction
 
 Frozen baseline: `c9a83b6912f130a2cefe978995ada8cc272da389`. The tested source
-commit and final remote identity are recorded in `TEST_RESULTS.md` in this docs directory and the
+commit and final remote identity are recorded in the local test report and
 private `REVIEW_MANIFEST.txt`; execution-time HEAD and raw source/test hashes
 are retained separately. A working-tree test result is not attributed to a
 future commit before its bytes have been compared.
@@ -218,7 +218,7 @@ to run that frozen harness unchanged. Runtime-specific raw logs, JUnit results,
 warnings and skip reasons are kept in the private archive. Windows symlink cases
 require OS privilege; FIFO requires POSIX. No fresh Linux result or remote CI run
 is claimed. Tested Python versions and actual measured counts are in
-`TEST_RESULTS.md` in this docs directory. No LICENSE or GitHub Actions workflow was added.
+the local test report. Milestone summaries are recorded in the [changelog](../CHANGELOG.md).
 
 Arbitrary SQLite-owner fabrication, replaced binaries and hostile OS escape are
 outside this application boundary. UNKNOWN does not imply causality, Skill blame,

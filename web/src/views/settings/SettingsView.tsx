@@ -1,5 +1,6 @@
 /** Runtime-specific settings for workspaces, models and local preferences. */
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import type { Profile } from '@axis/protocol';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   BookOpen, Compass, FolderLock, Plug, Server, Shield, SlidersHorizontal, Sparkles, Terminal,
@@ -33,24 +34,28 @@ const NAV: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'preferences', label: '偏好', icon: SlidersHorizontal },
 ];
 
-export function SettingsView() {
-  const { loading, error, retry, workspaces, profiles, settings, updateSettings, refreshSettings, request,
+export function SettingsView({ profiles, section, onNavigateSection }: {
+  profiles: Profile[];
+  section?: string;
+  onNavigateSection?: (section: SectionId) => void;
+}) {
+  const { loading, error, retry, workspaces, settings, updateSettings, refreshSettings, request,
     pythonRuntime, providerCatalog } = useSettingsData();
-  const [active, setActive] = useState<SectionId>('workspace');
-  const interacted = useRef(false);
+  const [standaloneSection, setStandaloneSection] = useState<SectionId>();
   const reduce = useReducedMotion();
   const showMcp = import.meta.env.MODE === 'test' && !pythonRuntime;
 
-  // First-run: surface the guide when nothing is configured yet.
-  useEffect(() => {
-    if (!loading && !interacted.current && workspaces.length === 0 && profiles.length === 0) {
-      setActive('guide');
-    }
-  }, [loading, workspaces.length, profiles.length]);
+  const availableNav = NAV.filter((item) => (item.id !== 'mcp' || showMcp)
+    && (!['sources', 'execution'].includes(item.id) || pythonRuntime));
+  const selected = section ?? standaloneSection;
+  const active = availableNav.find((item) => item.id === selected)?.id
+    ?? (!loading && workspaces.length === 0 && profiles.length === 0 ? 'guide' : 'workspace');
 
   const navigate = (id: string) => {
-    interacted.current = true;
-    setActive(id as SectionId);
+    const next = availableNav.find((item) => item.id === id)?.id;
+    if (!next) return;
+    if (onNavigateSection) onNavigateSection(next);
+    else setStandaloneSection(next);
   };
 
   const startChat = () => { window.location.hash = '#/chat'; };
@@ -62,8 +67,7 @@ export function SettingsView() {
       </header>
       <div className="settings-body">
         <nav className="settings-nav" aria-label="设置导航">
-          {NAV.filter((item) => (item.id !== 'mcp' || showMcp)
-            && (!['sources', 'execution'].includes(item.id) || pythonRuntime)).map((item) => {
+          {availableNav.map((item) => {
             const Icon = item.icon;
             const selected = active === item.id;
             return (

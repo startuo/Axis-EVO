@@ -1,7 +1,7 @@
 const status=document.querySelector('#status');
 const call=async message=>{const result=await chrome.runtime.sendMessage(message);if(result?.error)throw new Error(result.error.code);return result;};
 const report=error=>{status.textContent=error.message==='EDGE_REQUIRED'?'请使用 Microsoft Edge。':'正在等待本地 Axis-Evo…';};
-const refresh=async()=>{try{const s=await call({type:'status'});status.textContent=s.connected?'已连接 · '+s.instanceId.slice(-8):'正在等待本地 Axis-Evo…';}catch(e){report(e);}};
+const refresh=async()=>{try{const s=await call({type:'status'});status.textContent=s.connected?'已连接 / '+s.instanceId.slice(-8):'正在等待本地 Axis-Evo…';}catch(e){report(e);}};
 document.querySelector('#connect').addEventListener('click',async()=>{await call({type:'connect'});await refresh();});
 document.querySelector('#disconnect').addEventListener('click',async()=>{await call({type:'disconnect'});await refresh();});
 const [tab]=await chrome.tabs.query({active:true,currentWindow:true});

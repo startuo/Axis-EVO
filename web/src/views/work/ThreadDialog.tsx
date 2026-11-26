@@ -12,7 +12,7 @@ import { LoaderCircle } from 'lucide-react';
 import type { Approval, Item, Profile, Session, Settings, Workspace } from '@axis/protocol';
 import { ApprovalCard } from '../../components/ApprovalCard';
 import { ArtifactCard } from '../../components/ArtifactCard';
-import { Composer } from '../../components/Composer';
+import { Composer, type ComposerDrafts } from '../../components/Composer';
 import { MessageView, ReasoningBlock } from '../../components/MessageView';
 import { ToolActivityGroup } from '../../components/ToolActivityGroup';
 import type { ConversationHook } from '../../hooks/useConversation';
@@ -110,9 +110,14 @@ export interface ThreadDialogProps {
   settings: Settings;
   onSessionCreated: (s: Session) => void;
   onReviewEvidence?: () => void;
+  onOpenModelSettings: () => void;
+  drafts: ComposerDrafts;
 }
 
-export function ThreadDialog({ sessionId, session, conv, workspaces, profiles, settings, onSessionCreated, onReviewEvidence }: ThreadDialogProps) {
+export function ThreadDialog({
+  sessionId, session, conv, workspaces, profiles, settings, onSessionCreated, onReviewEvidence,
+  onOpenModelSettings, drafts,
+}: ThreadDialogProps) {
   const sender = useTurnSender({
     sessionId,
     onSessionCreated,
@@ -135,7 +140,7 @@ export function ThreadDialog({ sessionId, session, conv, workspaces, profiles, s
   }, [session?.id]);
 
   const handleSend = (text: string, attachments: TurnAttachment[]) => {
-    void sender.send(text, attachments, {
+    return sender.send(text, attachments, {
       mode: session?.mode ?? settings.defaultMode,
       profileId,
       workspaceId,
@@ -158,7 +163,10 @@ export function ThreadDialog({ sessionId, session, conv, workspaces, profiles, s
       <ThreadTranscript items={conv.items} approvals={conv.approvals} loading={conv.loading} error={conv.error} onReviewEvidence={onReviewEvidence} />
       <div className="chat-footer thread-footer">
         <Composer
+          key={sessionId}
           variant="chat"
+          draftKey={`session:${sessionId}`}
+          drafts={drafts}
           running={conv.turnRunning || (import.meta.env.MODE !== 'test' && session?.status === 'running')}
           sending={sender.sending || savingEffort}
           mode={session?.mode ?? settings.defaultMode}
@@ -167,6 +175,7 @@ export function ThreadDialog({ sessionId, session, conv, workspaces, profiles, s
           profiles={profiles}
           profileId={profileId}
           onProfileChange={setProfileId}
+          onOpenModelSettings={onOpenModelSettings}
           effort={effort}
           onEffortChange={changeEffort}
           workspaces={workspaces}
@@ -179,6 +188,8 @@ export function ThreadDialog({ sessionId, session, conv, workspaces, profiles, s
           contextLimit={session?.contextLimit}
           cacheHitRate={session?.cacheHitRate}
           cacheHitTokens={session?.cacheHitTokens}
+          cacheWriteTokens={session?.cacheWriteTokens}
+          cacheMissTokens={session?.cacheMissTokens}
         />
       </div>
     </div>

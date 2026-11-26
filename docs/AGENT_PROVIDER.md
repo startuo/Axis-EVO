@@ -28,4 +28,4 @@ HTTPS 沿用既有 socket operation timeout，DNS 检查和操作系统调度不
 - [MCP 2026-07-28 Tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools) 规定工具发现和调用协议，工具注解来自不可信来源时不能作为权限依据。原生 function tool 适配器不是 MCP client；接入 MCP 应额外建立服务授权、schema 到本地工具身份的绑定、撤销及结果不确定性处理，不能让远端目录自行新增权限。
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/master/README.md) 基于 Cordis 插件体系。工程选择是保留 Axis 自有执行事实、授权与 Skill 生命周期；将 Harness 视为可选上游 Gateway，而非嵌入它来替换 Runtime。这避免重复维护两套执行与插件权限语义。此项是架构判断，未宣称本机 Harness 联机已通过。
 
-资料核对：2026-11-07。适配器的离线 HTTP 测试能验证协议与程序边界，不能替代实际 DeepSeek、第三方 MCP 服务或 Harness 联机验收；当轮测试结果统一见 [TEST_RESULTS.md](TEST_RESULTS.md)。
+资料核对：2026-11-07。适配器的离线 HTTP 测试能验证协议与程序边界，不能替代实际 DeepSeek、第三方 MCP 服务或 Harness 联机验收；阶段验证摘要见 [更新日志](../CHANGELOG.md)，详细回执保存在本地验收证据中。

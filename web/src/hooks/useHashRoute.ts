@@ -1,5 +1,5 @@
 /**
- * Hash-based view router: #/work #/skills #/settings.
+ * Hash-based view router: #/work #/skills #/settings[/section].
  * Work is the single primary surface; the legacy #/chat route redirects to it.
  *
  * `parseHash` stays a raw legacy mapper (it may still return 'chat'); the
@@ -10,13 +10,13 @@ import { useCallback, useEffect, useState } from 'react';
 export const ROUTES = ['work', 'skills', 'agents', 'settings'] as const;
 export type Route = (typeof ROUTES)[number];
 
-function hashSegment(hash: string): string {
-  return hash.replace(/^#\/?/, '').split(/[/?]/)[0] ?? '';
+function hashSegments(hash: string): string[] {
+  return hash.replace(/^#\/?/, '').split(/[/?]/);
 }
 
 /** Raw hash → route name; unknown / legacy hashes fall back to 'chat'. */
 export function parseHash(hash: string): Route | 'chat' {
-  const name = hashSegment(hash);
+  const [name] = hashSegments(hash);
   return (ROUTES as readonly string[]).includes(name) ? (name as Route) : 'chat';
 }
 
@@ -27,27 +27,29 @@ export function toRoute(hash: string): Route {
   return parsed === 'chat' ? 'work' : parsed;
 }
 
-export function useHashRoute(): { route: Route; navigate: (r: Route) => void } {
-  const [route, setRoute] = useState<Route>(() => toRoute(window.location.hash));
+export function useHashRoute(): { route: Route; section: string | undefined; navigate: (r: Route, section?: string) => void } {
+  const [hash, setHash] = useState(() => window.location.hash);
+  const route = toRoute(hash);
+  const [root, section] = hashSegments(hash);
 
   useEffect(() => {
-    const onChange = () => setRoute(toRoute(window.location.hash));
+    const onChange = () => setHash(window.location.hash);
     window.addEventListener('hashchange', onChange);
     return () => window.removeEventListener('hashchange', onChange);
   }, []);
 
   // Normalize legacy / empty / unknown URLs to #/work so the bar matches the view.
   useEffect(() => {
-    const seg = hashSegment(window.location.hash);
-    if (toRoute(window.location.hash) !== seg && seg !== 'runtime' && seg !== 'research-demo') {
+    if (route !== root && root !== 'runtime' && root !== 'research-demo') {
       window.location.hash = '#/work';
     }
-  }, [route]);
+  }, [root, route]);
 
-  const navigate = useCallback((r: Route) => {
-    window.location.hash = `#/${r}`;
-    setRoute(r);
+  const navigate = useCallback((r: Route, sub?: string) => {
+    const next = sub ? `#/${r}/${sub}` : `#/${r}`;
+    window.location.hash = next;
+    setHash(next);
   }, []);
 
-  return { route, navigate };
+  return { route, section: route === 'settings' ? section : undefined, navigate };
 }

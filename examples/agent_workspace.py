@@ -96,7 +96,7 @@ def serve(data_dir, network_config, port, web_root, *, open_browser=False, deskt
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description='Axis-Evo Agent-Native Workspace · 0.1.0 Preview')
+    parser=argparse.ArgumentParser(description='Axis-Evo Agent-Native Workspace / 0.1.0 Preview')
     parser.add_argument('--data-dir',type=Path,required=True)
     parser.add_argument('--network-config',type=Path,help='Optional backend-owned provider/network allowlist; no plaintext keys')
     parser.add_argument('--port',type=int,default=8765)

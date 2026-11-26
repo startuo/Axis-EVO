@@ -45,7 +45,7 @@
 
 .rs-stops { display: flex; justify-content: space-between; gap: 4px; }
 .rs-stop {
-  padding: 2px 6px; border-radius: var(--radius-sm); font-size: var(--fs-tiny);
+  padding: 2px 6px; border-radius: var(--radius-sm); font-size: var(--fs-label);
   color: var(--text-muted); transition: color var(--dur-fast), background var(--dur-fast);
 }
 .rs-stop:hover { color: var(--text-primary); background: var(--bg-hover); }

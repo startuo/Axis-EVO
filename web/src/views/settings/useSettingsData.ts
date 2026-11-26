@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Settings } from '@axis/protocol';
 import { useBootstrap } from '../../hooks/useBootstrap';
-import { useProfiles } from '../../hooks/useProfiles';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useSocket, useSocketEvent } from '../../hooks/useSocket';
 import type { ProviderCatalog } from './native';
@@ -12,7 +11,6 @@ export interface SettingsData {
   error: string | null;
   retry: () => void;
   workspaces: ReturnType<typeof useWorkspaces>;
-  profiles: ReturnType<typeof useProfiles>;
   pythonRuntime: boolean;
   providerCatalog?: ProviderCatalog;
   settings: Settings | null;
@@ -24,7 +22,6 @@ export interface SettingsData {
 export function useSettingsData(): SettingsData {
   const { state, loading, error, retry } = useBootstrap();
   const workspaces = useWorkspaces(state);
-  const profiles = useProfiles(state);
   const { request } = useSocket();
   const [settings, setSettings] = useState<Settings | null>(null);
 
@@ -56,7 +53,7 @@ export function useSettingsData(): SettingsData {
   }, [settings, request]);
 
   return {
-    loading, error, retry, workspaces, profiles, settings, updateSettings, refreshSettings, request,
+    loading, error, retry, workspaces, settings, updateSettings, refreshSettings, request,
     pythonRuntime: state?.capabilities?.pythonRuntime === true,
     providerCatalog: state?.providerCatalog,
   };

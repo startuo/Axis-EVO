@@ -19,7 +19,10 @@ from .agent_workspace import AgentWorkspaces, bounded_text, fail
 from .agent_tools import AgentTools
 from .agent_evolution import AgentEvolution
 from .agent_provider_worker import complete_isolated
-from .agent_context import conversation_history, bounded_context, fixed_check_message, post_edit_message
+from .agent_context import (
+    HOST_POLICY_PREFIX, bounded_context, continuation_context, conversation_history, fixed_check_message,
+    post_edit_message, tool_result_message,
+)
 from .agent_execution_policy import AgentExecution
 from .agent_metrics import current_context, output_token_limit, summarize, take_usage
 from .agent_fileops import MUTATIONS, TEXT_EDITS, paths as mutation_paths
@@ -399,13 +402,13 @@ class AgentService:
                     fail('AGENT_CONVERSATION_LIMIT','该会话已达到64轮，请开启新会话。',409)
             else:
                 cid=self.store.append('conversation',{'title':prompt[:80]},wid)['id']
-            history=context_messages if context_messages is not None else self._history_messages(
-                cid, continued=continued, profile=profile)
+            history=context_messages if context_messages is not None else self._history_messages(cid, profile=profile)
+            continuation=continuation_context(self, continued) if continued and context_messages is None else []
             turn=self.store.append('turn',{'prompt':prompt,'profile':profile,'workspaceRevision':workspace['revision'],
                 'sourceGrantIds':sorted(s['id'] for s in workspace['sources'] if s['enabled']),
                 'requestSha256':digest(body),'browserBindingId':binding,'evaluation':evaluation,'forcedSkill':forced_skill,
                 'executionPolicyId':self.execution.policy(wid)['id'],'continuedFrom':continued,
-                'contextMessages':history},
+                'contextMessages':[*history,*continuation], 'continuationMessageCount':len(continuation)},
                 wid,cid,identity=tid)
             self._active[tid]=turn
             if not inline:
@@ -460,7 +463,7 @@ class AgentService:
             'sources':[{'id':'workspace','name':workspace['name'],'kind':'workspace'}]+[
                 {'id':s['id'],'name':s['name'],'kind':s['kind']} for s in workspace['sources'] if s['enabled']],
             'browserAttached':bool(turn['payload'].get('browserBindingId'))}
-        policy_message = {'role':'user','_contextPolicy': True,'content':'Host context: '+canonical(context)}
+        policy_message = {'role':'user','_contextPolicy': True,'content':HOST_POLICY_PREFIX+canonical(context)}
         self.store.append('context_policy', {'message': policy_message}, turn['workspaceId'], turn['id'])
         messages=[{'role':'system','content':SYSTEM},
             *turn['payload'].get('contextMessages',[]),policy_message,{'role':'user','content':turn['payload']['prompt']}]
@@ -581,7 +584,7 @@ class AgentService:
                     name=call['function']['name']
                     args=strict_json(call['function']['arguments'],40*1024)
                     result=self._call(turn,call['id'],name,args)
-                    messages.append({'role':'tool','tool_call_id':call['id'],'content':canonical(result)})
+                    messages.append(tool_result_message(call['id'], result))
                     if result['status']=='UNKNOWN':
                         self._finish(turn,'UNKNOWN','TOOL_OUTCOME_UNKNOWN')
                         return

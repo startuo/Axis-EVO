@@ -7,20 +7,19 @@ SetCompressor /SOLID lzma
 !include "FileFunc.nsh"
 
 !define APP "Axis-Evo"
-!define RELEASE "0.1.0 Preview M7"
-!define PREVIOUS_WINDOW "Axis-Evo 0.1.0 Preview · M6.1"
-!define CURRENT_WINDOW "Axis-Evo 0.1.0 Preview · M7"
+!define RELEASE "0.1.0 Preview M7.1"
+!define CURRENT_WINDOW "Axis-Evo 0.1.0 Preview - M7.1"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\AxisEvoPreview"
 
 Name "${APP} ${RELEASE}"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\Axis-Evo"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
-VIProductVersion "0.1.0.70"
+VIProductVersion "0.1.0.71"
 VIAddVersionKey /LANG=1033 "ProductName" "${APP}"
 VIAddVersionKey /LANG=1033 "CompanyName" "Axis-Evo"
 VIAddVersionKey /LANG=1033 "FileDescription" "Axis-Evo Windows Preview Setup"
-VIAddVersionKey /LANG=1033 "FileVersion" "0.1.0.70"
+VIAddVersionKey /LANG=1033 "FileVersion" "0.1.0.71"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${RELEASE}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "Axis-Evo"
 
@@ -50,7 +49,12 @@ FunctionEnd
 !macro RequireAxisClosed errorText
   FindWindow $0 "" "${CURRENT_WINDOW}"
   ${If} $0 = 0
-    FindWindow $0 "" "${PREVIOUS_WINDOW}"
+    ; Match launchers from the two supported upgrade sources.
+    IntFmt $1 "%c" 0xB7
+    FindWindow $0 "" "Axis-Evo 0.1.0 Preview $1 M7"
+    ${If} $0 = 0
+      FindWindow $0 "" "Axis-Evo 0.1.0 Preview $1 M6.1"
+    ${EndIf}
   ${EndIf}
   ${If} $0 != 0
     MessageBox MB_ICONSTOP|MB_OK "${errorText}"
@@ -62,9 +66,20 @@ Function RequireClosed
   !insertmacro RequireAxisClosed "请退出 Axis-Evo 后再继续。"
 FunctionEnd
 
-Function RetireM61Assets
-  ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "DisplayVersion"
-  ${If} $0 S!= "0.1.0 Preview M6.1"
+!macro DeleteRetiredAppFile path
+  !if ! /FileExists "${APP_PAYLOAD}\${path}"
+    Delete "$INSTDIR\app\${path}"
+  !endif
+!macroend
+
+!macro DeleteRetiredWebFile path
+  !insertmacro DeleteRetiredAppFile "web\dist\${path}"
+!macroend
+
+Function RetireFrontendFiles
+  ReadRegStr $4 HKCU "${UNINSTALL_KEY}" "DisplayVersion"
+  ${If} $4 S!= "0.1.0 Preview M6.1"
+  ${AndIf} $4 S!= "0.1.0 Preview M7"
     Return
   ${EndIf}
   ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "InstallLocation"
@@ -87,35 +102,58 @@ Function RetireM61Assets
     ${GetParent} "$1" $1
   ${EndWhile}
 
-  ; Exact paths from the official M6.1 Setup that are absent from the M7 payload.
-  StrCpy $0 "$INSTDIR\app\web\dist\assets"
+  ; Each allowlist comes from that release, excluding files present in the new payload.
+  StrCpy $1 "$INSTDIR\app\licenses"
+  System::Call 'kernel32::GetFileAttributesW(w r1) i.r3'
+  IntOp $3 $3 & 0x410
   ClearErrors
-  Delete "$0\AgentConversation-tKaywrus.js"
-  Delete "$0\AgentSettings-CwjHB5mS.js"
-  Delete "$0\AgentWork-BI-J5sx5.js"
-  Delete "$0\FilesView-C9VhpiXw.js"
-  Delete "$0\LegacyWorkbench-D8_eDzAB.js"
-  Delete "$0\ResearchArchive-BIEVtUWz.js"
-  Delete "$0\ResearchArchive-CVGZ1oXg.css"
-  Delete "$0\RuntimeProviders-BCglSh5I.js"
-  Delete "$0\RuntimeWorkbench-CyknVHT6.js"
-  Delete "$0\RuntimeWorkbench-DQYavCdC.css"
-  Delete "$0\SafeMarkdown-DhI1xtLt.js"
-  Delete "$0\SkillEvolutionWorkbench-CdXZ6wdm.js"
-  Delete "$0\arrow-left-CWv4mbVI.js"
-  Delete "$0\arrow-up-right-bRUiUnWi.js"
-  Delete "$0\chevron-right-CyXM9_OE.js"
-  Delete "$0\createLucideIcon-DV7PPjHH.js"
-  Delete "$0\git-branch-CkDEzHCM.js"
-  Delete "$0\git-compare-arrows-BgcE5fEx.js"
-  Delete "$0\index-4EM2brsI.js"
-  Delete "$0\index-CHs2UWfx.css"
-  Delete "$0\lock-keyhole-DXYxcrW7.js"
-  Delete "$0\save-DC4-GxdC.js"
-  Delete "$0\sun-CoY8IZyG.js"
-  Delete "$0\terminal-Dbd94qKM.js"
+  ${If} $3 = 0x10
+    !insertmacro DeleteRetiredAppFile "licenses\node_modules_@radix-ui_colors_LICENSE"
+  ${EndIf}
+  ${If} $4 S== "0.1.0 Preview M6.1"
+    !insertmacro DeleteRetiredWebFile "assets\AgentConversation-tKaywrus.js"
+    !insertmacro DeleteRetiredWebFile "assets\AgentSettings-CwjHB5mS.js"
+    !insertmacro DeleteRetiredWebFile "assets\AgentWork-BI-J5sx5.js"
+    !insertmacro DeleteRetiredWebFile "assets\FilesView-C9VhpiXw.js"
+    !insertmacro DeleteRetiredWebFile "assets\LegacyWorkbench-D8_eDzAB.js"
+    !insertmacro DeleteRetiredWebFile "assets\ResearchArchive-BIEVtUWz.js"
+    !insertmacro DeleteRetiredWebFile "assets\ResearchArchive-CVGZ1oXg.css"
+    !insertmacro DeleteRetiredWebFile "assets\RuntimeProviders-BCglSh5I.js"
+    !insertmacro DeleteRetiredWebFile "assets\RuntimeWorkbench-CyknVHT6.js"
+    !insertmacro DeleteRetiredWebFile "assets\RuntimeWorkbench-DQYavCdC.css"
+    !insertmacro DeleteRetiredWebFile "assets\SafeMarkdown-DhI1xtLt.js"
+    !insertmacro DeleteRetiredWebFile "assets\SkillEvolutionWorkbench-CdXZ6wdm.js"
+    !insertmacro DeleteRetiredWebFile "assets\arrow-left-CWv4mbVI.js"
+    !insertmacro DeleteRetiredWebFile "assets\arrow-up-right-bRUiUnWi.js"
+    !insertmacro DeleteRetiredWebFile "assets\chevron-right-CyXM9_OE.js"
+    !insertmacro DeleteRetiredWebFile "assets\createLucideIcon-DV7PPjHH.js"
+    !insertmacro DeleteRetiredWebFile "assets\git-branch-CkDEzHCM.js"
+    !insertmacro DeleteRetiredWebFile "assets\git-compare-arrows-BgcE5fEx.js"
+    !insertmacro DeleteRetiredWebFile "assets\index-4EM2brsI.js"
+    !insertmacro DeleteRetiredWebFile "assets\index-CHs2UWfx.css"
+    !insertmacro DeleteRetiredWebFile "assets\lock-keyhole-DXYxcrW7.js"
+    !insertmacro DeleteRetiredWebFile "assets\save-DC4-GxdC.js"
+    !insertmacro DeleteRetiredWebFile "assets\sun-CoY8IZyG.js"
+    !insertmacro DeleteRetiredWebFile "assets\terminal-Dbd94qKM.js"
+  ${Else}
+    !insertmacro DeleteRetiredWebFile "assets\ResearchArchive-FsSoiI3F.css"
+    !insertmacro DeleteRetiredWebFile "assets\ResearchArchive-hc3W6zVx.js"
+    !insertmacro DeleteRetiredWebFile "assets\RuntimeEntry-7MbRaDX_.js"
+    !insertmacro DeleteRetiredWebFile "assets\RuntimeEntry-BuHzCoqn.css"
+    !insertmacro DeleteRetiredWebFile "assets\RuntimeProviders-BBvpWpPq.js"
+    !insertmacro DeleteRetiredWebFile "assets\SafeMarkdown-B3v1hDwh.css"
+    !insertmacro DeleteRetiredWebFile "assets\SafeMarkdown-ux74fizB.js"
+    !insertmacro DeleteRetiredWebFile "assets\SkillEvolutionWorkbench-Csmqs5Fc.css"
+    !insertmacro DeleteRetiredWebFile "assets\SkillEvolutionWorkbench-y4Io4Rhe.js"
+    !insertmacro DeleteRetiredWebFile "assets\index-B9LYzwwi.js"
+    !insertmacro DeleteRetiredWebFile "assets\index-Bei6ndae.css"
+    !insertmacro DeleteRetiredWebFile "assets\jsx-runtime-Bzw2jH9X.js"
+    !insertmacro DeleteRetiredWebFile "assets\lock-keyhole-B3N-eJXh.js"
+    !insertmacro DeleteRetiredWebFile "axis-dark.png"
+    !insertmacro DeleteRetiredWebFile "axis-light.png"
+  ${EndIf}
   ${If} ${Errors}
-    MessageBox MB_ICONSTOP|MB_OK "无法清理 M6.1 的旧资源。请关闭占用文件的程序后重试。" /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "无法清理旧版前端资源。请关闭占用文件的程序后重试。" /SD IDOK
     SetErrorLevel 1
     Abort
   ${EndIf}
@@ -127,7 +165,7 @@ Section "Axis-Evo"
   SetOutPath "$INSTDIR"
   SetOverwrite on
   !include "${INSTALL_FILES}"
-  Call RetireM61Assets
+  Call RetireFrontendFiles
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\Axis-Evo"
   CreateShortCut "$SMPROGRAMS\Axis-Evo\Axis-Evo.lnk" "$INSTDIR\Axis-Evo.exe"

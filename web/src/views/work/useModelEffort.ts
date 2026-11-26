@@ -3,9 +3,10 @@ import type { Profile, ReasoningEffort } from '@axis/protocol';
 import { useToast } from '../../components/Toasts';
 import { useSocket } from '../../hooks/useSocket';
 import { errorMessage } from '../../lib/format';
+import { defaultProfileEffort } from '../../lib/providers';
 
 export function useModelEffort(profiles: Profile[], profileId: string | null) {
-  const { request } = useSocket();
+  const { request, nativeRuntime } = useSocket();
   const toast = useToast();
   const profile = profiles.find(item => item.id === profileId);
   const [local, setLocal] = useState<{ profileId: string; effort: ReasoningEffort } | null>(null);
@@ -13,7 +14,7 @@ export function useModelEffort(profiles: Profile[], profileId: string | null) {
   const queue = useRef(Promise.resolve());
   const selection = useRef(0);
   const effort = local?.profileId === profileId ? local.effort
-    : profile?.reasoningEffort ?? (import.meta.env.MODE === 'test' ? 'medium' : 'off');
+    : defaultProfileEffort(profile);
 
   function changeEffort(next: ReasoningEffort) {
     if (!profile || next === effort) return;
@@ -35,7 +36,11 @@ export function useModelEffort(profiles: Profile[], profileId: string | null) {
           toast.push('error', `思考强度保存失败：${errorMessage(error)}`);
         }
       } finally {
-        if (generation === selection.current) setPendingFor(null);
+        if (generation === selection.current) {
+          // The HTTP client emits profile.updated before its save resolves.
+          if (nativeRuntime) setLocal(null);
+          setPendingFor(null);
+        }
       }
     });
   }

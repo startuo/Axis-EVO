@@ -13,12 +13,15 @@ export interface ContextMeterProps {
   contextLimit?: number | null;
   cacheHitRate?: number | null;
   cacheHitTokens?: number | null;
+  cacheWriteTokens?: number | null;
+  cacheMissTokens?: number | null;
 }
 
 const RADIUS = 5.5;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-export function ContextMeter({ tokenUsage, modelId, contextTokens, contextLimit, cacheHitRate, cacheHitTokens }: ContextMeterProps) {
+export function ContextMeter({ tokenUsage, modelId, contextTokens, contextLimit, cacheHitRate,
+  cacheHitTokens, cacheWriteTokens, cacheMissTokens }: ContextMeterProps) {
   const fixture = import.meta.env.MODE === 'test' && contextTokens === undefined;
   const exact = typeof contextTokens === 'number' && typeof contextLimit === 'number';
   const usage = fixture
@@ -77,6 +80,12 @@ export function ContextMeter({ tokenUsage, modelId, contextTokens, contextLimit,
               <div className="ctx-tip-row"><span>提示词缓存命中</span><span>{cacheLabel}</span></div>
               {typeof cacheHitTokens === 'number' && (
                 <div className="ctx-tip-row"><span>命中 Token</span><span>{cacheHitTokens.toLocaleString()}</span></div>
+              )}
+              {typeof cacheWriteTokens === 'number' && (
+                <div className="ctx-tip-row"><span>写入缓存</span><span>{cacheWriteTokens.toLocaleString()}</span></div>
+              )}
+              {typeof cacheMissTokens === 'number' && (
+                <div className="ctx-tip-row"><span>未命中 Token</span><span>{cacheMissTokens.toLocaleString()}</span></div>
               )}
             </>
           )}

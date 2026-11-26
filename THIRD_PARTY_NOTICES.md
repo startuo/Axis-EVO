@@ -49,8 +49,7 @@ Inter, Newsreader and JetBrains Mono are self-hosted under the SIL Open Font
 License 1.1. Their license files accompany the fonts in `web/public/fonts/`.
 The application makes no font or asset requests to a CDN at runtime.
 
-The UI palette uses [Radix Colors](https://github.com/radix-ui/colors) 3.0.0,
-Copyright (c) 2021 Radix, under the MIT License above.
+The retained workbench palette contains selected colors from [Radix Colors](https://github.com/radix-ui/colors) 3.0.0. Its MIT license is included in [the frontend assets](web/public/third-party/radix-colors-LICENSE.txt).
 The Markdown renderer uses [react-markdown](https://github.com/remarkjs/react-markdown)
 10.1.0, Copyright (c) Espen Hovlandsdal, under the same MIT terms.
 GFM table parsing uses [remark-gfm](https://github.com/remarkjs/remark-gfm)

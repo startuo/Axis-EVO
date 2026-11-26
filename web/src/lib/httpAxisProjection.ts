@@ -102,7 +102,11 @@ export class ConversationProjection {
       cacheWriteTokens: page.cacheWriteTokens ?? null, cacheMissTokens: page.cacheMissTokens ?? null,
       tokenUsage: { input: this.inputTokens, output: this.outputTokens },
     };
-    if (updates.length || this.session.status !== next.status) {
+    const current = this.session;
+    if (updates.length || current.status !== next.status
+        || current.contextTokens !== next.contextTokens || current.contextLimit !== next.contextLimit
+        || current.cacheHitRate !== next.cacheHitRate || current.cacheHitTokens !== next.cacheHitTokens
+        || current.cacheWriteTokens !== next.cacheWriteTokens || current.cacheMissTokens !== next.cacheMissTokens) {
       updates.push({ type: 'session.updated', session: next });
     }
     this.session = next;

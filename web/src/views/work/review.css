@@ -8,7 +8,7 @@
   position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
   border-radius: 2px; background: var(--accent-brand);
 }
-.work-branch { font-family: var(--font-mono); font-size: var(--fs-tiny); padding: 2px 8px; }
+.work-branch { font-family: var(--font-mono); font-size: var(--fs-label); padding: 2px 8px; }
 
 /* ---- DiffTab: scope tabs ---- */
 .rv-scopes {
@@ -29,8 +29,8 @@
 
 /* ---- DiffTab: head extras ---- */
 .rv-head { padding: 10px 16px; }
-.rv-branch { font-family: var(--font-mono); font-size: var(--fs-tiny); padding: 2px 8px; }
-.rv-mergebase { font-family: var(--font-mono); font-size: var(--fs-tiny); padding: 2px 8px; }
+.rv-branch { font-family: var(--font-mono); font-size: var(--fs-label); padding: 2px 8px; }
+.rv-mergebase { font-family: var(--font-mono); font-size: var(--fs-label); padding: 2px 8px; }
 .rv-base-select {
   background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm); font-size: var(--fs-label); padding: 3px 6px; max-width: 180px;
@@ -65,19 +65,19 @@
 .rv-expand:hover { background: var(--bg-active); color: var(--text-primary); }
 .rv-status {
   flex: 0 0 auto; min-width: 20px; justify-content: center;
-  font-family: var(--font-mono); font-size: var(--fs-tiny); padding: 1px 5px;
+  font-family: var(--font-mono); font-size: var(--fs-label); padding: 1px 5px;
 }
 .rv-path {
   flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-label);
   color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rv-stat { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--fs-tiny); font-weight: 600; }
+.rv-stat { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--fs-label); font-weight: 600; }
 .rv-stat.add { color: var(--accent-success); }
 .rv-stat.del { color: var(--accent-danger); }
 .rv-file-actions { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .rv-action {
   display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px;
-  border-radius: var(--radius-sm); font-size: var(--fs-tiny); font-weight: 500;
+  border-radius: var(--radius-sm); font-size: var(--fs-label); font-weight: 500;
   color: var(--text-secondary); background: var(--bg-composer);
   transition: background var(--dur-fast), color var(--dur-fast);
 }
@@ -93,12 +93,12 @@
   background: var(--bg-composer); border-top: 1px solid var(--border-subtle);
 }
 .rv-hunk-label {
-  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-tiny);
+  flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-label);
   color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* ---- DiffTab: unified diff lines ---- */
-.rv-lines { background: var(--bg-code); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; }
+.rv-lines { background: var(--bg-code); font-family: var(--font-mono); font-size: var(--fs-ui); line-height: 1.55; }
 .rv-line { display: flex; align-items: stretch; min-width: 0; }
 .rv-line:hover { background: var(--bg-hover); }
 .rv-line.add { background: var(--accent-success-soft); }
@@ -107,7 +107,7 @@
 .rv-line.del:hover { background: var(--bg-hover); }
 .rv-ln {
   flex: 0 0 38px; padding: 0 6px; text-align: right; color: var(--text-faint);
-  font-size: var(--fs-tiny); line-height: inherit; user-select: none;
+  font-size: var(--fs-label); line-height: inherit; user-select: none;
   border-right: 1px solid var(--border-subtle);
 }
 .rv-line .rv-ln:first-child { border-right: none; }
@@ -152,7 +152,7 @@
   border-radius: var(--radius-sm); background: var(--bg-elevated);
   border: 1px solid var(--border-subtle); font-size: var(--fs-label);
 }
-.rv-an-item code { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--fs-tiny); color: var(--accent-info); }
+.rv-an-item code { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--fs-label); color: var(--accent-info); }
 .rv-an-text { flex: 1; min-width: 0; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-an-remove {
   flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
@@ -170,7 +170,7 @@
   border-radius: var(--radius-sm); overflow: hidden;
 }
 .rv-view-toggle button {
-  padding: 3px 10px; font-size: var(--fs-tiny); color: var(--text-muted);
+  padding: 3px 10px; font-size: var(--fs-label); color: var(--text-muted);
   background: var(--bg-input); transition: background var(--dur-fast), color var(--dur-fast);
 }
 .rv-view-toggle button + button { border-left: 1px solid var(--border-subtle); }

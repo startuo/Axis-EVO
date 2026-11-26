@@ -24,6 +24,9 @@
   --color-danger: var(--accent-danger);
   --color-info: var(--accent-info);
   --color-ring: var(--accent-brand);
+  --text-xs: var(--fs-label);
+  --text-sm: var(--fs-ui);
+  --text-base: var(--fs-title);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-mono);
   --radius-sm: var(--radius-sm);

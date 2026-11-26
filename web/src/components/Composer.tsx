@@ -1,10 +1,9 @@
 /**
- * The composer card (max 740px, radius 24px): auto-growing textarea, + attach
- * menu, cycling permission chip, model/effort selector, mic + pink voice
- * button, send/stop. The work variant adds the 工作/文件/插件 attachment strip.
+ * Shared task and thread input dock. Drafts live in the app shell while
+ * the composer itself can unmount on route changes or thread switches.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowUp, AtSign, BookOpen, Cloud, FolderOpen, Plus, Square, X,
 } from 'lucide-react';
@@ -12,12 +11,41 @@ import type { PermissionMode, Profile, ReasoningEffort, Session, Workspace } fro
 import { useClickOutside } from '../hooks/useClickOutside';
 import type { TurnAttachment } from '../hooks/useTurnSender';
 import { baseName, truncate } from '../lib/format';
+import { iconSwap, motionProps, popoverOrigin, transitionFast } from '../lib/motion';
 import { ContextMeter } from './ContextMeter';
 import { ModelSelector } from './ModelSelector';
 import { PermissionChip } from './PermissionChip';
 
+export interface ComposerDraft {
+  text: string;
+  attachments: TurnAttachment[];
+}
+
+const EMPTY_DRAFT: ComposerDraft = { text: '', attachments: [] };
+
+export function createComposerDrafts() {
+  const drafts = new Map<string, ComposerDraft>();
+  const listeners = new Set<() => void>();
+  return {
+    read: (key: string) => drafts.get(key) ?? EMPTY_DRAFT,
+    write: (key: string, draft: ComposerDraft) => {
+      if (draft.text || draft.attachments.length) drafts.set(key, draft);
+      else drafts.delete(key);
+      for (const notify of listeners) notify();
+    },
+    subscribe: (notify: () => void) => {
+      listeners.add(notify);
+      return () => { listeners.delete(notify); };
+    },
+  };
+}
+
+export type ComposerDrafts = ReturnType<typeof createComposerDrafts>;
+
 export interface ComposerProps {
   variant: 'chat' | 'work';
+  draftKey: string;
+  drafts: ComposerDrafts;
   running: boolean;
   sending?: boolean;
   mode: PermissionMode;
@@ -26,12 +54,13 @@ export interface ComposerProps {
   profiles: Profile[];
   profileId: string | null;
   onProfileChange: (id: string) => void;
+  onOpenModelSettings?: () => void;
   effort: ReasoningEffort;
   onEffortChange: (e: ReasoningEffort) => void;
   workspaces: Workspace[];
   workspaceId: string | null;
   onWorkspaceChange: (id: string) => void;
-  onSend: (text: string, attachments: TurnAttachment[]) => void;
+  onSend: (text: string, attachments: TurnAttachment[]) => Promise<string | null>;
   onCancel: () => void;
   onOpenPlugins?: () => void;
   tokenUsage?: Session['tokenUsage'];
@@ -39,6 +68,8 @@ export interface ComposerProps {
   contextLimit?: number | null;
   cacheHitRate?: number | null;
   cacheHitTokens?: number | null;
+  cacheWriteTokens?: number | null;
+  cacheMissTokens?: number | null;
   prefill?: string | null;
   onPrefillConsumed?: () => void;
   placeholder?: string;
@@ -46,13 +77,16 @@ export interface ComposerProps {
 
 export function Composer(props: ComposerProps) {
   const {
-    variant, running, sending, mode, onModeChange, modeInteractive = true,
-    profiles, profileId, onProfileChange, effort, onEffortChange,
+    variant, draftKey, drafts, running, sending, mode, onModeChange, modeInteractive = true,
+    profiles, profileId, onProfileChange, onOpenModelSettings, effort, onEffortChange,
     workspaces, workspaceId, onWorkspaceChange, onSend, onCancel, onOpenPlugins,
-    tokenUsage, contextTokens, contextLimit, cacheHitRate, cacheHitTokens, prefill, onPrefillConsumed,
+    tokenUsage, contextTokens, contextLimit, cacheHitRate, cacheHitTokens, cacheWriteTokens, cacheMissTokens,
+    prefill, onPrefillConsumed,
   } = props;
-  const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState<TurnAttachment[]>([]);
+  const reduce = useReducedMotion();
+  const draft = useSyncExternalStore(drafts.subscribe, () => drafts.read(draftKey));
+  const [submitting, setSubmitting] = useState(false);
+  const { text, attachments } = draft;
   const [plusOpen, setPlusOpen] = useState(false);
   const [attachKind, setAttachKind] = useState<TurnAttachment['kind'] | null>(null);
   const [attachValue, setAttachValue] = useState('');
@@ -67,11 +101,27 @@ export function Composer(props: ComposerProps) {
 
   useEffect(() => {
     if (prefill) {
-      setText(prefill);
+      drafts.write(draftKey, { ...drafts.read(draftKey), text: prefill });
       onPrefillConsumed?.();
       taRef.current?.focus();
     }
-  }, [prefill, onPrefillConsumed]);
+  }, [prefill, onPrefillConsumed, draftKey, drafts]);
+
+  const updateDraft = (next: ComposerDraft) => drafts.write(draftKey, next);
+
+  useEffect(() => {
+    if (!plusOpen && !wsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      event.preventDefault();
+      (plusOpen ? plusRef : wsRef).current?.querySelector('button')?.focus();
+      setPlusOpen(false);
+      setAttachKind(null);
+      setWsOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [plusOpen, wsOpen]);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -80,18 +130,23 @@ export function Composer(props: ComposerProps) {
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, [text]);
 
-  const submit = useCallback(() => {
+  const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed || running || sending) return;
-    onSend(trimmed, attachments);
-    setText('');
-    setAttachments([]);
-  }, [text, running, sending, onSend, attachments]);
+    if (!trimmed || running || sending || submitting) return;
+    setSubmitting(true);
+    try {
+      if (await onSend(trimmed, attachments) && drafts.read(draftKey) === draft) {
+        drafts.write(draftKey, EMPTY_DRAFT);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const addAttachment = () => {
     const value = attachValue.trim();
     if (!attachKind || !value) return;
-    setAttachments((cur) => [...cur, { kind: attachKind, value }]);
+    updateDraft({ text, attachments: [...attachments, { kind: attachKind, value }] });
     setAttachValue('');
     setAttachKind(null);
     setPlusOpen(false);
@@ -113,7 +168,7 @@ export function Composer(props: ComposerProps) {
                 <button
                   className="attach-remove"
                   aria-label={`移除附件 ${a.value}`}
-                  onClick={() => setAttachments((cur) => cur.filter((_, j) => j !== i))}
+                  onClick={() => updateDraft({ text, attachments: attachments.filter((_, j) => j !== i) })}
                 >
                   <X size={11} aria-hidden />
                 </button>
@@ -127,11 +182,11 @@ export function Composer(props: ComposerProps) {
           value={text}
           placeholder={placeholder}
           aria-label={placeholder}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => updateDraft({ text: e.target.value, attachments })}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              submit();
+              void submit();
             }
           }}
         />
@@ -149,10 +204,7 @@ export function Composer(props: ComposerProps) {
               {plusOpen && (
                 <motion.div
                   className="popover plus-pop"
-                  initial={{ opacity: 0, y: 6, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 4, scale: 0.98 }}
-                  transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                  {...motionProps(reduce, popoverOrigin, transitionFast)}
                 >
                   {!attachKind ? (
                     <>
@@ -196,30 +248,37 @@ export function Composer(props: ComposerProps) {
             profiles={profiles}
             profileId={profileId}
             onProfileChange={onProfileChange}
+            onOpenSettings={onOpenModelSettings}
             effort={effort}
             onEffortChange={onEffortChange}
           />
-          <ContextMeter
+          {variant === 'chat' && <ContextMeter
             tokenUsage={tokenUsage}
             modelId={currentProfile?.modelId}
             contextTokens={contextTokens}
             contextLimit={contextLimit}
             cacheHitRate={cacheHitRate}
             cacheHitTokens={cacheHitTokens}
-          />
+            cacheWriteTokens={cacheWriteTokens}
+            cacheMissTokens={cacheMissTokens}
+          />}
           {running ? (
             <button className="stop-btn" aria-label="停止生成" title="停止生成" onClick={onCancel}>
-              <Square size={13} aria-hidden />
+              <motion.span className="composer-action-icon" {...motionProps(reduce, iconSwap, transitionFast)}>
+                <Square size={13} aria-hidden />
+              </motion.span>
             </button>
           ) : (
             <button
               className="send-btn"
               aria-label="发送"
               title="发送 (Enter)"
-              onClick={submit}
-              disabled={!text.trim() || sending}
+              onClick={() => void submit()}
+              disabled={!text.trim() || sending || submitting}
             >
-              <ArrowUp size={15} aria-hidden />
+              <motion.span className="composer-action-icon" {...motionProps(reduce, iconSwap, transitionFast)}>
+                <ArrowUp size={15} aria-hidden />
+              </motion.span>
             </button>
           )}
         </div>
@@ -236,10 +295,7 @@ export function Composer(props: ComposerProps) {
               {wsOpen && (
                 <motion.div
                   className="popover ws-pop"
-                  initial={{ opacity: 0, y: 6, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 4, scale: 0.98 }}
-                  transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                  {...motionProps(reduce, popoverOrigin, transitionFast)}
                 >
                   <div className="pop-label">选择工作区</div>
                   {workspaces.length === 0 && <div className="pop-empty">尚未授权工作区</div>}
