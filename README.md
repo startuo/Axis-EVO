@@ -2,47 +2,103 @@
   <img src="docs/assets/Axis.png" alt="Axis-Evo" width="100%">
 </p>
 
-# Axis-Evo
+<h1 align="center">Axis-Evo</h1>
 
-Axis-Evo 是一个本地优先的 AI Agent 工作台，面向代码修改、文档交付和需要保留执行证据的任务。选择工作区并描述目标后，Agent 可以在授权范围内检索资料、编辑文件、运行项目检查，并留下可审查的差异与回执。
+<p align="center">
+  本地优先的通用 AI Agent 工作台，面向代码与文档交付，提供可核验执行证据、显式审查工作流与受控 Skill 演化。<br>
+  <sub>Local-first AI agent workbench for code and document delivery, with auditable execution evidence, explicit review, and controlled skill evolution.</sub>
+</p>
 
-当前版本为 **0.1.0 Preview（M7.1）**。
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0%20Preview%20(M7.1)-1c1b18?style=flat-square">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-376db0?style=flat-square">
+  <img alt="Stack" src="https://img.shields.io/badge/stack-Python%203.11%2B%20%2F%20React%2019-5aa878?style=flat-square">
+  <a href="https://github.com/startuo/Axis-EVO/tree/academic/thesis-freeze-2026-11-02"><img alt="Academic Freeze" src="https://img.shields.io/badge/thesis%20freeze-12c789b-7c56d4?style=flat-square"></a>
+</p>
 
-## 可以做什么
+---
 
-- **在 Work 发起任务并审查交付。** 同一工作区内查看对话、改动、文件和执行回执，按保存的进展继续修订。已授权的知识目录、Skill 库和当前附加的 Edge 页面可作为任务材料。
-- **在实际项目中修改和验证。** Agent 支持受控文件编辑和只读 Git 观察。用户可在审查面板显式暂存、取消暂存、撤销和提交。授权后，命令、写入后检查和固定验收可在无网络 Linux 容器中执行。
-- **核对实际执行结果。** 本地 SQLite 保存任务、工具请求、执行回执和验证记录。文件编辑使用读取时的 SHA-256 校验版本。结果不确定的操作记为 `UNKNOWN`，重启或续跑时不会自动重放。
-- **依据任务反馈修订 Skill。** 保留原版和候选版本，用固定案例及历史反例比较实际产物，并按工作区策略决定采用、保留或回退。真实任务中稳定的质量改善和成本收益仍待验证。
+## 核心特性
 
-## 开始使用
+- **Work-First 三栏工作台**：在同一工作区内完成任务发起、实时过程跟踪、文件浏览与显式 Git 审查（暂存 / 取消暂存 / 撤销 / 提交），支持按快照断点续跑、切页草稿保留，以及 390px 窄屏与深浅双主题适配。
+- **多模型批量接入与推理强度控制**：支持 OpenAI 兼容、DeepSeek、Anthropic Messages（含 Qwen4-Max）与本地网关；读取模型列表后可多选批量接入并按端点分组检索，内置 Claude 风格动态推理滑块，并在上下文浮层实时展示提示词缓存的命中、写入与未命中明细。
+- **可核验执行与保守故障语义**：任务、工具意图、执行回执与产物统一落盘至本地追加式 SQLite；改写文件强制 `SHA-256` 版本核验；授权项目命令与固定验收运行在无网络、无宿主挂载的 Linux Docker 容器中；结果未确认的操作严格记为 `UNKNOWN`，重启或续跑绝不静默重放。
+- **受控 Skill 版本演化**：保留不可变 Skill 版本链，基于任务反馈生成候选修订，通过固定案例与历史反例比较实际产物，再按工作区策略显式采用或回退（真实复杂任务下的稳定质量增益与成本收益仍待持续验证）。
 
-| 场景 | 入口 |
+---
+
+## 快速开始
+
+### 方式一：Windows 预览安装包（推荐）
+
+直接运行 `Axis-Evo-0.1.0-Preview-M7.1-Setup.exe`，安装完成后从开始菜单打开 **Axis-Evo** 即可使用。安装包自带便携 CPython 与已构建前端，无需额外安装 Python 或 Node.js（安装包未签名，随附 SHA-256 校验，完整说明见 [Windows 预览指南](docs/WINDOWS_PREVIEW.md)）。
+
+### 方式二：源码运行
+
+要求常规 CPython 3.11+（Windows 不支持 Microsoft Store Python）与 Node.js 22.12+：
+
+```powershell
+# 1. 构建前端
+cd web
+npm ci
+npm run build
+cd ..
+
+# 2. 创建虚拟环境并安装本地运行依赖
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[web]"
+
+# 3. 启动本地工作台（仅监听 127.0.0.1）
+.\.venv\Scripts\python.exe -m examples.agent_workspace --data-dir "$env:LOCALAPPDATA\AxisEvo\data" --open-browser
+```
+
+首次进入后，在 **设置 → 工作区** 授权目标目录，在 **设置 → 模型连接** 配置模型即可在 **Work** 发起任务。项目命令与固定验收需本机 Docker Desktop Linux 引擎及用户授权镜像（缺失时自动禁用）；Edge 浏览器扩展为可选组件。
+
+---
+
+## 项目结构
+
+公开仓库仅保留项目本体与核心使用文档，构建日志、过程报告与验收证据均保存在本地归档：
+
+```text
+Axis-EVO/
+├── src/axis_evo/              # 冻结执行核心：事实账本、字节校验、检查点与 Skill 不可变版本链
+├── web_api/                   # 产品后端：Agent Runtime、读写分槽并发控制、Provider 协议与 Docker 沙箱
+├── web/                       # Work-first 前端工作台（React 19 + TypeScript + Vite）
+├── desktop/windows/           # Windows 原生启动器（C#）、NSIS 安装配置与便携构建脚本
+├── browser/edge-extension/    # 可选 Microsoft Edge MV3 扩展（单次标签页读取与审批绑定）
+├── examples/                  # 公开启动入口与独立演示脚本
+├── third_party/               # 第三方 Skill 示例与对应开源许可
+├── docs/                      # 用户与部署指南（核心文档 + 品牌资源）
+├── CHANGELOG.md               # 阶段精简更新日志
+├── THIRD_PARTY_NOTICES.md     # 第三方开源组件声明
+└── pyproject.toml             # Python 包与可选依赖定义
+```
+
+### 文档导航
+
+| 文档 | 说明 |
 | --- | --- |
-| Windows 预览版 | 通过 Setup.exe 安装后，从开始菜单打开 **Axis-Evo**，添加工作区并设置模型。安装包自带 Python 运行时和前端。安装包未签名，构建步骤见 [Windows 预览指南](docs/WINDOWS_PREVIEW.md)。 |
-| 源码开发 | 按 [Agent 工作区指南](docs/AGENT_WORKSPACE.md) 构建前端和启动服务。 |
-| 配置模型 | 在「模型连接」配置受支持的 Provider。启用外部模型时，完成任务所需的已授权材料会随请求发送给 Provider。见 [模型连接说明](docs/AGENT_PROVIDER.md)。 |
+| [Windows 预览指南](docs/WINDOWS_PREVIEW.md) | 安装包使用、覆盖升级、数据目录与本地构建复核 |
+| [Agent 工作区指南](docs/AGENT_WORKSPACE.md) | 源码启动、工作区权限、Docker 沙箱与工具边界 |
+| [模型连接说明](docs/AGENT_PROVIDER.md) | 受支持的 Provider 协议、网络路由与本地网关配置 |
+| [Skill 演化说明](docs/SKILL_EVOLUTION.md) | 不可变版本链、反馈归因与对照评审流程 |
+| [开发环境搭建](docs/WORKBENCH_SETUP.md) | 存储初始化、前后端联调与运维约定 |
+| [更新日志](CHANGELOG.md) | 各阶段的新增、优化、修复与移除摘要 |
 
-工作台使用本机回环地址。项目命令和固定检查需要 Docker 的 Linux 引擎和用户授权的镜像。Docker 缺失时会禁用这些功能。Edge 扩展为可选组件。
+---
 
-## M7 / M7.1 实测摘要
+## 验证状态与已知边界（M7 / M7.1）
 
-- M7 使用 `qwen4-max` 在真实 `python-slugify` 项目中分三段续跑。12 次请求的提示词缓存命中为 **29.24%**。模型段因预算结束，最终产物经独立 Docker 复验通过原项目回归和新增 **8/8** 项固定验收。
-- M7.1 为 Anthropic 兼容请求增加历史缓存断点，Work 显示命中、写入和未命中用量。仅离线契约验证，未跑实机模型。
-- M7.1 在 Windows 11 上通过前端 214 项测试和 Python 3342 项回归，另有 15 项跳过。已验证从 M7 覆盖升级、启动和卸载。按 [Windows 预览指南](docs/WINDOWS_PREVIEW.md) 安装。
+| 维度 | 当前状态 | 边界说明 |
+| --- | --- | --- |
+| 自动化回归 | 前端 TypeScript 0 错误、Vitest 214 项通过；Python 3342 通过 / 15 跳过 | 跳过项均为 Windows 符号链接权限、POSIX FIFO 与无私有研究语料目录 |
+| Windows 预览交付 | 已在 Windows 11 验证 M7 → M7.1 覆盖升级（含锁定重试）、启动与卸载 | 全新裸机 Windows 10/11 环境仍待独立复验；安装包未代码签名 |
+| 真实模型代码任务（M7） | `qwen4-max` 在 `python-slugify` 分三段续跑（12 次请求，缓存命中 29.24%），产物通过独立 Docker 回归与新增 8/8 项验收 | 模型段触发授权预算门禁停止；尚未证明跨项目的稳定自主完成率 |
+| 提示词缓存优化（M7.1） | Anthropic 兼容协议新增历史滑动缓存断点并统一模型视图，前端实时显示命中 / 写入 / 未命中用量 | **当前仅完成离线契约与单测验证**，实机多轮命中率提升待后续实跑采集 |
 
-阶段变化见 [更新日志](CHANGELOG.md)。详细回执、回归日志和安装记录保存在本地交付证据中。
-
-## 代码入口
-
-| 路径 | 内容 |
-| --- | --- |
-| [`src/axis_evo/`](src/axis_evo) | 执行核心、事件、验收、检查点与 Skill 版本 |
-| [`web_api/`](web_api) | Agent Runtime、工作区权限、Provider 和容器执行 |
-| [`web/`](web) | Work 工作台、技能与设置界面 |
-| [`desktop/windows/`](desktop/windows) | Windows 启动器与安装构建 |
-| [`browser/edge-extension/`](browser/edge-extension) | Edge 页面连接 |
+---
 
 ## 产品主线与学术归档
 
-产品源码统一维护在 `main`。毕业设计《基于大语言模型的技能演化系统的设计与实现》的公开冻结历史由标签 [`academic/thesis-freeze-2026-11-02`](https://github.com/startuo/Axis-EVO/tree/academic/thesis-freeze-2026-11-02) 保留，也可在工作台的「毕业设计只读展示」查看公开研究记录、评价和证据局限。
+产品源码统一维护在 `main`。本科毕业设计《基于大语言模型的技能演化系统的设计与实现》的公开冻结历史由不可变标签 [`academic/thesis-freeze-2026-11-02`](https://github.com/startuo/Axis-EVO/tree/academic/thesis-freeze-2026-11-02)（`12c789b`）独立保存，核心目录 `src/axis_evo/` 保持零改动；也可在工作台内打开「毕业设计只读展示」查看公开研究记录与证据局限。
