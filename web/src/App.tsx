@@ -23,7 +23,7 @@ import { useHashRoute } from './hooks/useHashRoute';
 import { useProfiles } from './hooks/useProfiles';
 import { useSessions } from './hooks/useSessions';
 import { useSocketEvent, useSocketStatus } from './hooks/useSocket';
-import { useTheme } from './hooks/useTheme';
+import { useAppearance } from './hooks/useTheme';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { fadeIn, motionProps, transitionFast } from './lib/motion';
 import { socket } from './lib/socket';
@@ -60,7 +60,8 @@ function Shell() {
   const sessions = useSessions(state);
   const workspaces = useWorkspaces(state);
   const profiles = useProfiles(state);
-  const { theme, toggle } = useTheme(state?.settings ?? null);
+  const { theme, toggle, uiStyle, motionTier } = useAppearance(state?.settings ?? null);
+  const showClouds = uiStyle === 'default' && motionTier === 'standard';
   const toast = useToast();
   const reduce = useReducedMotion();
 
@@ -78,6 +79,7 @@ function Shell() {
   const hasWorkSelection = route === 'work' && selection !== null;
 
   const triggerCloudPulse = (clientX: number, clientY: number) => {
+    if (!showClouds) return;
     const el = shellRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -88,6 +90,15 @@ function Shell() {
   };
 
   const toggleSidebarCollapsed = useCallback(() => setSidebarCollapsed((cur) => !cur), []);
+
+  useEffect(() => {
+    const reveal = () => { delete document.documentElement.dataset.prismPending; };
+    if (uiStyle === 'obsidian-prism') {
+      void import('./themes/obsidian-prism/obsidian-prism.css').then(reveal, reveal);
+    } else {
+      reveal();
+    }
+  }, [uiStyle]);
 
   useEffect(() => {
     try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0'); } catch { /* storage unavailable */ }
@@ -187,11 +198,11 @@ function Shell() {
 
   return (
     <div className="shell" ref={shellRef}>
-      <HalftoneCloudCanvas
+      {showClouds && <HalftoneCloudCanvas
         theme={theme}
         intensity={route === 'work' && selection === null ? 'hero' : 'ambient'}
         pulse={cloudPulse}
-      />
+      />}
       <AnimatePresence>
         {drawerOpen && <motion.div className="sidebar-scrim" onClick={() => setDrawerOpen(false)} aria-hidden
           {...motionProps(reduce, fadeIn, transitionFast)} />}

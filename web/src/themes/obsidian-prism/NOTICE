@@ -1,0 +1,75 @@
+Obsidian Prism (黑曜棱镜) — Optical UI, Motion & Thought Suite for Antigravity
+Copyright (C) 2026 RMvdesi (https://github.com/RMvdesi/obsidian-prism)
+
+================================================================================
+1. PRIMARY LICENSE & DOWNSTREAM DERIVATIVE OBLIGATIONS (GPL-3.0 + Section 7)
+================================================================================
+
+Obsidian Prism as a unified work and all original modules authored for this
+project are licensed under the GNU General Public License v3.0 (GPL-3.0-only).
+See the `LICENSE` file in the root directory for the full license text.
+
+Pursuant to Sections 4, 5, and 7 of the GNU General Public License v3.0, any
+person or entity distributing copies, modified versions, ports, repackaged
+installers, or derivative works based on Obsidian Prism MUST comply with all of
+the following conditions:
+
+  (a) Copyleft / Open-Source Reciprocity (Sections 5 & 6):
+      Any modified or derivative work distributed in source, bundled script, or
+      binary installer form MUST be licensed as a whole at no charge under the
+      GNU General Public License v3.0, with complete corresponding source code
+      made publicly accessible. Closed-source repackaging or proprietary
+      redistribution is strictly prohibited.
+
+  (b) Preservation of Legal & Attribution Notices (Section 7(b)):
+      You MUST retain all copyright notices, this `NOTICE` file, the
+      `THIRD_PARTY_NOTICES.md` file, and visible attribution crediting the
+      original project and author:
+        - Project: Obsidian Prism
+        - Author:  RMvdesi
+        - Source:  https://github.com/RMvdesi/obsidian-prism
+      If the derivative work includes an interactive settings or "About" UI
+      where legal notices or credits are displayed, equivalent attribution to
+      Obsidian Prism (RMvdesi) and its upstream contributors MUST be preserved.
+
+  (c) Prominent Modification Marking & Non-Endorsement (Sections 5(a), 7(c)-(e)):
+      Modified files and derivative distributions MUST carry prominent notices
+      stating that you changed the files and the date of modification. You may
+      NOT use the name "Obsidian Prism" or the author handle "RMvdesi" to
+      endorse or promote derived products or misrepresent modified versions as
+      official releases without prior written permission.
+
+================================================================================
+2. ABSORBED UPSTREAM OPEN-SOURCE COMPONENTS (MIT LICENSE — GPL-3.0 COMPATIBLE)
+================================================================================
+
+Obsidian Prism incorporates and adapts components from the following permissively
+licensed (MIT) open-source projects, whose original copyright and permission
+notices are preserved in full in `THIRD_PARTY_NOTICES.md`:
+
+  - 0DNANCY/agy-claude-style (https://github.com/0DNANCY/agy-claude-style)
+    Copyright (c) 2026 0DNANCY — MIT License (compatible with GPL-3.0-only)
+  - ATtacK030130/antigrative-dashboard v0.9.1 (https://github.com/ATtacK030130/antigrative-dashboard)
+    Copyright (c) 2026 AG Pulse contributors — MIT License (compatible with GPL-3.0-only),
+    absorbed and adapted in `vendor/pulse-dashboard/`
+  - LLYSH-HANNARI/antigravity-Codex-Claude-effort-slider (https://github.com/LLYSH-HANNARI/antigravity-Codex-Claude-effort-slider)
+    Copyright (c) 2026 月上寒 / LLYSH-HANNARI — MIT License (compatible with GPL-3.0-only),
+    absorbed and adapted in `vendor/effort-slider/`
+  - yiheng8023/antigravity-chinese v3.3.63 (https://github.com/yiheng8023/antigravity-chinese)
+    Copyright (c) 2026 Antigravity Chinese Localization Contributors — MIT License (compatible with GPL-3.0-only),
+    dictionary & DOM translation reference re-architected into pure CDP Channel 4 in `vendor/host-i18n/`
+
+Design & interaction inspiration is also gratefully credited to:
+  - Nwflower/dsh-claude-style
+  - Microqian2th/dsh-codex-effort-slider
+  - mobius/dsh-performance-slider
+  - claudenoshujin/claude-web (Mascot Pile & Micro-Ecology Interaction Inspiration)
+  - wp3171216237/dsh-TUI (Deepy DeepSeek pixel whale design & water-spout inspiration, MIT License)
+
+================================================================================
+3. NON-AFFILIATION DISCLAIMER
+================================================================================
+
+Obsidian Prism is an independent open-source project and is not affiliated with
+or endorsed by Google LLC. "Antigravity" and "Google" are trademarks or product
+names of Google LLC, referenced solely to describe compatibility.

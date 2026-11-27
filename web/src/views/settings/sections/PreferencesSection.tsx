@@ -1,10 +1,11 @@
-/** 偏好：主题（dark/light）与运行限额（maxTurnSeconds / maxToolCalls）。 */
+/** 外观偏好与运行限额。 */
 import { useEffect, useRef, useState } from 'react';
-import { LoaderCircle, Moon, SlidersHorizontal, Sun } from 'lucide-react';
+import { LoaderCircle, SlidersHorizontal } from 'lucide-react';
 import type { Settings } from '@axis/protocol';
 import { useToast } from '../../../components/Toasts';
 import { errorMessage } from '../../../lib/format';
 import { Field, SectionHeader, TextInput } from '../ui';
+import { AppearanceControls } from './AppearanceControls';
 
 export interface PreferencesSectionProps {
   settings: Settings | null;
@@ -14,7 +15,6 @@ export interface PreferencesSectionProps {
 
 export function PreferencesSection({ settings, updateSettings, pythonRuntime = false }: PreferencesSectionProps) {
   const toast = useToast();
-  const theme = settings?.theme ?? 'dark';
   const [maxTurnSeconds, setMaxTurnSeconds] = useState(settings?.maxTurnSeconds ?? 900);
   const [maxToolCalls, setMaxToolCalls] = useState(settings?.maxToolCalls ?? 120);
   const [busy, setBusy] = useState(false);
@@ -30,17 +30,6 @@ export function PreferencesSection({ settings, updateSettings, pythonRuntime = f
       seeded.current = true;
     }
   }, [settings]);
-
-  const setTheme = async (next: 'dark' | 'light') => {
-    if (next === theme) return;
-    document.documentElement.dataset.theme = next; // immediate visual feedback
-    try {
-      await updateSettings({ theme: next });
-    } catch (e) {
-      document.documentElement.dataset.theme = theme;
-      toast.push('error', `主题更新失败：${errorMessage(e)}`);
-    }
-  };
 
   const saveLimits = async () => {
     if (busy) return;
@@ -64,20 +53,10 @@ export function PreferencesSection({ settings, updateSettings, pythonRuntime = f
   return (
     <section className="set-section" aria-label="偏好">
       <SectionHeader icon={SlidersHorizontal} title="偏好" description={pythonRuntime
-        ? '设置此浏览器中的工作台主题。'
+        ? '外观偏好保存在此浏览器。'
         : '界面主题与代理运行限额。限额用于防止单个回合无限运行。'} />
 
-      <div className="set-card">
-        <h3 className="set-card-title">主题</h3>
-        <div className="set-theme-row" role="group" aria-label="主题">
-          <button className={`set-theme-btn${theme === 'dark' ? ' selected' : ''}`} aria-pressed={theme === 'dark'} onClick={() => void setTheme('dark')}>
-            <Moon size={15} aria-hidden /> 深色
-          </button>
-          <button className={`set-theme-btn${theme === 'light' ? ' selected' : ''}`} aria-pressed={theme === 'light'} onClick={() => void setTheme('light')}>
-            <Sun size={15} aria-hidden /> 浅色
-          </button>
-        </div>
-      </div>
+      <AppearanceControls settings={settings} updateSettings={updateSettings} />
 
       {!pythonRuntime && <div className="set-card">
         <h3 className="set-card-title">运行限额</h3>

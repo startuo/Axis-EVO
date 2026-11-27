@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 import './styles/tokens.css';
 import './styles/tailwind.css';
 import App from './App';
-import { readTheme } from './lib/themePreference';
+import { applyAppearanceToDocument, getAppearanceSnapshot } from './lib/appearance';
+import { saveTheme } from './lib/themePreference';
 
 const RuntimeEntry = lazy(() => import('./retained/RuntimeEntry'));
 const ResearchArchive = lazy(() => import('./retained/components/agent/ResearchArchive')
@@ -39,7 +40,9 @@ function RootRoutes() {
   return <App />;
 }
 
-document.documentElement.dataset.theme = readTheme();
+const startupAppearance = getAppearanceSnapshot();
+applyAppearanceToDocument(startupAppearance);
+saveTheme(startupAppearance.resolvedTheme);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

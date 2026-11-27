@@ -1,8 +1,9 @@
 /** Renders one transcript item by kind: messages, reasoning, tools, diffs, plans, errors. */
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Brain, Check, ChevronRight } from 'lucide-react';
 import type { Item, TurnImage } from '@axis/protocol';
+import { useAppearanceState } from '../hooks/useTheme';
 import { extractArtifacts } from '../lib/artifacts';
 import { turnImageUrl } from '../lib/composerImages';
 import { truncate } from '../lib/format';
@@ -14,6 +15,9 @@ import { PlanCard } from './PlanCard';
 import { PreviewDialog } from './PreviewDialog';
 import { ToolCard } from './ToolCard';
 import { TurnError } from './TurnError';
+
+const PrismInkStream = lazy(() => import('../themes/obsidian-prism/useInkStream')
+  .then(({ PrismInkStream }) => ({ default: PrismInkStream })));
 
 export function ReasoningBlock({ item }: { item: Item }) {
   const reduce = useReducedMotion();
@@ -96,18 +100,31 @@ function UserMessage({ item }: { item: Item }) {
   );
 }
 
-export function MessageView({ item, onOpenFile }: { item: Item; onOpenFile?: (path: string) => void }) {
+type FileAction = (path: string) => void;
+
+function AssistantMessage({ item, onOpenFile }: { item: Item; onOpenFile?: FileAction }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { uiStyle, motionTier } = useAppearanceState();
+  const text = item.text ?? '';
+  return (
+    <div className="msg-assistant" ref={containerRef}>
+      <Markdown text={text} onOpenFile={onOpenFile} />
+      {item.streaming && <span className="stream-cursor" aria-hidden />}
+      {item.streaming && uiStyle === 'obsidian-prism' && motionTier === 'standard' &&
+        <Suspense fallback={null}><PrismInkStream containerRef={containerRef} text={text} /></Suspense>}
+    </div>
+  );
+}
+
+export function MessageView({ item, onOpenFile, onReferenceFile }: {
+  item: Item; onOpenFile?: FileAction; onReferenceFile?: FileAction;
+}) {
   switch (item.kind) {
     case 'message':
       if (item.role === 'user') {
         return <UserMessage item={item} />;
       }
-      return (
-        <div className="msg-assistant">
-          <Markdown text={item.text ?? ''} onOpenFile={onOpenFile} />
-          {item.streaming && <span className="stream-cursor" aria-hidden />}
-        </div>
-      );
+      return <AssistantMessage item={item} onOpenFile={onOpenFile} />;
     case 'reasoning':
       return <ReasoningBlock item={item} />;
     case 'tool_call':
@@ -118,7 +135,7 @@ export function MessageView({ item, onOpenFile }: { item: Item; onOpenFile?: (pa
         return (
           <>
             {artifacts.map((a) => (
-              <ArtifactCard key={a.path} artifact={a} onOpenFile={onOpenFile} />
+              <ArtifactCard key={a.path} artifact={a} onOpenFile={onOpenFile} onReferenceFile={onReferenceFile} />
             ))}
           </>
         );

@@ -69,3 +69,12 @@ Their packaged dependencies are charset-normalizer 3.5.3 (MIT), et-xmlfile
 2.0.0 (MIT), lxml 6.1.3 (BSD-3-Clause), typing-extensions 4.16.0 (PSF-2.0),
 and XlsxWriter 3.3.4 (BSD-2-Clause). The Windows runtime includes the
 license files from the pinned wheels, including notices for bundled libraries.
+
+## Obsidian Prism
+
+The optional [Obsidian Prism](https://github.com/RMvdesi/obsidian-prism) theme
+and its optical widgets are adapted from RMvdesi's work under GPL-3.0-only.
+The [license](web/src/themes/obsidian-prism/LICENSE),
+[notice](web/src/themes/obsidian-prism/NOTICE), and
+[upstream credits](web/src/themes/obsidian-prism/THIRD_PARTY_NOTICES.md) accompany
+the theme source and vendor engines.

@@ -1,0 +1,148 @@
+/* 跨主题独立交互挂件布局样式（像素伙伴 / 物理浅水试管 / 切工水晶轨道 / 棱镜边框）
+   由对应懒加载挂件自行引入，在 Axis 默认与 Obsidian Prism 两套主题下均可独立生效，零污染全局色阶。 */
+
+/* ---- 1. 输入舱棱镜边框流光（PrismComposerRim） ---- */
+.prism-composer-rim {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 2;
+  opacity: var(--prism-rim-o, 0);
+  transition: opacity 160ms ease-out;
+  padding: 1.5px;
+  background: radial-gradient(
+    220px circle at var(--prism-rim-x, 50%) var(--prism-rim-y, 50%),
+    var(--prism-c1, var(--accent-warm)) 0%,
+    var(--prism-c2, #e59377) 34%,
+    var(--prism-c3, #f6bd60) 64%,
+    transparent 80%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/* ---- 2. 物理浅水上下文试管（PrismWaterVial） ---- */
+.prism-vial-btn {
+  gap: 5px;
+  padding: 0 7px 0 4px;
+}
+.prism-vial-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+.prism-vial-wrap.compact {
+  width: 14px;
+  height: 24px;
+}
+.prism-vial-canvas {
+  display: block;
+  width: 14px;
+  height: 24px;
+}
+.prism-vial-wrap:not(.compact),
+.prism-vial-wrap:not(.compact) .prism-vial-canvas {
+  width: 44px;
+  height: 98px;
+}
+
+/* ---- 3. 推理滑块切工水晶轨道（PrismCrystalBar） ---- */
+.prism-crystal-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.78;
+}
+.eg-track:has(.prism-crystal-canvas) .eg-ticks { z-index: 4; }
+.eg-track:has(.prism-crystal-canvas) .eg-handle { z-index: 6; }
+
+/* ---- 4. 桌面像素伙伴舞台（PrismMascotDock） ---- */
+.ag-cs-dual-stage.prism-mascot-stage {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% - 9px);
+  height: 84px;
+  z-index: 22;
+  pointer-events: none;
+  user-select: none;
+  overflow: visible;
+}
+.ag-cs-dual-stage .ag-v2-mascot-actor {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 96px;
+  height: 84px;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  outline: none;
+}
+.ag-cs-dual-stage .ag-v2-mascot-actor:focus,
+.ag-cs-dual-stage .ag-v2-mascot-actor:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.ag-cs-dual-stage .ag-v2-mascot-canvas {
+  position: relative;
+  z-index: 1;
+  width: 96px;
+  height: 84px;
+  display: block;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.ag-cs-dual-stage .ag-v2-mini-pile {
+  position: absolute;
+  left: 12px;
+  bottom: 1px;
+  height: 32px;
+  display: none;
+  align-items: flex-end;
+  pointer-events: none;
+  z-index: 20;
+}
+.ag-cs-dual-stage .ag-v2-mini-crab-canvas {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 40px;
+  height: 32px;
+  image-rendering: pixelated;
+  pointer-events: auto;
+  cursor: grab;
+  transition: transform 160ms steps(2, end);
+}
+.ag-cs-dual-stage .ag-v2-mini-crab-canvas:active,
+.ag-cs-dual-stage .ag-v2-mini-crab-canvas[data-direct='1'] {
+  transition: none;
+  will-change: transform;
+}
+
+@media (max-width: 640px) {
+  .ag-cs-dual-stage.prism-mascot-stage {
+    transform: scale(0.82);
+    transform-origin: bottom center;
+  }
+}
+
+html[data-motion-tier='focus'] .prism-composer-rim {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .prism-composer-rim {
+    transition: none;
+  }
+}

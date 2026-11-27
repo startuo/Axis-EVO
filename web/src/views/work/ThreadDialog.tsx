@@ -7,20 +7,25 @@
  * `ThreadDialog` wraps it with the session composer so a selected thread can be
  * continued without leaving Work.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import type { Approval, Item, Profile, Session, Settings, Workspace } from '@axis/protocol';
 import { ApprovalCard } from '../../components/ApprovalCard';
 import { ArtifactCard } from '../../components/ArtifactCard';
-import { Composer, type ComposerDrafts } from '../../components/Composer';
+import { Composer, type ComposerDrafts, type ComposerHandle } from '../../components/Composer';
 import { MessageView, ReasoningBlock } from '../../components/MessageView';
+import { ThreadOutlineRail } from '../../components/ThreadOutlineRail';
 import { ToolActivityGroup } from '../../components/ToolActivityGroup';
 import type { ConversationHook } from '../../hooks/useConversation';
+import { useAppearanceState } from '../../hooks/useTheme';
 import { useTurnSender, type TurnAttachment } from '../../hooks/useTurnSender';
 import { groupTranscriptTurns } from '../../lib/transcript';
 import { ExecutionDecisionCard } from './ExecutionDecisionCard';
 import { SESSION_STATUS_META } from './labels';
 import { useModelEffort } from './useModelEffort';
+
+const SemanticEdgeGlow = lazy(() => import('../../themes/obsidian-prism/SemanticEdgeGlow')
+  .then(({ SemanticEdgeGlow }) => ({ default: SemanticEdgeGlow })));
 
 export interface ConversationProps {
   items: Item[];
@@ -29,10 +34,12 @@ export interface ConversationProps {
   error: string | null;
   onReviewEvidence?: () => void;
   onOpenFile?: (path: string) => void;
+  onReferenceFile?: (path: string) => void;
+  outline?: boolean;
 }
 
 /** Scrolling transcript: grouped assistant turns (reasoning on top + compact tool runs) + inline approvals. */
-export function ThreadTranscript({ items, approvals, loading, error, onReviewEvidence, onOpenFile }: ConversationProps) {
+export function ThreadTranscript({ items, approvals, loading, error, onReviewEvidence, onOpenFile, onReferenceFile, outline }: ConversationProps) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const turns = useMemo(() => groupTranscriptTurns(items), [items]);
@@ -42,7 +49,7 @@ export function ThreadTranscript({ items, approvals, loading, error, onReviewEvi
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [items, approvals, loading]);
 
-  return (
+  const transcript = (
     <div
       className="convo"
       ref={ref}
@@ -65,7 +72,7 @@ export function ThreadTranscript({ items, approvals, loading, error, onReviewEvi
       )}
       {turns.map((turn) => {
         if (turn.kind === 'user') {
-          return <MessageView key={turn.id} item={turn.item} />;
+          return <div key={turn.id} data-turn-id={turn.id}><MessageView item={turn.item} /></div>;
         }
         return (
           <div key={turn.id} className="assistant-turn">
@@ -80,7 +87,7 @@ export function ThreadTranscript({ items, approvals, loading, error, onReviewEvi
                 return (
                   <div key={block.id} className="turn-artifacts">
                     {block.artifacts.map((a) => (
-                      <ArtifactCard key={a.path} artifact={a} onOpenFile={onOpenFile} />
+                      <ArtifactCard key={a.path} artifact={a} onOpenFile={onOpenFile} onReferenceFile={onReferenceFile} />
                     ))}
                   </div>
                 );
@@ -88,7 +95,7 @@ export function ThreadTranscript({ items, approvals, loading, error, onReviewEvi
               if (block.item.metadata?.decision) {
                 return <ExecutionDecisionCard key={block.id} decision={block.item.metadata.decision} onReviewEvidence={onReviewEvidence} />;
               }
-              return <MessageView key={block.id} item={block.item} onOpenFile={onOpenFile} />;
+              return <MessageView key={block.id} item={block.item} onOpenFile={onOpenFile} onReferenceFile={onReferenceFile} />;
             })}
           </div>
         );
@@ -98,6 +105,10 @@ export function ThreadTranscript({ items, approvals, loading, error, onReviewEvi
       ))}
     </div>
   );
+  return outline ? <div className="thread-transcript">
+    {transcript}
+    <ThreadOutlineRail turns={turns} scrollRef={ref} />
+  </div> : transcript;
 }
 
 export interface ThreadDialogProps {
@@ -120,6 +131,8 @@ export function ThreadDialog({
   sessionId, session, conv, workspaces, profiles, settings, onSessionCreated, onReviewEvidence,
   onOpenModelSettings, drafts, onOpenFile,
 }: ThreadDialogProps) {
+  const composerRef = useRef<ComposerHandle>(null);
+  const { uiStyle } = useAppearanceState();
   const sender = useTurnSender({
     sessionId,
     onSessionCreated,
@@ -162,10 +175,15 @@ export function ThreadDialog({
           </span>
         )}
       </div>
-      <ThreadTranscript items={conv.items} approvals={conv.approvals} loading={conv.loading} error={conv.error}
-        onReviewEvidence={onReviewEvidence} onOpenFile={onOpenFile} />
+      {uiStyle === 'obsidian-prism' && <Suspense fallback={null}>
+        <SemanticEdgeGlow session={session} approvals={conv.approvals} items={conv.items} />
+      </Suspense>}
+      <ThreadTranscript key={sessionId} items={conv.items} approvals={conv.approvals} loading={conv.loading} error={conv.error}
+        onReviewEvidence={onReviewEvidence} onOpenFile={onOpenFile} outline
+        onReferenceFile={(path) => composerRef.current?.insertReference(path)} />
       <div className="chat-footer thread-footer">
         <Composer
+          ref={composerRef}
           key={sessionId}
           variant="chat"
           draftKey={`session:${sessionId}`}

@@ -3,13 +3,54 @@
 .chat-wrap { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .convo {
   flex: 1; min-height: 0; overflow-y: auto; width: 100%; max-width: 860px;
-  margin: 0 auto; padding: 22px 20px 14px; display: flex; flex-direction: column; gap: 14px;
+  margin: 0 auto; padding: 0 20px 14px; display: flex; flex-direction: column; gap: 14px;
 }
+.convo::before { content: ''; flex: 0 0 8px; }
 /* Cards use overflow:hidden (min-size 0 in flex), so pin every transcript
    child against flex-shrink or tall conversations crush them into slivers. */
 .convo > * { flex: 0 0 auto; }
 .convo-note { display: flex; align-items: center; gap: 8px; justify-content: center; color: var(--text-muted); font-size: var(--fs-ui); padding: 18px 0; }
 .chat-footer { flex: 0 0 auto; padding-bottom: 6px; }
+
+.thread-transcript { flex: 1; min-height: 0; position: relative; display: flex; }
+.thread-transcript:has(.thread-outline-rail) .convo { padding-inline-end: 36px; }
+.thread-outline-rail { position: absolute; z-index: 5; top: min(20%, 100px); right: 3px; }
+.thread-outline-trigger {
+  display: grid; justify-items: center; gap: 5px; min-width: 28px; max-height: 132px; overflow: hidden;
+  padding: 7px 4px; color: var(--text-muted); border-radius: var(--radius-btn);
+}
+.thread-outline-trigger:hover, .thread-outline-rail.open .thread-outline-trigger {
+  background: var(--bg-elevated); color: var(--text-primary);
+}
+.thread-outline-ticks { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.thread-outline-tick { width: 9px; height: 2px; background: var(--border-strong); border-radius: 2px; }
+.thread-outline-tick.active { width: 15px; background: var(--accent-warm); }
+.thread-outline-popover {
+  position: absolute; right: 100%; top: 0; width: min(245px, calc(100vw - 56px)); padding: 8px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-btn); background: var(--bg-elevated);
+  box-shadow: var(--shadow-pop); font-size: var(--fs-label);
+}
+.thread-outline-head { display: flex; justify-content: space-between; gap: 8px; margin: 2px 3px 6px; font-weight: 600; }
+.thread-outline-shortcut { color: var(--text-muted); font-weight: 400; }
+.thread-outline-list { display: grid; gap: 2px; max-height: min(300px, 46vh); overflow-y: auto; }
+.thread-outline-item {
+  display: grid; grid-template-columns: 2ch 1fr; gap: 7px; min-width: 0; text-align: left;
+  padding: 5px 7px; border-radius: var(--radius-sm); color: var(--text-secondary); font-size: var(--fs-label);
+}
+.thread-outline-item:hover, .thread-outline-item.active { background: var(--bg-active); color: var(--text-primary); }
+.thread-outline-num { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.thread-outline-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+.axis-ctx-menu {
+  position: fixed; z-index: 80; width: 200px; padding: 5px; display: grid; gap: 1px;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-pop); font-size: var(--fs-label);
+}
+.axis-ctx-menu-item {
+  display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 5px 8px;
+  border-radius: var(--radius-sm); text-align: left; color: var(--text-secondary);
+}
+.axis-ctx-menu-item:hover, .axis-ctx-menu-item:focus-visible { background: var(--bg-hover); color: var(--text-primary); }
 
 /* ---- messages ---- */
 .msg-user { display: flex; justify-content: flex-end; }
@@ -41,6 +82,26 @@
 .md code { font-family: var(--font-mono); font-size: var(--fs-label); background: var(--bg-code); border: 1px solid var(--border-subtle); padding: 1px 5px; border-radius: 4px; }
 .md pre { background: var(--bg-code); border: 1px solid var(--border-subtle); border-radius: var(--radius-btn); padding: 12px 14px; overflow-x: auto; margin: 0 0 12px; }
 .md pre code { background: none; border: none; padding: 0; font-size: var(--fs-label); line-height: 1.6; }
+.md-code-block {
+  min-width: 0; margin: 0 0 12px; position: relative; background: var(--bg-code);
+  border-radius: var(--radius-btn); box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+.md-code-bar {
+  position: sticky; top: 0; z-index: 3; display: flex; justify-content: space-between;
+  align-items: center; gap: 8px; min-height: 35px; padding: 4px 8px 4px 12px;
+  border-radius: var(--radius-btn) var(--radius-btn) 0 0; border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated); font-size: var(--fs-label);
+}
+.md-code-lang { display: flex; gap: 8px; align-items: center; color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; }
+.md-code-lang > span { white-space: nowrap; color: var(--text-muted); }
+.md-code-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.md-code-actions button, .md-code-expand {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px;
+  color: var(--text-secondary); border-radius: var(--radius-sm); font-size: var(--fs-label);
+}
+.md-code-actions button:hover, .md-code-expand:hover { background: var(--bg-hover); color: var(--text-primary); }
+.md-code-block pre { border: 0; margin: 0; border-radius: 0 0 var(--radius-btn) var(--radius-btn); background: transparent; }
+.md-code-expand { display: flex; margin: 0 auto; min-height: 28px; }
 .md table { border-collapse: collapse; margin: 0 0 12px; display: block; overflow-x: auto; max-width: 100%; }
 .md th, .md td { border: 1px solid var(--border-subtle); padding: 6px 12px; font-size: var(--fs-ui); text-align: left; }
 .md th { background: var(--bg-elevated); font-weight: 600; }
@@ -443,7 +504,8 @@ span.perm-chip { cursor: default; }
 .effort-btn.selected { background: var(--bg-active); color: var(--text-primary); font-weight: 500; }
 
 @media (max-width: 640px) {
-  .convo { padding: 16px 12px 10px; }
+  .convo { padding: 0 12px 10px; }
+  .convo::before { flex-basis: 2px; }
   .composer-zone { padding: 0 10px; }
   .composer { padding: 12px 10px 9px; }
   .composer textarea { font-size: var(--fs-title); }

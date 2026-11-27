@@ -7,18 +7,22 @@
  * - 严格兼容深浅双主题、键盘无障碍（方向键/Home/End/PageUp/PageDown）与 prefers-reduced-motion
  */
 import {
-  useCallback, useEffect, useId, useRef, useState,
+  lazy, Suspense, useCallback, useEffect, useId, useRef, useState,
   type CSSProperties, type KeyboardEvent, type PointerEvent,
 } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { HelpCircle } from 'lucide-react';
 import type { ReasoningEffort } from '@axis/protocol';
+import { useAppearanceState } from '../../hooks/useTheme';
 import { EFFORT_LABEL, EFFORT_ORDER } from '../../lib/format';
 import {
   DURATION, EASE_OUT, projectMomentum, reducedTransition, rubberBand, SPRING_GESTURE,
 } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import './effort-gauge.css';
+
+const PrismCrystalBar = lazy(() => import('../../themes/obsidian-prism/PrismCrystalBar')
+  .then(({ PrismCrystalBar }) => ({ default: PrismCrystalBar })));
 
 const LEVEL_BARS: Record<ReasoningEffort, number> = {
   off: 0,
@@ -297,7 +301,10 @@ export function EffortGauge({
 }: EffortGaugeProps) {
   const id = useId();
   const tipId = useId();
-  const reduce = useReducedMotion();
+  const reducedMotion = useReducedMotion();
+  const { motionTier, prismCrystal } = useAppearanceState();
+  const reduce = Boolean(reducedMotion) || motionTier === 'focus';
+  const [pointerClient, setPointerClient] = useState<{ x: number; y: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
@@ -332,6 +339,7 @@ export function EffortGauge({
 
   // 鼠标光场：靠近玻璃轨道 72px 内照亮内光斑与外轮廓边缘高光
   const updateLightField = useCallback((clientX: number, clientY: number) => {
+    if (prismCrystal && !reduce && !disabled) setPointerClient({ x: clientX, y: clientY });
     const root = rootRef.current;
     const track = trackRef.current;
     if (!root || !track || reduce || disabled) return;
@@ -347,9 +355,10 @@ export function EffortGauge({
     root.style.setProperty('--eg-light-x', `${(lx * 100).toFixed(1)}%`);
     root.style.setProperty('--eg-light-y', `${(ly * 100).toFixed(1)}%`);
     root.style.setProperty('--eg-light-strength', strength.toFixed(3));
-  }, [disabled, reduce]);
+  }, [disabled, reduce, prismCrystal]);
 
   const clearLightField = useCallback(() => {
+    setPointerClient(null);
     rootRef.current?.style.setProperty('--eg-light-strength', '0');
     setHoverStop(null);
   }, []);
@@ -598,6 +607,10 @@ export function EffortGauge({
             />
             <div className="eg-max-fallback" />
             <canvas ref={canvasRef} className="eg-pixel-field" />
+
+            {prismCrystal && <Suspense fallback={null}>
+              <PrismCrystalBar fillRatio={clampedRatio} pointerClient={reduce ? null : pointerClient} />
+            </Suspense>}
 
             <div className="eg-ticks">
               {EFFORT_ORDER.map((stop, i) => {

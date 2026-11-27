@@ -1,5 +1,5 @@
 import {
-  PROTOCOL_VERSION, bootstrapState, conversationSummary, settings,
+  PROTOCOL_VERSION, appearanceSettings, bootstrapState, conversationSummary, settings,
   type BootstrapState, type Profile, type RequestMethod, type ServerEvent,
   type Session, type Settings, type Workspace,
 } from '@axis/protocol';
@@ -209,10 +209,10 @@ export class HttpAxisClient implements AxisClient {
         return this.localSettings;
       case 'settings.set': {
         const patch = object(params.patch);
-        if (Object.keys(patch).some((key) => key !== 'theme')) {
+        if (Object.keys(patch).some((key) => !Object.hasOwn(appearanceSettings.shape, key))) {
           fail('UNSUPPORTED_SETTING', '请在相应工作区或模型配置中修改实际授权和运行选项。');
         }
-        this.localSettings = settings.parse({ ...this.localSettings, ...patch });
+        this.localSettings = settings.parse({ ...this.localSettings, ...appearanceSettings.parse(patch) });
         saveTheme(this.localSettings.theme);
         this.emit({ type: 'settings.updated', settings: this.localSettings });
         return this.localSettings;

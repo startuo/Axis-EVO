@@ -2,13 +2,14 @@
  * Shared task and thread input dock. Drafts live in the app shell while
  * the composer itself can unmount on route changes or thread switches.
  */
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useId, useImperativeHandle, useRef, useState, useSyncExternalStore, type Ref } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowUp, AtSign, BookOpen, Cloud, FolderOpen, ImagePlus, Plus, Square, X,
 } from 'lucide-react';
 import type { AgentCommand, PermissionMode, Profile, ReasoningEffort, Session, Workspace } from '@axis/protocol';
 import { useClickOutside } from '../hooks/useClickOutside';
+import { useAppearanceState } from '../hooks/useTheme';
 import type { TurnAttachment } from '../hooks/useTurnSender';
 import { baseName, errorMessage, formatBytes, truncate } from '../lib/format';
 import { SLASH_COMMANDS } from '../lib/agentCommands';
@@ -17,6 +18,11 @@ import { iconSwap, motionProps, popoverOrigin, transitionFast } from '../lib/mot
 import { ContextMeter } from './ContextMeter';
 import { ModelSelector } from './ModelSelector';
 import { PermissionChip } from './PermissionChip';
+
+const PrismMascotDock = lazy(() => import('../themes/obsidian-prism/PrismMascotDock')
+  .then(({ PrismMascotDock }) => ({ default: PrismMascotDock })));
+const PrismComposerRim = lazy(() => import('../themes/obsidian-prism/PrismComposerRim')
+  .then(({ PrismComposerRim }) => ({ default: PrismComposerRim })));
 
 export interface ComposerDraft {
   text: string;
@@ -58,7 +64,12 @@ export function createComposerDrafts() {
 
 export type ComposerDrafts = ReturnType<typeof createComposerDrafts>;
 
+export interface ComposerHandle {
+  insertReference: (path: string) => void;
+}
+
 export interface ComposerProps {
+  ref?: Ref<ComposerHandle>;
   variant: 'chat' | 'work';
   draftKey: string;
   drafts: ComposerDrafts;
@@ -97,9 +108,10 @@ export function Composer(props: ComposerProps) {
     profiles, profileId, onProfileChange, onOpenModelSettings, effort, onEffortChange,
     workspaces, workspaceId, onWorkspaceChange, onSend, onCancel, onOpenPlugins,
     tokenUsage, contextTokens, contextLimit, cacheHitRate, cacheHitTokens, cacheWriteTokens, cacheMissTokens,
-    prefill, onPrefillConsumed,
+    prefill, onPrefillConsumed, ref,
   } = props;
   const reduce = useReducedMotion();
+  const { prismMascots, prismRim, motionTier } = useAppearanceState();
   const draft = useSyncExternalStore(drafts.subscribe, () => drafts.read(draftKey));
   const [submitting, setSubmitting] = useState(false);
   const { text, attachments } = draft;
@@ -116,6 +128,7 @@ export function Composer(props: ComposerProps) {
   const plusRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const readingImages = useRef(false);
   useClickOutside(plusRef, () => { setPlusOpen(false); setAttachKind(null); }, plusOpen);
@@ -125,6 +138,16 @@ export function Composer(props: ComposerProps) {
   const options = !plusOpen && text !== dismissedCommand && /^\s*\/[a-z]*$/.test(text)
     ? SLASH_COMMANDS.filter(option => `/${option.name}`.startsWith(text.trimStart())) : [];
   const activeIndex = Math.min(slashIndex, Math.max(0, options.length - 1));
+
+  useImperativeHandle(ref, () => ({
+    insertReference(path) {
+      const current = drafts.read(draftKey);
+      const separator = current.text && !/\s$/.test(current.text) ? ' ' : '';
+      const reference = /[\s"]/.test(path) ? JSON.stringify(path) : path;
+      drafts.write(draftKey, { ...current, text: `${current.text}${separator}@${reference} ` });
+      taRef.current?.focus();
+    },
+  }), [draftKey, drafts]);
 
   useEffect(() => {
     if (prefill) {
@@ -213,7 +236,11 @@ export function Composer(props: ComposerProps) {
 
   return (
     <div className={`composer-zone ${variant}`}>
-      <div className={`composer-dock ${variant}`}>
+      <div className={`composer-dock ${variant}`} ref={dockRef}>
+      <Suspense fallback={null}>
+        {prismMascots && <PrismMascotDock running={running} draftText={text} />}
+        {prismRim && motionTier === 'standard' && <PrismComposerRim dockRef={dockRef} />}
+      </Suspense>
       <div className={`composer ${variant}${dragging ? ' composer-dragging' : ''}`}
         onDragOver={event => {
           if (!event.dataTransfer.types.includes('Files')) return;
@@ -374,6 +401,7 @@ export function Composer(props: ComposerProps) {
             onEffortChange={onEffortChange}
           />
           {variant === 'chat' && <ContextMeter
+            streaming={running}
             tokenUsage={tokenUsage}
             modelId={currentProfile?.modelId}
             contextTokens={contextTokens}

@@ -1,0 +1,543 @@
+/* ==========================================================================
+   Obsidian Prism（黑曜棱镜）独立光学主题包
+   - 全部样式严格限定在 html[data-ui-style='obsidian-prism'] 作用域内，
+     Axis 默认主题下完全不生效、零视觉污染。
+   - 配色与光学参数参考并致敬 RMvdesi/obsidian-prism (GPL-3.0)。
+   ========================================================================== */
+
+/* ---- 1. 四套官方深浅色板（深空黑曜 / 暖炭玄岩 / 白昼冷晶 / 暖白画册） ---- */
+
+html[data-ui-style='obsidian-prism'][data-theme='dark'],
+html[data-ui-style='obsidian-prism'][data-prism-palette='obsidian'] {
+  --bg-rail: #070709;
+  --bg-base: #0e0e11;
+  --bg-sidebar: #09090b;
+  --bg-tray: #111319;
+  --bg-elevated: #141720;
+  --bg-composer: #151822;
+  --bg-user-bubble: #181c28;
+  --bg-hover: rgba(235, 242, 255, 0.055);
+  --bg-active: rgba(235, 242, 255, 0.095);
+  --bg-input: #10131a;
+  --bg-code: #0b0d12;
+  --glass-bg: rgba(16, 19, 28, 0.88);
+
+  --border-subtle: rgba(226, 236, 255, 0.085);
+  --border-strong: rgba(226, 236, 255, 0.165);
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  --focus-aura: rgba(66, 133, 244, 0.22);
+
+  --text-primary: #f1f5fc;
+  --text-secondary: #b9c2d3;
+  --text-muted: #8490a6;
+  --text-faint: #5b6578;
+
+  --accent-brand: #f1f5fc;
+  --accent-brand-soft: rgba(241, 245, 252, 0.085);
+  --accent-warm: #4285f4;
+  --accent-warm-soft: rgba(66, 133, 244, 0.15);
+  --ring: rgba(66, 133, 244, 0.48);
+
+  --prism-c1: #4285f4;
+  --prism-c2: #9b72cb;
+  --prism-c3: #ea4335;
+  --prism-c4: #fbbc04;
+  --prism-surface-top: rgba(255, 255, 255, 0.085);
+  --prism-edge-line: rgba(148, 184, 255, 0.18);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.48), 0 8px 22px -12px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.065);
+  --shadow-composer: 0 4px 16px -4px rgba(0, 0, 0, 0.56), 0 18px 42px -12px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.095);
+  --shadow-pop: 0 0 0 1px rgba(226, 236, 255, 0.11), 0 16px 40px -10px rgba(0, 0, 0, 0.65), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+html[data-ui-style='obsidian-prism'][data-theme='dark'][data-prism-palette='warm'] {
+  --bg-rail: #0c0c0b;
+  --bg-base: #141413;
+  --bg-sidebar: #10100f;
+  --bg-tray: #181715;
+  --bg-elevated: #1c1b19;
+  --bg-composer: #1f1e1b;
+  --bg-user-bubble: #23211e;
+  --bg-hover: rgba(255, 248, 236, 0.055);
+  --bg-active: rgba(255, 248, 236, 0.098);
+  --bg-input: #151412;
+  --bg-code: #11100e;
+  --glass-bg: rgba(24, 23, 20, 0.9);
+
+  --border-subtle: rgba(255, 246, 232, 0.082);
+  --border-strong: rgba(255, 246, 232, 0.16);
+  --highlight-top: inset 0 1px 0 rgba(255, 248, 235, 0.085);
+  --focus-aura: rgba(217, 119, 87, 0.2);
+
+  --text-primary: #f5f2eb;
+  --text-secondary: #c2bcb2;
+  --text-muted: #90897e;
+  --text-faint: #666159;
+
+  --accent-warm: #d97757;
+  --accent-warm-soft: rgba(217, 119, 87, 0.15);
+  --ring: rgba(217, 119, 87, 0.48);
+
+  --prism-c1: #c25934;
+  --prism-c2: #d97757;
+  --prism-c3: #e59377;
+  --prism-c4: #f6bd60;
+  --prism-edge-line: rgba(235, 175, 138, 0.2);
+}
+
+html[data-ui-style='obsidian-prism'][data-theme='light'],
+html[data-ui-style='obsidian-prism'][data-theme='light'][data-prism-palette='crystal'] {
+  --bg-rail: #dfe7f2;
+  --bg-base: #f4f7fb;
+  --bg-sidebar: #e8eef6;
+  --bg-tray: #e9eff7;
+  --bg-elevated: #ffffff;
+  --bg-composer: #ffffff;
+  --bg-user-bubble: #edf2fa;
+  --bg-hover: rgba(15, 23, 42, 0.05);
+  --bg-active: rgba(15, 23, 42, 0.088);
+  --bg-input: #f8fafd;
+  --bg-code: #eff4fa;
+  --glass-bg: rgba(255, 255, 255, 0.9);
+
+  --border-subtle: rgba(15, 23, 42, 0.085);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --focus-aura: rgba(37, 99, 235, 0.16);
+
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+
+  --accent-brand: #0f172a;
+  --accent-brand-soft: rgba(15, 23, 42, 0.068);
+  --accent-warm: #2563eb;
+  --accent-warm-soft: rgba(37, 99, 235, 0.11);
+  --ring: rgba(37, 99, 235, 0.42);
+
+  --prism-c1: #2563eb;
+  --prism-c2: #7c3aed;
+  --prism-c3: #dc2626;
+  --prism-c4: #d97706;
+  --prism-surface-top: rgba(255, 255, 255, 0.96);
+  --prism-edge-line: rgba(37, 99, 235, 0.22);
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.055), 0 6px 16px -6px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --shadow-composer: 0 2px 6px rgba(15, 23, 42, 0.06), 0 14px 32px -10px rgba(15, 23, 42, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  --shadow-pop: 0 0 0 1px rgba(15, 23, 42, 0.08), 0 12px 32px -8px rgba(15, 23, 42, 0.14);
+}
+
+html[data-ui-style='obsidian-prism'][data-theme='light'][data-prism-palette='alabaster'] {
+  --bg-rail: #e3ddd1;
+  --bg-base: #f6f4ee;
+  --bg-sidebar: #ebe6dc;
+  --bg-tray: #ece7de;
+  --bg-elevated: #fffdf8;
+  --bg-composer: #fffdf8;
+  --bg-user-bubble: #f0ebe0;
+  --bg-hover: rgba(28, 25, 23, 0.05);
+  --bg-active: rgba(28, 25, 23, 0.088);
+  --bg-input: #f8f5ee;
+  --bg-code: #f2ede3;
+  --glass-bg: rgba(255, 253, 248, 0.92);
+
+  --border-subtle: rgba(28, 25, 23, 0.09);
+  --border-strong: rgba(28, 25, 23, 0.17);
+  --focus-aura: rgba(194, 89, 52, 0.16);
+
+  --text-primary: #1c1917;
+  --text-secondary: #44403c;
+  --text-muted: #78716c;
+  --text-faint: #a8a29e;
+
+  --accent-brand: #1c1917;
+  --accent-brand-soft: rgba(28, 25, 23, 0.068);
+  --accent-warm: #c25934;
+  --accent-warm-soft: rgba(194, 89, 52, 0.12);
+  --ring: rgba(194, 89, 52, 0.42);
+
+  --prism-c1: #b94f2c;
+  --prism-c2: #d97757;
+  --prism-c3: #d97706;
+  --prism-c4: #eab308;
+  --prism-edge-line: rgba(194, 89, 52, 0.22);
+}
+
+/* ---- 2. 五档工业强调色覆写 ---- */
+
+html[data-ui-style='obsidian-prism'][data-prism-accent='cobalt'] {
+  --prism-c1: #1d4ed8;
+  --prism-c2: #3186ff;
+  --prism-c3: #5cc6fc;
+  --prism-c4: #8ce0ff;
+  --accent-warm: #3186ff;
+  --accent-warm-soft: rgba(49, 134, 255, 0.14);
+  --ring: rgba(49, 134, 255, 0.46);
+}
+html[data-ui-style='obsidian-prism'][data-prism-accent='iris'] {
+  --prism-c1: #6d28d9;
+  --prism-c2: #8b5cf6;
+  --prism-c3: #a78bfa;
+  --prism-c4: #ddd6fe;
+  --accent-warm: #8b5cf6;
+  --accent-warm-soft: rgba(139, 92, 246, 0.15);
+  --ring: rgba(139, 92, 246, 0.48);
+}
+html[data-ui-style='obsidian-prism'][data-prism-accent='amber'] {
+  --prism-c1: #b45309;
+  --prism-c2: #d97706;
+  --prism-c3: #f2b84b;
+  --prism-c4: #fde68a;
+  --accent-warm: #d97706;
+  --accent-warm-soft: rgba(217, 119, 6, 0.15);
+  --ring: rgba(217, 119, 6, 0.48);
+}
+html[data-ui-style='obsidian-prism'][data-prism-accent='mono'] {
+  --prism-c1: #64748b;
+  --prism-c2: #94a3b8;
+  --prism-c3: #cbd5e1;
+  --prism-c4: #f1f5f9;
+  --accent-warm: #94a3b8;
+  --accent-warm-soft: rgba(148, 163, 184, 0.16);
+  --ring: rgba(148, 163, 184, 0.46);
+}
+
+/* ---- 3. Smoked Obsidian 光学切面壳层（侧栏 / 顶栏 / 对话卡片 / 输入舱） ---- */
+
+html[data-ui-style='obsidian-prism'] .shell {
+  background: var(--bg-base);
+}
+
+html[data-ui-style='obsidian-prism'] .sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03);
+}
+html[data-ui-style='obsidian-prism'] .sidebar .sb-nav-item,
+html[data-ui-style='obsidian-prism'] .sidebar .sb-proj-head,
+html[data-ui-style='obsidian-prism'] .sidebar .sb-row,
+html[data-ui-style='obsidian-prism'] .sidebar .sb-footer-settings,
+html[data-ui-style='obsidian-prism'] .sidebar .sb-label {
+  text-shadow: none;
+}
+
+html[data-ui-style='obsidian-prism'] .topbar {
+  background: color-mix(in srgb, var(--bg-base) 92%, var(--bg-elevated));
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+html[data-ui-style='obsidian-prism'] .settings-view,
+html[data-ui-style='obsidian-prism'] .skills-view,
+html[data-ui-style='obsidian-prism'] .agents-view {
+  background: var(--bg-base);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-ui-style='obsidian-prism'] .msg-user-bubble {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-user-bubble) 100%, var(--prism-surface-top) 6%), var(--bg-user-bubble));
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-card);
+}
+
+html[data-ui-style='obsidian-prism'] .assistant-turn {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 98%, transparent), color-mix(in srgb, var(--bg-elevated) 92%, var(--bg-base)));
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+}
+
+html[data-ui-style='obsidian-prism'] .card,
+html[data-ui-style='obsidian-prism'] .artifact-card {
+  background: var(--bg-elevated);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-card);
+}
+
+html[data-ui-style='obsidian-prism'] .suggest-chip {
+  background: var(--bg-elevated);
+  border-color: var(--border-subtle);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--shadow-card);
+}
+
+/* ---- 4. 输入舱棱镜边框流光（PrismComposerRim） ---- */
+
+html[data-ui-style='obsidian-prism'] .composer-dock {
+  position: relative;
+}
+
+html[data-ui-style='obsidian-prism'] .composer-dock.work {
+  background: var(--bg-tray);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-composer);
+}
+
+html[data-ui-style='obsidian-prism'] .composer-dock:focus-within {
+  border-color: color-mix(in srgb, var(--prism-c1) 46%, var(--border-strong));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--prism-c1) 24%, transparent),
+    0 12px 32px -12px color-mix(in srgb, var(--prism-c1) 26%, rgba(0, 0, 0, 0.5)),
+    var(--shadow-composer);
+}
+
+.prism-composer-rim {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 2;
+  opacity: var(--prism-rim-o, 0);
+  transition: opacity 160ms ease-out;
+  padding: 1.5px;
+  background: radial-gradient(
+    220px circle at var(--prism-rim-x, 50%) var(--prism-rim-y, 50%),
+    var(--prism-c1) 0%,
+    var(--prism-c2) 32%,
+    var(--prism-c3) 62%,
+    transparent 78%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/* ---- 5. 512K 物理浅水试管（PrismWaterVial） ---- */
+
+.prism-vial-btn {
+  gap: 5px;
+  padding: 0 7px 0 4px;
+}
+
+.prism-vial-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.prism-vial-wrap.compact {
+  width: 14px;
+  height: 24px;
+}
+
+.prism-vial-canvas {
+  display: block;
+  width: 14px;
+  height: 24px;
+}
+
+.prism-vial-wrap:not(.compact),
+.prism-vial-wrap:not(.compact) .prism-vial-canvas {
+  width: 44px;
+  height: 98px;
+}
+
+/* ---- 6. 推理滑块切工水晶轨道叠加（PrismCrystalBar） ---- */
+
+.prism-crystal-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.78;
+}
+
+html[data-ui-style='obsidian-prism'] .eg-track {
+  border-color: color-mix(in srgb, var(--prism-c2) 32%, var(--border-strong));
+}
+html[data-ui-style='obsidian-prism'] .eg-ticks { z-index: 4; }
+html[data-ui-style='obsidian-prism'] .eg-handle { z-index: 6; }
+
+/* ---- 7. 0fps 语义边缘余晖（SemanticEdgeGlow） ---- */
+
+.prism-edge-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 30;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 280ms var(--ease-out);
+}
+
+.prism-edge-glow::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 8%;
+  right: 8%;
+  height: 18px;
+  filter: blur(12px);
+  opacity: 0.36;
+  pointer-events: none;
+}
+
+.prism-edge-glow.static-only::after {
+  display: none;
+}
+
+.prism-edge-glow.state-idle {
+  opacity: 0;
+}
+
+.prism-edge-glow.state-running {
+  opacity: 0.92;
+  background: linear-gradient(90deg, transparent 0%, var(--prism-c1) 24%, var(--prism-c2) 52%, var(--prism-c4) 78%, transparent 100%);
+  background-size: 200% 100%;
+  animation: prism-edge-sweep 3.2s ease-in-out infinite;
+}
+.prism-edge-glow.state-running::after {
+  background: linear-gradient(90deg, transparent, var(--prism-c1), var(--prism-c2), transparent);
+}
+.prism-edge-glow.state-running.static-only {
+  animation: none;
+  background-size: 100% 100%;
+}
+
+.prism-edge-glow.state-approval {
+  opacity: 0.95;
+  background: linear-gradient(90deg, transparent 0%, var(--accent-warn) 25%, #f6bd60 50%, var(--accent-warn) 75%, transparent 100%);
+}
+.prism-edge-glow.state-approval::after {
+  background: linear-gradient(90deg, transparent, var(--accent-warn), transparent);
+}
+
+.prism-edge-glow.state-error {
+  opacity: 0.95;
+  background: linear-gradient(90deg, transparent 0%, var(--accent-danger) 28%, #f87171 50%, var(--accent-danger) 72%, transparent 100%);
+}
+.prism-edge-glow.state-error::after {
+  background: linear-gradient(90deg, transparent, var(--accent-danger), transparent);
+}
+
+.prism-edge-glow.state-completed {
+  opacity: 0.9;
+  background: linear-gradient(90deg, transparent 0%, var(--accent-success) 30%, #6ee7b7 50%, var(--accent-success) 70%, transparent 100%);
+}
+.prism-edge-glow.state-completed::after {
+  background: linear-gradient(90deg, transparent, var(--accent-success), transparent);
+}
+
+@keyframes prism-edge-sweep {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* ---- 8. 像素伙伴舞台定位（复用上游 ag-cs-dual-stage 几何约定） ---- */
+
+.ag-cs-dual-stage.prism-mascot-stage {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% - 9px);
+  height: 84px;
+  z-index: 22;
+  pointer-events: none;
+  user-select: none;
+  overflow: visible;
+}
+
+.ag-cs-dual-stage .ag-v2-mascot-actor {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 96px;
+  height: 84px;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  outline: none;
+}
+
+.ag-cs-dual-stage .ag-v2-mascot-actor:focus,
+.ag-cs-dual-stage .ag-v2-mascot-actor:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.ag-cs-dual-stage .ag-v2-mascot-canvas {
+  position: relative;
+  z-index: 1;
+  width: 96px;
+  height: 84px;
+  display: block;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.ag-cs-dual-stage .ag-v2-mini-pile {
+  position: absolute;
+  left: 12px;
+  bottom: 1px;
+  height: 32px;
+  display: none;
+  align-items: flex-end;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.ag-cs-dual-stage .ag-v2-mini-crab-canvas {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 40px;
+  height: 32px;
+  image-rendering: pixelated;
+  pointer-events: auto;
+  cursor: grab;
+  transition: transform 160ms steps(2, end);
+}
+
+.ag-cs-dual-stage .ag-v2-mini-crab-canvas:active,
+.ag-cs-dual-stage .ag-v2-mini-crab-canvas[data-direct='1'] {
+  transition: none;
+  will-change: transform;
+}
+
+@media (max-width: 640px) {
+  .ag-cs-dual-stage.prism-mascot-stage {
+    transform: scale(0.82);
+    transform-origin: bottom center;
+  }
+}
+
+/* ---- 9. 五级水墨流式淡入（CSS Custom Highlight API） ---- */
+
+::highlight(axis-prism-f0) { color: color-mix(in srgb, var(--text-primary) 18%, transparent); }
+::highlight(axis-prism-f1) { color: color-mix(in srgb, var(--text-primary) 38%, transparent); }
+::highlight(axis-prism-f2) { color: color-mix(in srgb, var(--text-primary) 60%, transparent); }
+::highlight(axis-prism-f3) { color: color-mix(in srgb, var(--text-primary) 82%, transparent); }
+::highlight(axis-prism-f4) { color: var(--text-primary); }
+
+/* ---- 10. 专注省电档与系统减少动态效果强制静默 ---- */
+
+html[data-motion-tier='focus'] .shimmer-text,
+html[data-motion-tier='focus'] .pulse-dot,
+html[data-motion-tier='focus'] .model-effort.tier-high,
+html[data-motion-tier='focus'] .prism-edge-glow,
+html[data-motion-tier='focus'] .reasoning-wrap.streaming .reasoning-icon {
+  animation: none !important;
+}
+
+html[data-motion-tier='focus'] .prism-composer-rim {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prism-edge-glow,
+  .prism-composer-rim {
+    animation: none;
+    transition: none;
+  }
+}

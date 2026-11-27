@@ -270,7 +270,33 @@ export const mcpServer = z.object({
 });
 export type McpServer = z.infer<typeof mcpServer>;
 
-export const settings = z.object({
+const uiStyle = z.enum(['default', 'obsidian-prism']);
+const themeMode = z.enum(['dark', 'light', 'system']);
+const prismDarkPalette = z.enum(['obsidian', 'warm']);
+const prismLightPalette = z.enum(['crystal', 'alabaster']);
+const prismAccent = z.enum(['default', 'cobalt', 'iris', 'amber', 'mono']);
+const motionTier = z.enum(['standard', 'focus']);
+export type UiStyle = z.infer<typeof uiStyle>;
+export type ThemeMode = z.infer<typeof themeMode>;
+export type PrismPalette = z.infer<typeof prismDarkPalette> | z.infer<typeof prismLightPalette>;
+export type PrismAccent = z.infer<typeof prismAccent>;
+export type MotionTier = z.infer<typeof motionTier>;
+
+export const appearanceSettings = z.object({
+  theme: z.enum(['dark', 'light']).optional(),
+  uiStyle: uiStyle.optional(),
+  themeMode: themeMode.optional(),
+  prismDarkPalette: prismDarkPalette.optional(),
+  prismLightPalette: prismLightPalette.optional(),
+  prismAccent: prismAccent.optional(),
+  prismMascots: z.boolean().optional(),
+  prismVial: z.boolean().optional(),
+  prismCrystal: z.boolean().optional(),
+  prismRim: z.boolean().optional(),
+  motionTier: motionTier.optional(),
+});
+
+export const settings = appearanceSettings.extend({
   theme: z.enum(['dark', 'light']).default('dark'),
   defaultMode: permissionMode.default('workspace-write'),
   defaultProfileId: id.optional(),

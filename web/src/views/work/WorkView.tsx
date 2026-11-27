@@ -61,8 +61,18 @@ const MAX_REVIEW_WIDTH = 760;
 const clampReviewWidth = (width: number) => Math.min(MAX_REVIEW_WIDTH, Math.max(MIN_REVIEW_WIDTH, width));
 
 function initialReviewWidth() {
-  const saved = Number(window.localStorage.getItem(REVIEW_WIDTH_KEY));
-  return Number.isFinite(saved) && saved >= MIN_REVIEW_WIDTH ? clampReviewWidth(saved) : 460;
+  try {
+    const saved = Number(window.localStorage.getItem(REVIEW_WIDTH_KEY));
+    return Number.isFinite(saved) && saved >= MIN_REVIEW_WIDTH ? clampReviewWidth(saved) : 460;
+  } catch {
+    return 460;
+  }
+}
+
+function persistReviewWidth(width: number) {
+  try {
+    window.localStorage.setItem(REVIEW_WIDTH_KEY, String(width));
+  } catch { /* The new width remains active in this tab. */ }
 }
 
 function mergeSessions(live: Session[], shell: Session[]): Session[] {
@@ -247,14 +257,14 @@ export function WorkView({
               }}
               onLostPointerCapture={() => {
                 drag.current = null;
-                window.localStorage.setItem(REVIEW_WIDTH_KEY, String(reviewWidth));
+                persistReviewWidth(reviewWidth);
               }}
               onKeyDown={event => {
                 if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
                 event.preventDefault();
                 const width = clampReviewWidth(reviewWidth + (event.key === 'ArrowLeft' ? 24 : -24));
                 setReviewWidth(width);
-                window.localStorage.setItem(REVIEW_WIDTH_KEY, String(width));
+                persistReviewWidth(width);
               }} />
             <TaskDetail
               key={selectedSession?.id ?? selectedTask?.id}

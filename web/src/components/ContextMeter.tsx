@@ -2,11 +2,17 @@
  * Codex / Claude Code 风格上下文用量指示器（位于模型选择器右侧）：
  * 16px 极细环形进度 + 等宽百分比，Hover / 聚焦弹出输入/输出/参考窗口明细。
  */
+import { lazy, Suspense } from 'react';
 import type { Session } from '@axis/protocol';
+import { useAppearanceState } from '../hooks/useTheme';
 import { computeContextUsage, formatTokenCompact } from '../lib/contextWindow';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
+const PrismWaterVial = lazy(() => import('../themes/obsidian-prism/PrismWaterVial')
+  .then(({ PrismWaterVial }) => ({ default: PrismWaterVial })));
+
 export interface ContextMeterProps {
+  streaming?: boolean;
   tokenUsage?: Session['tokenUsage'];
   modelId?: string | null;
   contextTokens?: number | null;
@@ -20,8 +26,9 @@ export interface ContextMeterProps {
 const RADIUS = 5.5;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-export function ContextMeter({ tokenUsage, modelId, contextTokens, contextLimit, cacheHitRate,
+export function ContextMeter({ tokenUsage, modelId, contextTokens, contextLimit, cacheHitRate, streaming,
   cacheHitTokens, cacheWriteTokens, cacheMissTokens }: ContextMeterProps) {
+  const { prismVial } = useAppearanceState();
   const fixture = import.meta.env.MODE === 'test' && contextTokens === undefined;
   const exact = typeof contextTokens === 'number' && typeof contextLimit === 'number';
   const usage = fixture
@@ -34,6 +41,11 @@ export function ContextMeter({ tokenUsage, modelId, contextTokens, contextLimit,
   const contextLabel = typeof contextTokens === 'number' ? formatTokenCompact(contextTokens) : '—';
   const limitLabel = typeof contextLimit === 'number' ? formatTokenCompact(contextLimit) : '—';
   const cacheLabel = typeof cacheHitRate === 'number' ? `${(cacheHitRate * 100).toFixed(1)}%` : '—';
+  const ring = <svg className="ctx-ring" width="15" height="15" viewBox="0 0 15 15" aria-hidden="true">
+    <circle className="ctx-ring-track" cx="7.5" cy="7.5" r={RADIUS} />
+    <circle className="ctx-ring-fill" cx="7.5" cy="7.5" r={RADIUS}
+      strokeDasharray={CIRCUMFERENCE} strokeDashoffset={hasPercent ? dashOffset : CIRCUMFERENCE} />
+  </svg>;
 
   return (
     <Tooltip>
@@ -41,19 +53,13 @@ export function ContextMeter({ tokenUsage, modelId, contextTokens, contextLimit,
         <button
           type="button"
           className={`ctx-meter tier-${hasPercent ? usage.tier : 'normal'}`}
+          data-meter-variant={prismVial ? 'prism-vial' : 'ring'}
           aria-label={`上下文用量 ${roundedPct}，已用 ${fixture ? formatTokenCompact(usage.total) : contextLabel} / ${fixture ? formatTokenCompact(usage.limit) : limitLabel}`}
         >
-          <svg className="ctx-ring" width="15" height="15" viewBox="0 0 15 15" aria-hidden="true">
-            <circle className="ctx-ring-track" cx="7.5" cy="7.5" r={RADIUS} />
-            <circle
-              className="ctx-ring-fill"
-              cx="7.5"
-              cy="7.5"
-              r={RADIUS}
-              strokeDasharray={CIRCUMFERENCE}
-              strokeDashoffset={hasPercent ? dashOffset : CIRCUMFERENCE}
-            />
-          </svg>
+          {prismVial ? <Suspense fallback={ring}>
+            <PrismWaterVial ratio={hasPercent ? usage.ratio : 0} maxTokens={usage.limit}
+              tier={hasPercent ? usage.tier : 'normal'} streaming={streaming} />
+          </Suspense> : ring}
           <span className="ctx-pct">{roundedPct}</span>
         </button>
       </TooltipTrigger>
