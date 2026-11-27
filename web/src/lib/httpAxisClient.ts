@@ -337,7 +337,7 @@ export class HttpAxisClient implements AxisClient {
       protocol: params.protocol ?? previous?.protocol ?? 'openai-compatible',
       timeout: params.timeoutSeconds ?? params.timeout ?? previous?.timeoutSeconds ?? 120,
     };
-    for (const key of ['contextWindow', 'maxOutputTokens', 'reasoningEffort', 'proxy'] as const) {
+    for (const key of ['contextWindow', 'maxOutputTokens', 'reasoningEffort', 'promptCache', 'proxy'] as const) {
       const value = key in params ? params[key] : previous?.[key];
       if (value !== undefined && (value !== null || key === 'proxy')) body[key] = value;
     }

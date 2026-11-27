@@ -2,12 +2,12 @@
 from .schemas import ApiError
 
 COMMAND_GUIDANCE = {
-    'plan': 'Read-only planning turn. Observe the authorized materials, record the plan with update_plan, '
-            'and list execution prerequisites for the user. Wait for a separate user turn before action.',
+    'plan': 'Read-only planning turn. Do not call file-writing or execution tools. The host rejects '
+            'all change operations. Record the plan with update_plan and list execution prerequisites.',
     'goal': 'Track milestones with update_plan. At each milestone run the authorized fixed checks or verify '
             'the actual artifact bytes. Existing approvals, time limits and tool limits still apply.',
-    'review': 'Read-only review turn. Inspect Git status, diffs and source documents. Report findings ordered '
-              'by severity with concrete paths and evidence. Leave proposed changes for a separate turn.',
+    'review': 'Read-only review turn. Do not call file-writing or execution tools. The host rejects '
+              'all change operations. Inspect authorized evidence and report findings by severity.',
 }
 
 OBSERVATION_TOOLS = frozenset({

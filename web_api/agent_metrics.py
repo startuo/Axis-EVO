@@ -1,4 +1,5 @@
 """Provider-reported usage is accounting evidence, never task quality evidence."""
+import inspect
 import time
 import threading
 
@@ -25,6 +26,15 @@ def _token_count(value):
     return type(value) is int and 0 <= value <= 10_000_000
 
 
+def _cache_creation_total(details):
+    if type(details) is not dict:
+        return None
+    counters = [details.get(key, 0) for key in ('ephemeral_5m_input_tokens', 'ephemeral_1h_input_tokens')]
+    if all(map(_token_count, counters)):
+        return sum(counters)
+    return None
+
+
 def usage(envelope):
     value = envelope.get('usage')
     if type(value) is not dict:
@@ -34,14 +44,20 @@ def usage(envelope):
         # reads and writes once in the context and conservative budget.
         miss, output = value.get('input_tokens'), value.get('output_tokens')
         hit = value.get('cache_read_input_tokens', 0)
-        write = value.get('cache_creation_input_tokens', 0)
+        if 'cache_creation' in value:
+            writes = _cache_creation_total(value['cache_creation'])
+            write = value.get('cache_creation_input_tokens', writes)
+            if write != writes:
+                return None
+        else:
+            write = value.get('cache_creation_input_tokens', 0)
         if not all(map(_token_count, (miss, output, hit, write))):
             return None
         prompt = miss + hit + write
         total = prompt + output
         if not _token_count(total):
             return None
-        cache_reported = bool({'cache_read_input_tokens', 'cache_creation_input_tokens'} & value.keys())
+        cache_reported = bool({'cache_read_input_tokens', 'cache_creation_input_tokens', 'cache_creation'} & value.keys())
     else:
         prompt, output, total = (value.get(key) for key in
             ('prompt_tokens', 'completion_tokens', 'total_tokens'))
@@ -54,8 +70,13 @@ def usage(envelope):
         # Qwen4 Chat Completions reports both names for the same cache write.
         nested_write = details.get('cache_write_tokens', details.get('cache_creation_input_tokens'))
         write = value.get('cacheWriteTokens', nested_write)
+        cache_details_valid = True
+        if 'cache_creation' in details or 'cache_creation' in value:
+            writes = _cache_creation_total(details.get('cache_creation', value.get('cache_creation')))
+            cache_details_valid = writes is not None and (write is None or writes == write)
+            write = writes
         miss = value.get('cacheMissTokens', value.get('prompt_cache_miss_tokens'))
-        cache_reported = hit is not None or write is not None or miss is not None
+        cache_reported = cache_details_valid and (hit is not None or write is not None or miss is not None)
         if cache_reported:
             hit = hit if hit is not None else 0
             write = write if write is not None else 0
@@ -80,6 +101,19 @@ def take_usage(message):
     return message, usage({'usage': observed})
 
 
+def _prefix_metrics(events):
+    def attempt(event):
+        return event.get('parentId'), event['payload'].get('round')
+
+    denied = {attempt(event) for event in events if event['kind'] == 'model_not_dispatched'}
+    ratios = [event['payload'].get('prefixMatchRatio') for event in events
+        if event['kind'] == 'model_request' and attempt(event) not in denied]
+    known = [value for value in ratios if type(value) in (float, int) and 0 <= value <= 1]
+    latest = ratios[-1] if ratios else None
+    return {'prefixMatchRatio': latest if type(latest) in (float, int) and 0 <= latest <= 1 else None,
+            'averagePrefixMatchRatio': sum(known) / len(known) if known else None}
+
+
 def summarize(events):
     requests = [e for e in events if e['kind'] == 'model_request']
     replies = [e['payload'] for e in events if e['kind'] == 'model_usage']
@@ -98,6 +132,7 @@ def summarize(events):
         'cacheWriteTokens': sum(value['cacheWriteTokens'] for value in cache_known) if cache_known else None,
         'cacheMissTokens': sum(value['cacheMissTokens'] for value in cache_known) if cache_known else None,
         'cacheHitRate': sum(value['cacheHitTokens'] for value in cache_known) / cache_prompt if cache_prompt else None,
+        **_prefix_metrics(events),
         'costBasis': 'CONSERVATIVE_UNDISCOUNTED_INPUT_NOT_INVOICE',
         'modelDurationMs': round(sum(r.get('durationMs', 0) for r in replies), 2),
         'basis': 'PROVIDER_REPORTED_PARTIAL' if len(known) != dispatched else 'PROVIDER_REPORTED_NOT_INVOICE'}
@@ -107,15 +142,28 @@ def current_context(events, profile):
     configured = profile.get('contextWindow')
     limit = context_window(configured, local_gateway=profile.get('protocol')=='local-gateway')
     basis = 'PROFILE_CONFIGURED' if configured else 'HARNESS_DEFAULT'
+    prefix = _prefix_metrics(events)
     for event in reversed(events):
         if event['kind'] == 'model_usage' and (observed := usage({'usage': event['payload'].get('usage')})):
             return {'contextTokens': observed['promptTokens'], 'contextLimit': limit, 'contextLimitBasis': basis,
-                    'contextMeasuredRound': event['payload'].get('round'),
+                    'contextMeasuredRound': event['payload'].get('round'), **prefix,
                     **{name: observed.get(name) for name in (
                         'cacheHitRate', 'cacheHitTokens', 'cacheWriteTokens', 'cacheMissTokens')}}
     return {'contextTokens': None, 'contextLimit': limit, 'contextLimitBasis': basis,
             'contextMeasuredRound': None, 'cacheHitRate': None, 'cacheHitTokens': None,
-            'cacheWriteTokens': None, 'cacheMissTokens': None}
+            'cacheWriteTokens': None, 'cacheMissTokens': None, **prefix}
+
+
+def invoke_completion(completion, providers, profile, messages, tools, cancelled, *, cache_key=None):
+    if cache_key is not None:
+        try:
+            parameter = inspect.signature(completion).parameters.get('cache_key')
+        except (TypeError, ValueError):
+            parameter = None
+        if parameter is not None and parameter.kind in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+            return completion(providers, profile, messages, tools, cancelled, cache_key=cache_key)
+    return completion(providers, profile, messages, tools, cancelled)
 
 
 class ModelBudget:
@@ -182,7 +230,7 @@ class ModelBudget:
                       'durationMs':(time.monotonic()-start)*1000,**fields})
         return observed['total_tokens'] > reserved_tokens or actual_cost > reserved_cost
 
-    def __call__(self, providers, profile, messages, tools, cancelled):
+    def __call__(self, providers, profile, messages, tools, cancelled, *, cache_key=None):
         reserved_input = len(canonical({'messages': messages, 'tools': tools}).encode('utf-8')) + 1024
         reserved_input += sum(image_context_reserve(message.get('_images', ())) for message in messages)
         max_output = output_token_limit(profile)
@@ -217,7 +265,7 @@ class ModelBudget:
                 'reservedCostCny': reserved_cost, 'model': profile['modelId']})
         start = time.monotonic()
         try:
-            reply = self.completion(providers, profile, messages, tools, cancelled)
+            reply = invoke_completion(self.completion, providers, profile, messages, tools, cancelled, cache_key=cache_key)
             observed = usage({'usage': reply.get('_usage')})
             if observed is None:
                 raise PlanningTransportError('usage_unconfirmed')

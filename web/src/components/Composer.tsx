@@ -97,6 +97,7 @@ export interface ComposerProps {
   cacheHitTokens?: number | null;
   cacheWriteTokens?: number | null;
   cacheMissTokens?: number | null;
+  prefixMatchRatio?: number | null;
   prefill?: string | null;
   onPrefillConsumed?: () => void;
   placeholder?: string;
@@ -107,7 +108,7 @@ export function Composer(props: ComposerProps) {
     variant, draftKey, drafts, running, sending, mode, onModeChange, modeInteractive = true,
     profiles, profileId, onProfileChange, onOpenModelSettings, effort, onEffortChange,
     workspaces, workspaceId, onWorkspaceChange, onSend, onCancel, onOpenPlugins,
-    tokenUsage, contextTokens, contextLimit, cacheHitRate, cacheHitTokens, cacheWriteTokens, cacheMissTokens,
+    tokenUsage, contextTokens, contextLimit, cacheHitRate, cacheHitTokens, cacheWriteTokens, cacheMissTokens, prefixMatchRatio,
     prefill, onPrefillConsumed, ref,
   } = props;
   const reduce = useReducedMotion();
@@ -410,6 +411,7 @@ export function Composer(props: ComposerProps) {
             cacheHitTokens={cacheHitTokens}
             cacheWriteTokens={cacheWriteTokens}
             cacheMissTokens={cacheMissTokens}
+            prefixMatchRatio={prefixMatchRatio}
           />}
           {running ? (
             <button className="stop-btn" aria-label="停止生成" title="停止生成" onClick={onCancel}>

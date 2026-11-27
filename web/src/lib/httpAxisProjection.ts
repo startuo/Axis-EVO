@@ -1,4 +1,4 @@
-import { agentCommand, turnImage } from '@axis/protocol';
+import { agentCommand, promptCacheStrategy, turnImage } from '@axis/protocol';
 import type {
   ConversationSummary, Item, JournalEvent, Profile, ServerEvent, Session, Skill, Task,
   ToolKind, ToolStatus, TurnDecision, TurnStatus, Workspace,
@@ -32,6 +32,7 @@ export function profileFrom(value: unknown): Profile {
     maxOutputTokens: number(row.maxOutputTokens), proxy: row.proxy === null ? null
       : text(row.proxy) || text(object(row.networkRoute).proxy) || undefined,
     reasoningEffort: ['off', 'low', 'medium', 'high'].includes(effort) ? effort as Profile['reasoningEffort'] : undefined,
+    promptCache: promptCacheStrategy.safeParse(row.promptCache).data,
     testStatus: text(row.testStatus) || undefined, diagnosticCode: text(row.diagnosticCode) || null };
 }
 
@@ -101,13 +102,15 @@ export class ConversationProjection {
       contextTokens: page.contextTokens ?? null, contextLimit: page.contextLimit ?? null,
       cacheHitRate: page.cacheHitRate ?? null, cacheHitTokens: page.cacheHitTokens ?? null,
       cacheWriteTokens: page.cacheWriteTokens ?? null, cacheMissTokens: page.cacheMissTokens ?? null,
+      prefixMatchRatio: page.prefixMatchRatio ?? null, averagePrefixMatchRatio: page.averagePrefixMatchRatio ?? null,
       tokenUsage: { input: this.inputTokens, output: this.outputTokens },
     };
     const current = this.session;
     if (updates.length || current.status !== next.status
         || current.contextTokens !== next.contextTokens || current.contextLimit !== next.contextLimit
         || current.cacheHitRate !== next.cacheHitRate || current.cacheHitTokens !== next.cacheHitTokens
-        || current.cacheWriteTokens !== next.cacheWriteTokens || current.cacheMissTokens !== next.cacheMissTokens) {
+        || current.cacheWriteTokens !== next.cacheWriteTokens || current.cacheMissTokens !== next.cacheMissTokens
+        || current.prefixMatchRatio !== next.prefixMatchRatio || current.averagePrefixMatchRatio !== next.averagePrefixMatchRatio) {
       updates.push({ type: 'session.updated', session: next });
     }
     this.session = next;

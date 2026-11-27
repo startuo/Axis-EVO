@@ -28,7 +28,7 @@ MAX_PROFILES = 32
 MAX_ARCHIVED_PROFILES = 128
 MAX_PROFILE_REVISIONS = 100
 _FIELDS = {"name", "protocol", "endpoint", "modelId", "credentialRef", "timeout"}
-_PROFILE_OPTIONS = {"contextWindow", "reasoningEffort", "maxOutputTokens", "proxy"}
+_PROFILE_OPTIONS = {"contextWindow", "reasoningEffort", "maxOutputTokens", "promptCache", "proxy"}
 _PROXY = re.compile(r"http://127\.0\.0\.1:([1-9][0-9]{0,4})\Z")
 _FAKE_IP = ipaddress.IPv4Network("198.18.0.0/15")
 _ANTHROPIC_PATH = "/apps/anthropic/v1/messages"
@@ -208,6 +208,10 @@ def _configuration(body, config, *, stored=False):
         if body["reasoningEffort"] not in ("off", "low", "medium", "high"):
             raise ValueError("Invalid reasoning effort")
         value["reasoningEffort"] = body["reasoningEffort"]
+    if "promptCache" in body:
+        if body["promptCache"] not in ("auto", "ephemeral", "ephemeral_1h", "off"):
+            raise ValueError("Invalid prompt cache strategy")
+        value["promptCache"] = body["promptCache"]
     if "proxy" in body:
         proxy = body["proxy"]
         if proxy is not None:
@@ -511,7 +515,7 @@ class ProviderStore:
                                   for item in self.config.local_gateways],
                 "credentialRefs": [{"id": alias, "configured": _configured(env)}
                                    for alias, env in self.config.credentials.items()],
-                "nativeTurnOptions": ["contextWindow", "maxOutputTokens", "reasoningEffort"],
+                "nativeTurnOptions": ["contextWindow", "maxOutputTokens", "reasoningEffort", "promptCache"],
                 "unsupportedOptions": ["reasoning", "retry"]}
         finally:
             connection.close()
