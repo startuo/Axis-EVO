@@ -85,14 +85,10 @@ def _verdict(message):
 
 
 def run_verification(service, turn, assessment, report, *, mode, completion, cancelled, remaining_tokens=None):
-    wid, tid = turn['workspaceId'], turn['id']
     if mode == 'off':
-        result = {'verdict':'UNVERIFIED', 'checkedItems':[], 'missingEvidence':['VERIFIER_DISABLED'],
-                  'contradictions':[], 'code':'VERIFIER_SKIPPED', 'mode':mode}
-    else:
-        result = _review(service, turn, assessment, report, completion, cancelled, remaining_tokens) | {'mode':mode}
-    service.store.append('fresh_verification', result, wid, tid)
-    return result
+        return {'verdict':'UNVERIFIED', 'checkedItems':[], 'missingEvidence':['VERIFIER_DISABLED'],
+                'contradictions':[], 'code':'VERIFIER_SKIPPED', 'mode':mode}
+    return _review(service, turn, assessment, report, completion, cancelled, remaining_tokens) | {'mode':mode}
 
 
 def _review(service, turn, assessment, report, completion, cancelled, remaining_tokens):

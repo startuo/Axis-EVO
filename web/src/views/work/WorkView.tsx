@@ -232,17 +232,18 @@ export function WorkView({
         )}
       </div>
 
+      {showReview && (
+        <motion.div className="work-review-scrim" onClick={onToggleReview} aria-hidden
+          {...motionProps(reduce, fadeIn, transitionFast)} />
+      )}
       <AnimatePresence>
-        {showReview && (
-          <motion.div key="review-scrim" className="work-review-scrim" onClick={onToggleReview} aria-hidden
-            {...motionProps(reduce, fadeIn, transitionFast)} />
-        )}
         {showReview && (
           <motion.aside
             key="review-pane"
             className="work-review"
             aria-label="审查面板"
             {...motionProps(reduce, slideSide, springSoft)}
+            exit={{ opacity: 0, x: 24, pointerEvents: 'none' }}
           >
             <div className="work-review-resize" role="separator" aria-label="调整审查面板宽度"
               aria-orientation="vertical" aria-valuemin={MIN_REVIEW_WIDTH} aria-valuemax={MAX_REVIEW_WIDTH}

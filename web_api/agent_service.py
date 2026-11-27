@@ -950,11 +950,14 @@ class AgentService:
                         or self.workspaces.get(wid)['revision']!=revision)
         with self._lock:
             if self._cancelled(turn):
+                self._publish_verification(turn, review, 'VERIFIER_CANCELLED_OR_AUTHORITY_CHANGED')
                 self._finish_cancelled(turn)
                 return
             if self.workspaces.get(wid)['revision'] != revision:
+                self._publish_verification(turn, review, 'VERIFIER_CANCELLED_OR_AUTHORITY_CHANGED')
                 self._finish(turn, 'BLOCKED', 'WORKSPACE_POLICY_CHANGED')
                 return
+            unmet = False
             if contract:
                 # Host file effects in overlapping workspaces use this same lock.
                 assessment = self._record_contract_result(turn, report, check_error)
@@ -962,18 +965,27 @@ class AgentService:
                         or review['artifactWitnessSha256'] != current_artifact_witness(self, turn))):
                     review = {**review, 'verdict':'UNVERIFIED', 'checkedItems':[],
                         'missingEvidence':['VERIFIER_INPUT_CHANGED']}
-                    self.store.append('fresh_verification', review, wid, tid)
-                if self._contract_unmet(contract, assessment):
-                    self._finish(turn, 'BLOCKED', 'CONTRACT_UNMET')
-                    return
+                unmet = self._contract_unmet(contract, assessment)
             if time.monotonic() > deadline:
+                self._publish_verification(turn, review, 'VERIFIER_TURN_DEADLINE')
                 self._finish(turn, 'LIMIT_REACHED', 'TURN_DEADLINE')
+                return
+            self._publish_verification(turn, review)
+            if unmet:
+                self._finish(turn, 'BLOCKED', 'CONTRACT_UNMET')
             elif review and review.get('code') == 'VERIFIER_BUDGET_OVERRUN':
                 self._finish(turn, 'LIMIT_REACHED', 'TASK_CONTRACT_TOKEN_LIMIT')
             elif review and review['verdict'] == 'REJECTED':
                 self._finish(turn, 'BLOCKED', 'FRESH_VERIFIER_REJECTED')
             else:
                 self._finish(turn, 'COMPLETED', answer=answer, auto_snapshot=snapshot)
+
+    def _publish_verification(self, turn, review, reason=None):
+        if review:
+            if reason:
+                review = {**review, 'verdict':'UNVERIFIED','checkedItems':[], 'missingEvidence':[reason],
+                    'contradictions':[], 'code':'VERIFIER_SKIPPED'}
+            self.store.append('fresh_verification', review, turn['workspaceId'], turn['id'])
 
     @staticmethod
     def _contract_unmet(contract, assessment):
