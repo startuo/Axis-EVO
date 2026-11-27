@@ -1,4 +1,4 @@
-import { agentCommand, promptCacheStrategy, turnImage } from '@axis/protocol';
+import { agentCommand, promptCacheStrategy, taskContractStatus, turnImage } from '@axis/protocol';
 import type {
   ConversationSummary, Item, JournalEvent, Profile, ServerEvent, Session, Skill, Task,
   ToolKind, ToolStatus, TurnDecision, TurnStatus, Workspace,
@@ -103,6 +103,7 @@ export class ConversationProjection {
       cacheHitRate: page.cacheHitRate ?? null, cacheHitTokens: page.cacheHitTokens ?? null,
       cacheWriteTokens: page.cacheWriteTokens ?? null, cacheMissTokens: page.cacheMissTokens ?? null,
       prefixMatchRatio: page.prefixMatchRatio ?? null, averagePrefixMatchRatio: page.averagePrefixMatchRatio ?? null,
+      taskContract: turn?.task.taskContract,
       tokenUsage: { input: this.inputTokens, output: this.outputTokens },
     };
     const current = this.session;
@@ -198,6 +199,16 @@ export class ConversationProjection {
         hint: text(payload.hint), consecutiveFailures: number(payload.consecutiveFailures), lastCallId: text(payload.lastCallId) };
     } else if (kind === 'host_delivery_check' && turn) {
       turn.delivery = payload;
+    } else if (kind === 'task_contract' && turn && (payload.verificationMode !== 'none' || array(payload.protectedPaths).length)) {
+      turn.task = { ...turn.task, taskContract: { status: 'PENDING', checked: 0, total: array(payload.doneWhen).length } };
+      output.push({ type: 'task.updated', task: turn.task });
+    } else if (kind === 'task_contract_result' && turn?.task.taskContract) {
+      const status = taskContractStatus.safeParse(payload.status);
+      if (status.success) {
+        turn.task = { ...turn.task, taskContract: { ...turn.task.taskContract,
+          status: status.data, checked: array(payload.checkedItems).length } };
+        output.push({ type: 'task.updated', task: turn.task });
+      }
     } else if (kind === 'terminal') {
       const disposition = text(payload.status);
       const status = terminalState[disposition];

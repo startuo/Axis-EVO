@@ -90,6 +90,7 @@ export function TaskDetail({ task, session, workspaces, onOpenInChat, onBack, on
   const statusMeta = task ? TASK_STATUS_META[task.status] : session ? SESSION_STATUS_META[session.status] : null;
   const done = task?.steps.filter((s) => s.status === 'done').length ?? 0;
   const diffCount = conv.items.filter((i) => i.kind === 'diff').length;
+  const contract = task ? task.taskContract : session?.taskContract;
 
   const selectTab = (key: WorkTab) => {
     setTab(key);
@@ -136,6 +137,14 @@ export function TaskDetail({ task, session, workspaces, onOpenInChat, onBack, on
           aria-label="关闭审查面板" title="关闭审查面板"><X size={16} aria-hidden /></button>}
       </div>
 
+      {contract && (
+        <div className="work-contract-status">
+          <span>任务契约</span>
+          <span>{{ PENDING: '待核验', VERIFIED: '已核验', UNVERIFIED: '证据不足', REJECTED: '条件未满足' }[contract.status]}
+            {contract.total > 0 && ` ${contract.checked}/${contract.total}`}</span>
+          <button type="button" className="text-button" onClick={() => selectTab('evidence')}>查看证据</button>
+        </div>
+      )}
       <div className="work-tabs" role="tablist" aria-label="任务详情标签">
         {TABS.map((t) => (
           <button

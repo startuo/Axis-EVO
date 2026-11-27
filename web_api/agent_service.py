@@ -29,13 +29,14 @@ from .agent_context import (
     conversation_history, fixed_check_message, post_edit_message, tool_result_message,
 )
 from .agent_execution_policy import AgentExecution
+from .agent_contract import DEFAULT_BUDGET, assess_contract, prepare_contract, protects
 from .agent_metrics import current_context, invoke_completion, output_token_limit, summarize, take_usage
 from .agent_prefix import PrefixProbe, RequestPrefix
 from .agent_fileops import MUTATIONS, TEXT_EDITS, paths as mutation_paths
 from .schemas import ApiError, strict_json, no_redirected_parents
 
-MAX_ROUNDS=32
-MAX_CALLS=96
+MAX_ROUNDS=DEFAULT_BUDGET['maxRounds']
+MAX_CALLS=DEFAULT_BUDGET['maxToolSteps']
 MAX_TURN_SECONDS=1200
 TERMINAL={'COMPLETED','FAILED','UNKNOWN','CANCELLED','LIMIT_REACHED','BLOCKED'}
 SUMMARY_PAGE_SIZE = 96
@@ -43,6 +44,7 @@ SUMMARY_KINDS = (
     'started', 'terminal', 'assistant', 'model_usage', 'model_not_dispatched',
     'tool_intent', 'tool_result', 'tool_execution', 'artifact', 'file_operation',
     'task_plan', 'host_delivery_check', 'post_edit_hook', 'circuit_breaker', 'context_checkpoint',
+    'task_contract', 'task_contract_result',
 )
 SYSTEM = '''You are Axis-Evo, a local-first agent collaborating on goals and deliverables.
 Use the user's language. Work autonomously within the host-provided workspace policy.
@@ -386,6 +388,8 @@ class AgentService:
                         if event['kind'] == 'circuit_breaker'), None)
         delivery = next((event['payload'] for event in reversed(events)
                          if event['kind'] == 'host_delivery_check'), None)
+        contract = next((event['payload'] for event in reversed(events)
+                         if event['kind'] == 'task_contract_result'), None)
         # Status, reason and answer must come from the same event snapshot.
         # A terminal appended between separate reads must not yield BLOCKED
         # with no reason, or COMPLETED without its final answer.
@@ -399,6 +403,7 @@ class AgentService:
             'completionBasis':terminal.get('completionBasis'),
             'evaluation':row['payload'].get('evaluation'),
             'circuitBreaker': circuit, 'deliveryValidation': delivery,
+            'taskContract':row['payload'].get('taskContract'), 'contractResult':contract,
             'skillUses':[e['payload'] for e in events if e['kind']=='skill_use'],
             **current_context(events, row['payload']['profile']),
             'events':events,'usage':summarize(events),'artifacts':[self.artifact(e) for e in events if e['kind']=='artifact'],
@@ -407,7 +412,8 @@ class AgentService:
 
     def submit(self,body,*,evaluation=None,forced_skill=None,inline=False,context_messages=None):
         required={'workspaceId','requestId','prompt','profileId','profileRevision'}
-        if type(body) is not dict or not required<=body.keys()<=required|{'conversationId','browserBindingId','continueFrom','attachments'}:
+        if type(body) is not dict or not required<=body.keys()<=required|{
+                'conversationId','browserBindingId','continueFrom','attachments','taskContract'}:
             fail('AGENT_REQUEST_INVALID','任务请求字段无效。')
         request=body['requestId']
         if type(request) is not str or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',request):
@@ -445,6 +451,14 @@ class AgentService:
             if command != 'compact':
                 self.runtime.providers.adapter(profile,'agent_'+uuid4().hex)  # admission only, no request
             self.workspaces.resolver(wid)
+            policy = self.execution.policy(wid)
+            if 'taskContract' in body and (evaluation or command == 'compact'):
+                fail('TASK_CONTRACT_INVALID', '隔离评估与会话整理不能覆盖任务契约。')
+            contract = {}
+            if not evaluation and command != 'compact':
+                definition, protected = prepare_contract(self, wid, prompt, body.get('taskContract', {}), policy,
+                    can_check=command not in READ_ONLY_COMMANDS)
+                contract = {'taskContract':definition, 'contractProtectedFiles':protected}
             binding=body.get('browserBindingId')
             if binding:
                 self.browser._binding(binding)
@@ -475,7 +489,7 @@ class AgentService:
                     'profile':profile,'workspaceRevision':workspace['revision'],
                     'sourceGrantIds':sorted(s['id'] for s in workspace['sources'] if s['enabled']),
                     'requestSha256':request_sha,'browserBindingId':binding,'evaluation':evaluation,'forcedSkill':forced_skill,
-                    'executionPolicyId':self.execution.policy(wid)['id'],'continuedFrom':continued,
+                    'executionPolicyId':policy['id'],'continuedFrom':continued, **contract,
                     'contextMessages':[*history,*continuation], 'continuationMessageCount':len(continuation)},
                     wid,cid,identity=tid)
             self._active[tid]=turn
@@ -558,11 +572,15 @@ class AgentService:
         conversation=turn['parentId']
         profile=turn['payload']['profile']
         evaluation=turn['payload'].get('evaluation')
+        contract=turn['payload'].get('taskContract')
+        budget=contract['budget'] if contract else DEFAULT_BUDGET
+        required=bool(contract and contract['verificationMode'] == 'required')
         cache_key='axis_'+hashlib.sha256(f"{wid}:{conversation}:{profile['modelId']}".encode()).hexdigest()[:24]
         deadline=time.monotonic()+MAX_TURN_SECONDS
         self._deadlines[tid]=deadline
         used_ids=set()
         calls=0
+        tokens=0
         changed=False
         previous_checks=None
         prompted_repair=False
@@ -586,12 +604,18 @@ class AgentService:
                     self._finish(turn, 'COMPLETED', answer='已保存会话整理检查点，后续任务将从该检查点衔接。',
                                  basis='HOST_CONTEXT_COMPACTED')
                 return
+            if contract:
+                self.store.append('task_contract', contract, wid, tid)
             messages=self._messages(turn)
+            if contract and contract['origin'] == 'explicit':
+                self._context_notice(turn, messages, {'role':'user', 'content':
+                    'Host task contract. Only the host verifies delivery; use the fixed check names as evidence requirements.\n'
+                    + canonical(contract)})
             catalog=self.tools.catalog()
             if evaluation:
                 catalog=[tool for tool in catalog if tool['function']['name'] not in
                     ('find_skills','use_skill','browser_read','browser_snapshot')]
-            for round_number in range(MAX_ROUNDS):
+            for round_number in range(budget['maxRounds']):
                 if self._cancelled(turn):
                     self._finish_cancelled(turn)
                     return
@@ -611,6 +635,12 @@ class AgentService:
                 if checkpoint:
                     self.store.append('context_checkpoint',{'round':round_number+1,**checkpoint},wid,tid)
                 request=canonical({'messages':provider_messages,'tools':catalog}).encode()
+                reserve = len(request) + 1024 + output_token_limit(profile) + image_context_reserve(turn['payload'].get('images', []))
+                if budget['hardTokens'] is not None and tokens + reserve > budget['hardTokens']:
+                    self.store.append('contract_budget_stop', {'round':round_number+1, 'tokens':tokens,
+                        'reserve':reserve, 'hardTokens':budget['hardTokens']}, wid, tid)
+                    self._finish(turn,'LIMIT_REACHED','TASK_CONTRACT_TOKEN_LIMIT')
+                    return
                 prefix=RequestPrefix.from_request(profile,catalog,provider_messages)
                 self.store.append('model_request',{'round':round_number+1,
                     'profile':{k:profile[k] for k in ('id','revision','modelId','configSha256')},
@@ -632,6 +662,7 @@ class AgentService:
                     raise
                 self._prefix_probe.remember(conversation,prefix)
                 message,observed=take_usage(message)
+                tokens += observed['total_tokens'] if observed else reserve
                 self.store.append('model_usage',{'round':round_number+1,'usage':observed,
                     'durationMs':round((time.monotonic()-request_start)*1000,2)},wid,tid)
                 if self._cancelled(turn):
@@ -662,8 +693,17 @@ class AgentService:
                             'Host requirement for the selected mode: record the next steps via update_plan before finishing.'})
                         plan_reminded = True
                         continue
-                    if changed and not turn['payload'].get('evaluation'):
-                        report=self._delivery_check(turn,previous_checks)
+                    needs_checks = required and any(item['kind'] == 'check_passed' for item in contract['doneWhen'])
+                    report, check_error = previous_checks, None
+                    should_check = not evaluation and (changed or needs_checks and command not in READ_ONLY_COMMANDS)
+                    if should_check:
+                        try:
+                            report=self._delivery_check(turn,previous_checks)
+                        except ApiError as error:
+                            if not required:
+                                raise
+                            check_error=error.code
+                    if should_check and report is not None:
                         if any(c['result']['status']=='UNKNOWN' for c in report['checks']):
                             self._finish(turn,'UNKNOWN','FIXED_CHECK_OUTCOME_UNKNOWN')
                             return
@@ -676,7 +716,21 @@ class AgentService:
                                 previous_checks=report
                                 prompted_repair=True
                                 continue
-                            self._finish(turn,'FAILED','FIXED_CHECKS_FAILED')
+                            if not required:
+                                self._finish(turn,'FAILED','FIXED_CHECKS_FAILED')
+                                return
+                    if contract:
+                        assessment = assess_contract(self, turn, report)
+                        if check_error or required and report and report['status'] == 'FAILED':
+                            assessment['missingEvidence'].append({'code':check_error or 'FIXED_CHECKS_FAILED'})
+                            if assessment['status'] == 'VERIFIED':
+                                assessment['status'] = 'UNVERIFIED'
+                        self.store.append('task_contract_result', assessment, wid, tid)
+                        protections_unconfirmed=any(item.get('path') in contract['protectedPaths']
+                            for item in assessment['missingEvidence'])
+                        if (required and assessment['status'] != 'VERIFIED' or protections_unconfirmed
+                                or any(item['code'] == 'PROTECTED_BYTES_CHANGED' for item in assessment['contradictions'])):
+                            self._finish(turn,'BLOCKED','CONTRACT_UNMET')
                             return
                     snapshot = (auto_compact_snapshot(context_epoch,message)
                         if context_epoch.get('number', 0) and not evaluation and not browser_context else None)
@@ -692,7 +746,7 @@ class AgentService:
                         self._finish(turn,'LIMIT_REACHED','TURN_DEADLINE')
                         return
                     calls+=1
-                    if calls>MAX_CALLS or call['id'] in used_ids:
+                    if calls>budget['maxToolSteps'] or call['id'] in used_ids:
                         self._finish(turn,'LIMIT_REACHED','CALL_LIMIT_OR_DUPLICATE')
                         return
                     used_ids.add(call['id'])
@@ -832,6 +886,8 @@ class AgentService:
                 if mutating:
                     resolver=self.workspaces.resolver(wid,write=True)
                     for path in mutation_paths(name,args):
+                        if protects(turn['payload'].get('taskContract', {}).get('protectedPaths', ()), path):
+                            fail('TASK_CONTRACT_PATH_PROTECTED','此路径是任务契约保护依据，Agent 不能修改。',403)
                         if self.execution.is_protected(wid,path):
                             fail('VERIFICATION_FILE_PROTECTED','此路径已被用户固定为验证依据，Agent不能修改。',403)
                         no_redirected_parents(resolver.root/path)

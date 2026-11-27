@@ -96,7 +96,25 @@ export const workspace = z.object({
 });
 export type Workspace = z.infer<typeof workspace>;
 
+export const taskContractStatus = z.enum(['PENDING', 'VERIFIED', 'UNVERIFIED', 'REJECTED']);
+const contractSummary = z.object({ status: taskContractStatus, total: z.number().int().nonnegative(),
+  checked: z.number().int().nonnegative() });
+export const taskContractInput = z.object({
+  goal: z.string().min(1).max(240).optional(),
+  doneWhen: z.array(z.union([
+    z.object({ kind: z.enum(['file_exists', 'file_nonempty', 'file_unchanged']), path: z.string().min(1).max(512) }),
+    z.object({ kind: z.literal('check_passed'), name: z.string().min(1).max(80) }),
+  ])).max(16).optional(),
+  protectedPaths: z.array(z.string().min(1).max(512)).max(16).optional(),
+  verificationMode: z.enum(['required', 'advisory', 'none']).optional(),
+  budget: z.object({ maxRounds: z.number().int().min(1).max(32).optional(),
+    maxToolSteps: z.number().int().min(1).max(96).optional(),
+    softTokens: z.number().int().min(1).max(2_000_000).nullable().optional(),
+    hardTokens: z.number().int().min(1).max(2_000_000).nullable().optional() }).optional(),
+});
+
 export const session = z.object({
+  taskContract: contractSummary.optional(),
   id,
   title: z.string().max(200),
   workspaceId: id,
@@ -192,6 +210,7 @@ export const approval = z.object({
 export type Approval = z.infer<typeof approval>;
 
 export const task = z.object({
+  taskContract: contractSummary.optional(),
   id,
   sessionId: id.optional(),
   workspacePath: z.string(),
@@ -383,7 +402,7 @@ export const requestParams = {
     z.object({ kind: z.enum(['browser-binding', 'file']), value: z.string() }),
     z.object({ kind: z.literal('image'), name: z.string().min(1).max(120), mediaType: imageMediaType,
       data: z.string().min(1).max(2_796_204) }),
-  ])).optional() }),
+  ])).optional(), taskContract: taskContractInput.optional() }),
   'turn.cancel': z.object({ sessionId: id }),
   'approval.respond': z.object({ approvalId: id, decision: z.enum(['approve', 'deny']), scope: z.enum(['once', 'session']).default('once') }),
   'workspace.authorize': z.object({ path: z.string().min(1), name: z.string().max(80).optional(), mode: permissionMode }),

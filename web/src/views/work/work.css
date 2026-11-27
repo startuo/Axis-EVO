@@ -145,3 +145,13 @@
 @media (prefers-reduced-motion: reduce) {
   .work-review { transition: none; }
 }
+.work-contract-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+}

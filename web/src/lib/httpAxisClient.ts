@@ -453,6 +453,7 @@ export class HttpAxisClient implements AxisClient {
       profileId: profile.id, profileRevision: profile.revision,
       ...(!draft ? { conversationId: sid } : {}), ...(browser[0] ? { browserBindingId: browser[0].value } : {}),
       ...(images.length ? { attachments: images } : {}),
+      ...(params.taskContract ? { taskContract: params.taskContract } : {}),
       ...(params.continueFrom ? { continueFrom: params.continueFrom } : {}) };
     const turnId = `turn_${requestId}`;
     let conversation: string;

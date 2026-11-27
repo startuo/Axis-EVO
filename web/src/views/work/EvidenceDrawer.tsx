@@ -76,6 +76,7 @@ const EVENT_LABEL: Record<string, string> = {
   artifact: '文件保存', file_operation: '文件操作', post_edit_hook: '编辑后检查',
   host_delivery_check: '交付固定检查', circuit_breaker: '自动暂停', terminal: '回合结束',
   context_checkpoint: '上下文检查点', model_usage: '服务商用量',
+  task_contract: '任务契约', task_contract_result: '契约核对结果',
 };
 
 function textField(payload: Record<string, unknown>, key: string): string | undefined {
