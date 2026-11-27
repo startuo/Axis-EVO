@@ -150,6 +150,7 @@ def _workbook(data, output):
 
 def _presentation(data, output):
     from pptx import Presentation
+    from pptx.oxml.xmlchemy import OxmlElement
     from pptx.util import Inches, Pt
     _mapping(data, ('slides',))
     source = _items(data['slides'], 32, required=True)
@@ -166,7 +167,13 @@ def _presentation(data, output):
             shape.text_frame.word_wrap = True
             for index, point in enumerate(points):
                 paragraph = shape.text_frame.paragraphs[0] if index == 0 else shape.text_frame.add_paragraph()
-                paragraph.text = '• '+_text(point,600)
+                paragraph.text = _text(point,600)
+                properties = paragraph._p.get_or_add_pPr()
+                properties.set('marL', str(Inches(.25)))
+                properties.set('indent', str(Inches(-.18)))
+                bullet = OxmlElement('a:buChar')
+                bullet.set('char', '•')
+                properties.append(bullet)
                 paragraph.font.size = Pt(18 if 'table' in spec else 22)
         if 'table' in spec:
             rows = _grid(spec['table'], 12)

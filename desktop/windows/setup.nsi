@@ -7,19 +7,19 @@ SetCompressor /SOLID lzma
 !include "FileFunc.nsh"
 
 !define APP "Axis-Evo"
-!define RELEASE "0.1.0 Preview M7.1"
-!define CURRENT_WINDOW "Axis-Evo 0.1.0 Preview - M7.1"
+!define RELEASE "0.1.0 Preview M8"
+!define CURRENT_WINDOW "Axis-Evo ${RELEASE}"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\AxisEvoPreview"
 
 Name "${APP} ${RELEASE}"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\Axis-Evo"
 InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
-VIProductVersion "0.1.0.71"
+VIProductVersion "0.1.0.80"
 VIAddVersionKey /LANG=1033 "ProductName" "${APP}"
 VIAddVersionKey /LANG=1033 "CompanyName" "Axis-Evo"
 VIAddVersionKey /LANG=1033 "FileDescription" "Axis-Evo Windows Preview Setup"
-VIAddVersionKey /LANG=1033 "FileVersion" "0.1.0.71"
+VIAddVersionKey /LANG=1033 "FileVersion" "0.1.0.80"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${RELEASE}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "Axis-Evo"
 
@@ -49,7 +49,9 @@ FunctionEnd
 !macro RequireAxisClosed errorText
   FindWindow $0 "" "${CURRENT_WINDOW}"
   ${If} $0 = 0
-    ; Match launchers from the two supported upgrade sources.
+    FindWindow $0 "" "Axis-Evo 0.1.0 Preview - M7.1"
+  ${EndIf}
+  ${If} $0 = 0
     IntFmt $1 "%c" 0xB7
     FindWindow $0 "" "Axis-Evo 0.1.0 Preview $1 M7"
     ${If} $0 = 0
@@ -68,7 +70,8 @@ FunctionEnd
 
 !macro DeleteRetiredAppFile path
   !if ! /FileExists "${APP_PAYLOAD}\${path}"
-    Delete "$INSTDIR\app\${path}"
+    StrCpy $6 "$INSTDIR\app\${path}"
+    Call RetireFile
   !endif
 !macroend
 
@@ -76,10 +79,41 @@ FunctionEnd
   !insertmacro DeleteRetiredAppFile "web\dist\${path}"
 !macroend
 
+Function RetireFile
+  System::Call 'kernel32::GetFileAttributesW(w r6) i.r7'
+  ${If} $7 == -1
+    Return
+  ${EndIf}
+  IntOp $7 $7 & 0x410
+  ${If} $7 <> 0
+    Goto retirement_failed
+  ${EndIf}
+  ${If} $5 == 1
+    ; Probe DELETE access without changing the old install before copying.
+    System::Call 'kernel32::CreateFileW(w r6, i 0x10000, i 7, p 0, i 3, i 0x200000, p 0) p.r7'
+    ${If} $7 == -1
+      Goto retirement_failed
+    ${EndIf}
+    System::Call 'kernel32::CloseHandle(p r7)'
+  ${Else}
+    ClearErrors
+    Delete "$6"
+    ${If} ${Errors}
+      Goto retirement_failed
+    ${EndIf}
+  ${EndIf}
+  Return
+retirement_failed:
+  MessageBox MB_ICONSTOP|MB_OK "无法清理旧版前端资源。请关闭占用文件的程序后重试。" /SD IDOK
+  SetErrorLevel 1
+  Abort
+FunctionEnd
+
 Function RetireFrontendFiles
   ReadRegStr $4 HKCU "${UNINSTALL_KEY}" "DisplayVersion"
   ${If} $4 S!= "0.1.0 Preview M6.1"
   ${AndIf} $4 S!= "0.1.0 Preview M7"
+  ${AndIf} $4 S!= "0.1.0 Preview M7.1"
     Return
   ${EndIf}
   ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "InstallLocation"
@@ -135,7 +169,7 @@ Function RetireFrontendFiles
     !insertmacro DeleteRetiredWebFile "assets\save-DC4-GxdC.js"
     !insertmacro DeleteRetiredWebFile "assets\sun-CoY8IZyG.js"
     !insertmacro DeleteRetiredWebFile "assets\terminal-Dbd94qKM.js"
-  ${Else}
+  ${ElseIf} $4 S== "0.1.0 Preview M7"
     !insertmacro DeleteRetiredWebFile "assets\ResearchArchive-FsSoiI3F.css"
     !insertmacro DeleteRetiredWebFile "assets\ResearchArchive-hc3W6zVx.js"
     !insertmacro DeleteRetiredWebFile "assets\RuntimeEntry-7MbRaDX_.js"
@@ -151,20 +185,34 @@ Function RetireFrontendFiles
     !insertmacro DeleteRetiredWebFile "assets\lock-keyhole-B3N-eJXh.js"
     !insertmacro DeleteRetiredWebFile "axis-dark.png"
     !insertmacro DeleteRetiredWebFile "axis-light.png"
-  ${EndIf}
-  ${If} ${Errors}
-    MessageBox MB_ICONSTOP|MB_OK "无法清理旧版前端资源。请关闭占用文件的程序后重试。" /SD IDOK
-    SetErrorLevel 1
-    Abort
+  ${Else}
+    !insertmacro DeleteRetiredWebFile "assets\index-DH1kga7r.css"
+    !insertmacro DeleteRetiredWebFile "assets\index-ur4xkXQS.js"
+    !insertmacro DeleteRetiredWebFile "assets\lock-keyhole-0G55GVTL.js"
+    !insertmacro DeleteRetiredWebFile "assets\markdown-C8CyPIKV.js"
+    !insertmacro DeleteRetiredWebFile "assets\motion-By4KJnVw.js"
+    !insertmacro DeleteRetiredWebFile "assets\ResearchArchive-BTK3-t-T.js"
+    !insertmacro DeleteRetiredWebFile "assets\ResearchArchive-C4piG_Vv.css"
+    !insertmacro DeleteRetiredWebFile "assets\rolldown-runtime-B0Z9INg1.js"
+    !insertmacro DeleteRetiredWebFile "assets\RuntimeEntry-BJlrtBFV.js"
+    !insertmacro DeleteRetiredWebFile "assets\RuntimeEntry-Dbjg1Ey2.css"
+    !insertmacro DeleteRetiredWebFile "assets\RuntimeProviders-BWrFWXDM.js"
+    !insertmacro DeleteRetiredWebFile "assets\SafeMarkdown-CDK9PNbI.js"
+    !insertmacro DeleteRetiredWebFile "assets\SafeMarkdown-DjdsPEuM.css"
+    !insertmacro DeleteRetiredWebFile "assets\SkillEvolutionWorkbench-BwrJPi9V.css"
+    !insertmacro DeleteRetiredWebFile "assets\SkillEvolutionWorkbench-CjphS0wK.js"
   ${EndIf}
 FunctionEnd
 
 Section "Axis-Evo"
   SetShellVarContext current
   Call RequireClosed
+  StrCpy $5 1
+  Call RetireFrontendFiles
   SetOutPath "$INSTDIR"
   SetOverwrite on
   !include "${INSTALL_FILES}"
+  StrCpy $5 0
   Call RetireFrontendFiles
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\Axis-Evo"

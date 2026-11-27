@@ -22,7 +22,7 @@ NSIS = (
     'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip',
     'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1',
 )
-PRODUCT = 'Axis-Evo-0.1.0-Preview-M7.1-Setup.exe'
+PRODUCT = 'Axis-Evo-0.1.0-Preview-M8-Setup.exe'
 
 
 def digest(path):
@@ -96,7 +96,7 @@ def collect_licenses(app, runtime, compiler):
             if candidate.is_file() and candidate.name.lower().startswith(('license', 'copying', 'notice')):
                 shutil.copyfile(candidate, notices / (location.replace('/', '_') + '_' + candidate.name))
     (notices / 'NOTICE.txt').write_text(
-        'Axis-Evo 0.1.0 Preview M7.1, built from https://github.com/startuo/Axis-EVO\n'
+        'Axis-Evo 0.1.0 Preview M8, built from https://github.com/startuo/Axis-EVO\n'
         'Third-party Python wheel license files are in runtime/packages/*.dist-info.\n'
         'Font licenses are in app/web/dist/fonts. Edge extension notices are in app/browser/edge-extension/vendor.\n',
         encoding='utf-8',
@@ -122,7 +122,7 @@ def installer_lists(stage, install, uninstall):
 
 def main():
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=ROOT / '.local/m7.1-build')
+    parser.add_argument('--output', type=Path, default=ROOT / '.local/m8-build')
     parser.add_argument('--skip-npm-ci', action='store_true',
                         help='Reuse a previously built, unchanged and complete npm installation')
     args = parser.parse_args()

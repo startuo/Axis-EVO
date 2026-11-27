@@ -282,9 +282,13 @@ def _presentation(raw, budget, start, end):
                 continue
             if shape.has_text_frame:
                 for paragraph in shape.text_frame.paragraphs:
-                    if paragraph.text.strip() and len(points) < 240 and budget.remaining:
-                        points.append({'text':budget.take(paragraph.text), 'level':paragraph.level})
-                    elif paragraph.text.strip():
+                    text = paragraph.text
+                    if len(text) > 1 and text[0] == '•' and text[1].isspace():
+                        # Earlier Axis-generated decks stored the marker as plain text.
+                        text = text[1:].lstrip()
+                    if text.strip() and len(points) < 240 and budget.remaining:
+                        points.append({'text':budget.take(text), 'level':paragraph.level})
+                    elif text.strip():
                         budget.truncated = True
             if shape.has_table:
                 budget.truncated |= len(shape.table.rows)>MAX_ROWS_PER_PAGE or len(shape.table.columns)>MAX_COLUMNS
