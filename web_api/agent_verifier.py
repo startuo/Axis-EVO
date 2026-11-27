@@ -4,7 +4,7 @@ import time
 from axis_evo.planning_adapter import PlanningTransportError
 from .agent_contract import assess_contract
 from .agent_git import observe
-from .agent_metrics import invoke_completion, take_usage
+from .agent_metrics import invoke_completion, output_token_limit, take_usage
 from .agent_project import changes
 from .agent_store import canonical, digest
 from .schemas import ApiError, strict_json
@@ -74,18 +74,18 @@ def _verdict(message):
     return result
 
 
-def run_verification(service, turn, assessment, report, *, mode, completion, cancelled):
+def run_verification(service, turn, assessment, report, *, mode, completion, cancelled, remaining_tokens=None):
     wid, tid = turn['workspaceId'], turn['id']
     if mode == 'off':
         result = {'verdict':'UNVERIFIED', 'checkedItems':[], 'missingEvidence':['VERIFIER_DISABLED'],
                   'contradictions':[], 'code':'VERIFIER_SKIPPED', 'mode':mode}
     else:
-        result = _review(service, turn, assessment, report, completion, cancelled) | {'mode':mode}
+        result = _review(service, turn, assessment, report, completion, cancelled, remaining_tokens) | {'mode':mode}
     service.store.append('fresh_verification', result, wid, tid)
     return result
 
 
-def _review(service, turn, assessment, report, completion, cancelled):
+def _review(service, turn, assessment, report, completion, cancelled, remaining_tokens):
     wid, tid = turn['workspaceId'], turn['id']
     contract = turn['payload']['taskContract']
     proof = {'contract':contract, 'assessment':assessment, 'changes':_artifacts(service, turn),
@@ -97,11 +97,16 @@ def _review(service, turn, assessment, report, completion, cancelled):
         providers = service.runtime.providers
         content = canonical(proof)
         providers.check_text(content)
+        messages = [{'role':'system', 'content':SYSTEM}, {'role':'user', 'content':content}]
+        profile = turn['payload']['profile']
+        reserve = len(canonical({'messages':messages, 'tools':[]}).encode()) + 1024 + output_token_limit(profile)
+        if remaining_tokens is not None and reserve > remaining_tokens:
+            return {'verdict':'UNVERIFIED', 'checkedItems':[], 'missingEvidence':['VERIFIER_BUDGET_EXHAUSTED'],
+                    'contradictions':[], 'code':'VERIFIER_SKIPPED', **record}
         if cancelled():
             raise PlanningTransportError('cancelled')
         dispatched = True
-        answer = invoke_completion(completion, providers, turn['payload']['profile'],
-            [{'role':'system', 'content':SYSTEM}, {'role':'user', 'content':content}], [], cancelled)
+        answer = invoke_completion(completion, providers, profile, messages, [], cancelled)
         answer, observed = take_usage(answer)
         providers.check_text(canonical(answer))
         result = _verdict(answer)
@@ -113,6 +118,9 @@ def _review(service, turn, assessment, report, completion, cancelled):
     finally:
         service.store.append('fresh_verifier_usage', {'usage':observed, 'dispatched':dispatched,
             'durationMs':round((time.monotonic() - started)*1000, 2), **record}, wid, tid)
+    if remaining_tokens is not None and observed and observed['total_tokens'] > remaining_tokens:
+        return {'verdict':'UNVERIFIED', 'checkedItems':[], 'missingEvidence':['VERIFIER_BUDGET_OVERRUN'],
+                'contradictions':[], 'code':'VERIFIER_BUDGET_OVERRUN', **record}
     if reason:
         return {'verdict':'UNVERIFIED', 'checkedItems':[], 'missingEvidence':[reason],
                 'contradictions':[], 'code':'VERIFIER_SKIPPED', **record}

@@ -35,8 +35,12 @@ class StallDetector:
         step = {'step':number, 'callId':call_id, 'tool':name}
         self.last_observation = step
         if name in READ_TOOLS and result['status'] == 'SUCCESS':
-            # Preserve distinct pages and ranges even when they identify the same file.
-            observed = {key:value for key,value in args.items() if key != 'expectedSha256'}
+            # Prefer the actual returned file range over requested pagination knobs.
+            data = result.get('data', {})
+            if name == 'read_file' and 'startChar' in data:
+                observed = {key:data[key] for key in ('sourceId', 'path', 'sha256', 'startChar', 'endChar')}
+            else:
+                observed = {key:value for key,value in args.items() if key != 'expectedSha256'}
             target = digest({'tool':name, 'args':observed})
             self.reads.append({**step, 'targetSha256':target})
             if len(self.reads) == self.reads.maxlen:
@@ -57,7 +61,7 @@ class StallDetector:
             trail = self.edits.setdefault(key, deque(maxlen=3))
             if trail and (number - trail[-1]['step'] > EDIT_WINDOW or trail[-1]['sha256'] != before):
                 trail.clear()
-                self.failures.pop(key, None)
+                self.failures = {lane:chain for lane,chain in self.failures.items() if lane[0] != key}
             if not trail:
                 trail.append({**step, 'sha256':before})
             trail.append({**step, 'sha256':after})
@@ -67,14 +71,15 @@ class StallDetector:
         return None
 
 
-    def check(self, receipt_id, failed):
+    def check(self, receipt_id, failed, *, suite):
         if self.last_edit is None:
             return None
         key, path, step, file_sha = self.last_edit
+        lane = (key, suite)
         if not failed:
-            self.failures.pop(key, None)
+            self.failures.pop(lane, None)
             return None
-        chain = self.failures.setdefault(key, deque(maxlen=UNCHANGED_FAILURE_LIMIT))
+        chain = self.failures.setdefault(lane, deque(maxlen=UNCHANGED_FAILURE_LIMIT))
         if chain and (step['step'] - chain[-1]['step'] > EDIT_WINDOW or chain[-1]['failed'] != failed):
             chain.clear()
         if chain and (chain[-1]['step'] == step['step'] or chain[-1]['sha256'] == file_sha):

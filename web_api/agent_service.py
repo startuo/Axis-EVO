@@ -720,7 +720,6 @@ class AgentService:
                 messages.append(message)
                 proposed=message.get('tool_calls') or []
                 if not proposed:
-                    completion_block = None
                     if command in ('plan', 'goal') and not self.store.records('task_plan', parent_id=tid, limit=1):
                         if plan_reminded:
                             self._finish(turn, 'BLOCKED', 'AGENT_PLAN_REQUIRED')
@@ -759,38 +758,12 @@ class AgentService:
                                     self._record_contract_result(turn, report, 'FIXED_CHECKS_FAILED')
                                 self._finish(turn,'FAILED','FIXED_CHECKS_FAILED')
                                 return
-                    if contract:
-                        code = check_error or ('FIXED_CHECKS_FAILED' if required and report and report['status'] == 'FAILED' else None)
-                        assessment = self._record_contract_result(turn, report, code)
-                        verifier_mode = self.workspaces.get(wid)['policy'].get('verifierMode', 'off')
-                        review = None
-                        if changed or contract['verificationMode'] != 'none' or verifier_mode == 'always':
-                            review = run_verification(self, turn, assessment, report, mode=verifier_mode,
-                                completion=self._verification_completion,
-                                cancelled=lambda:self._cancelled(turn) or time.monotonic()>deadline
-                                    or self.workspaces.get(wid)['revision']!=turn['payload']['workspaceRevision'])
-                            if verifier_mode != 'off':
-                                current = self._contract_assessment(turn, report, code)
-                                if current != assessment:
-                                    assessment = current
-                                    self.store.append('task_contract_result', assessment, wid, tid)
-                        if self._contract_unmet(contract, assessment):
-                            completion_block = 'CONTRACT_UNMET'
-                        elif review and review['verdict'] == 'REJECTED':
-                            completion_block = 'FRESH_VERIFIER_REJECTED'
                     snapshot = (auto_compact_snapshot(context_epoch,message)
                         if context_epoch.get('number', 0) and not evaluation and not browser_context else None)
-                    with self._lock:
-                        if self._cancelled(turn):
-                            self._finish_cancelled(turn)
-                        elif self.workspaces.get(wid)['revision'] != turn['payload']['workspaceRevision']:
-                            self._finish(turn, 'BLOCKED', 'WORKSPACE_POLICY_CHANGED')
-                        elif time.monotonic() > deadline:
-                            self._finish(turn, 'LIMIT_REACHED', 'TURN_DEADLINE')
-                        elif completion_block:
-                            self._finish(turn, 'BLOCKED', completion_block)
-                        else:
-                            self._finish(turn,'COMPLETED',answer=message.get('content') or '',auto_snapshot=snapshot)
+                    code = check_error or ('FIXED_CHECKS_FAILED' if required and report and report['status'] == 'FAILED' else None)
+                    remaining = None if budget['hardTokens'] is None else budget['hardTokens'] - tokens
+                    self._settle_delivery(turn, contract, report, code, changed, message.get('content') or '', snapshot,
+                        remaining_tokens=remaining)
                     return
                 command_ran=False
                 post_edit_notices = []
@@ -846,12 +819,12 @@ class AgentService:
                         detected = stall.tool(calls, call['id'], name, args, result, artifact=artifact)
                         if not detected and post_edit is not None:
                             failed = [post_edit['check']['name']] if post_edit['status'] == 'FAILED' else []
-                            detected = stall.check(post_edit['receiptId'], failed)
+                            detected = stall.check(post_edit['receiptId'], failed, suite='post_edit')
                         if not detected and name == 'run_checks' and result.get('data',{}).get('checks'):
                             checks = result['data']['checks']
                             if checks[-1].get('receiptId'):
                                 detected = stall.check(checks[-1]['receiptId'], sorted(check['name'] for check in checks
-                                    if type(check['result']['exitCode']) is int and check['result']['exitCode'] != 0))
+                                    if type(check['result']['exitCode']) is int and check['result']['exitCode'] != 0), suite='fixed')
                         if detected:
                             self._stop_stall(turn, detected)
                             return
@@ -877,7 +850,7 @@ class AgentService:
                             return
                         self._context_notice(turn, messages, self._delivery_feedback(report))
                         previous_checks=report
-                if (tracked_criteria and stall is not None and (round_number + 1) < budget['maxRounds']
+                if (tracked_criteria and stall is not None
                         and ((round_number + 1)*5 > budget['maxRounds']*3 or threshold is not None and tokens*5 > threshold*3)):
                     current = assess_contract(self, turn, previous_checks)
                     detected = stall.budget(rounds=round_number+1, tokens=tokens, max_rounds=budget['maxRounds'],
@@ -962,6 +935,45 @@ class AgentService:
         self.store.append('task_contract_result', assessment, turn['workspaceId'], turn['id'])
         return assessment
 
+    def _settle_delivery(self, turn, contract, report, check_error, changed, answer, snapshot, *, remaining_tokens):
+        wid, tid = turn['workspaceId'], turn['id']
+        deadline = self._deadlines[tid]
+        revision = turn['payload']['workspaceRevision']
+        review = preliminary = None
+        if contract:
+            mode = self.workspaces.get(wid)['policy'].get('verifierMode', 'off')
+            if changed or contract['verificationMode'] != 'none' or mode == 'always':
+                preliminary = self._contract_assessment(turn, report, check_error)
+                review = run_verification(self, turn, preliminary, report, mode=mode,
+                    completion=self._verification_completion, remaining_tokens=remaining_tokens,
+                    cancelled=lambda:self._cancelled(turn) or time.monotonic()>deadline
+                        or self.workspaces.get(wid)['revision']!=revision)
+        with self._lock:
+            if self._cancelled(turn):
+                self._finish_cancelled(turn)
+                return
+            if self.workspaces.get(wid)['revision'] != revision:
+                self._finish(turn, 'BLOCKED', 'WORKSPACE_POLICY_CHANGED')
+                return
+            if contract:
+                # Host file effects in overlapping workspaces use this same lock.
+                assessment = self._record_contract_result(turn, report, check_error)
+                if review and review['verdict'] == 'VERIFIED' and preliminary != assessment:
+                    review = {**review, 'verdict':'UNVERIFIED', 'checkedItems':[],
+                        'missingEvidence':['VERIFIER_INPUT_CHANGED']}
+                    self.store.append('fresh_verification', review, wid, tid)
+                if self._contract_unmet(contract, assessment):
+                    self._finish(turn, 'BLOCKED', 'CONTRACT_UNMET')
+                    return
+            if time.monotonic() > deadline:
+                self._finish(turn, 'LIMIT_REACHED', 'TURN_DEADLINE')
+            elif review and review.get('code') == 'VERIFIER_BUDGET_OVERRUN':
+                self._finish(turn, 'LIMIT_REACHED', 'TASK_CONTRACT_TOKEN_LIMIT')
+            elif review and review['verdict'] == 'REJECTED':
+                self._finish(turn, 'BLOCKED', 'FRESH_VERIFIER_REJECTED')
+            else:
+                self._finish(turn, 'COMPLETED', answer=answer, auto_snapshot=snapshot)
+
     @staticmethod
     def _contract_unmet(contract, assessment):
         return (contract['verificationMode'] == 'required' and assessment['status'] != 'VERIFIED'
@@ -1011,6 +1023,8 @@ class AgentService:
                         fail('STALL_RESOLUTION_INVALID', '请选择要移除的验收条件，并至少保留一项。')
                     override['doneWhen'] = [case for index,case in enumerate(cases) if index not in drops]
                     prompt = f"继续任务：{contract['goal']}\n按我已缩减的验收条件推进。"
+                if prior.get('command'):
+                    prompt = f"/{prior['command']} {prompt}"
                 profile = prior['profile']
                 self.submit({'workspaceId':wid, 'conversationId':cid, 'continueFrom':tid,
                     'requestId':body['requestId'], 'profileId':profile['id'], 'profileRevision':profile['revision'],
