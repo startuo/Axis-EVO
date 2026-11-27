@@ -1,7 +1,7 @@
 /** 工作区：授权路径+模式、列表、切换模式、移除。 */
 import { useState } from 'react';
 import { FolderLock, LoaderCircle, Plus, Trash2 } from 'lucide-react';
-import type { PermissionMode, Workspace } from '@axis/protocol';
+import type { PermissionMode, VerifierMode, Workspace } from '@axis/protocol';
 import { PermissionChip } from '../../../components/PermissionChip';
 import { useToast } from '../../../components/Toasts';
 import { MODE_LABEL, MODE_ORDER, errorMessage, timeAgo } from '../../../lib/format';
@@ -103,6 +103,7 @@ export function WorkspaceSection({ workspaces, request, pythonRuntime = false }:
               <div className="set-row-title">{w.name}</div>
               <code className="set-row-path" title={w.path}>{w.path}</code>
               <div className="set-row-sub">授权于 {timeAgo(w.authorizedAt)}</div>
+              {pythonRuntime && <VerifierModeControl workspace={w} request={request} />}
             </div>
             <div className="set-row-actions">
               {pythonRuntime ? <WorkspaceModeControl workspace={w} request={request} /> : (
@@ -120,6 +121,30 @@ export function WorkspaceSection({ workspaces, request, pythonRuntime = false }:
       </div>
     </section>
   );
+}
+
+function VerifierModeControl({ workspace, request }: {
+  workspace: Workspace; request: WorkspaceSectionProps['request'];
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  async function update(mode: VerifierMode) {
+    setBusy(true);
+    try {
+      await request('workspace.setVerifier', { workspaceId: workspace.id, mode });
+    } catch (error) {
+      toast.push('error', `独立验证设置保存失败：${errorMessage(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <label className="set-row-sub">独立验证{' '}
+    <Select aria-label={`${workspace.name} 独立验证`} value={workspace.verifierMode ?? 'off'} disabled={busy}
+      title="开启后独立请求模型核对契约和执行证据，Token 单独统计。"
+      onChange={event => void update(event.target.value as VerifierMode)}>
+      <option value="off">关闭</option><option value="on_delivery">交付时</option><option value="always">每轮结算时</option>
+    </Select>
+  </label>;
 }
 
 export function WorkspaceModeControl({ workspace, request }: {

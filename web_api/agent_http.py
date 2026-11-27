@@ -127,6 +127,8 @@ def mutate(service,tail,body):
             return service.feedback(tail[1],body)
         if tail[2]=='cancel':
             return service.cancel(tail[1],body)
+        if tail[2]=='stall-resolution':
+            return service.resolve_stall(tail[1],body)
     if len(tail)>=3 and tail[0]=='workspaces':
         wid=tail[1]
         service.workspaces.get(wid)

@@ -52,13 +52,23 @@ export const journalEvent = z.object({
 });
 export type JournalEvent = z.infer<typeof journalEvent>;
 
+const contractCriterion = z.union([
+  z.object({ kind: z.enum(['file_exists', 'file_nonempty', 'file_unchanged']), path: z.string().min(1).max(512) }),
+  z.object({ kind: z.literal('check_passed'), name: z.string().min(1).max(80) }),
+]);
+export const stallKind = z.enum(['READ_ONLY_SPIN', 'EDIT_OSCILLATION', 'PROGRESSLESS_BURN']);
+export const stallAction = z.enum(['ADD_CONSTRAINTS', 'REDUCE_CONTRACT', 'KEEP_SNAPSHOT']);
 export const turnDecision = z.object({
-  status: z.enum(['UNKNOWN', 'TRIPPED']),
+  status: z.enum(['UNKNOWN', 'TRIPPED', 'STALL']),
   code: z.string(),
   tool: z.string().optional(),
   hint: z.string().optional(),
   consecutiveFailures: z.number().optional(),
   lastCallId: z.string().optional(),
+  stallKind: stallKind.optional(),
+  turnId: id.optional(),
+  criteria: z.array(contractCriterion).optional(),
+  resolvedAction: stallAction.optional(),
 });
 export type TurnDecision = z.infer<typeof turnDecision>;
 
@@ -86,6 +96,9 @@ export const profile = z.object({
 });
 export type Profile = z.infer<typeof profile>;
 
+export const verifierMode = z.enum(['off', 'on_delivery', 'always']);
+export type VerifierMode = z.infer<typeof verifierMode>;
+
 export const workspace = z.object({
   id,
   path: z.string().min(1),
@@ -93,6 +106,7 @@ export const workspace = z.object({
   mode: permissionMode,
   authorizedAt: z.string(),
   evolutionPolicy: z.enum(['off', 'observe', 'auto']).optional(),
+  verifierMode: verifierMode.optional(),
 });
 export type Workspace = z.infer<typeof workspace>;
 
@@ -101,10 +115,7 @@ const contractSummary = z.object({ status: taskContractStatus, total: z.number()
   checked: z.number().int().nonnegative() });
 export const taskContractInput = z.object({
   goal: z.string().min(1).max(240).optional(),
-  doneWhen: z.array(z.union([
-    z.object({ kind: z.enum(['file_exists', 'file_nonempty', 'file_unchanged']), path: z.string().min(1).max(512) }),
-    z.object({ kind: z.literal('check_passed'), name: z.string().min(1).max(80) }),
-  ])).max(16).optional(),
+  doneWhen: z.array(contractCriterion).max(16).optional(),
   protectedPaths: z.array(z.string().min(1).max(512)).max(16).optional(),
   verificationMode: z.enum(['required', 'advisory', 'none']).optional(),
   budget: z.object({ maxRounds: z.number().int().min(1).max(32).optional(),
@@ -404,10 +415,13 @@ export const requestParams = {
       data: z.string().min(1).max(2_796_204) }),
   ])).optional(), taskContract: taskContractInput.optional() }),
   'turn.cancel': z.object({ sessionId: id }),
+  'stall.resolve': z.object({ turnId: id, requestId: id, action: stallAction,
+    constraints: z.string().max(2000).optional(), dropCriteria: z.array(z.number().int().nonnegative()).max(16).optional() }),
   'approval.respond': z.object({ approvalId: id, decision: z.enum(['approve', 'deny']), scope: z.enum(['once', 'session']).default('once') }),
   'workspace.authorize': z.object({ path: z.string().min(1), name: z.string().max(80).optional(), mode: permissionMode }),
   'workspace.list': z.object({}),
   'workspace.setMode': z.object({ workspaceId: id, mode: permissionMode }),
+  'workspace.setVerifier': z.object({ workspaceId: id, mode: verifierMode }),
   'workspace.remove': z.object({ workspaceId: id }),
   'profile.list': z.object({}),
   'profile.save': z.object({ id: id.optional(), name: z.string().min(1).max(80), endpoint: z.string().url(), modelId: z.string().min(1).max(120), credentialEnv: z.string().min(1).max(120).optional(), apiKey: z.string().min(1).max(512).optional(), reasoningEffort: reasoningEffort.optional(), promptCache: promptCacheStrategy.optional(), timeoutSeconds: z.number().int().min(5).max(600).optional() }),

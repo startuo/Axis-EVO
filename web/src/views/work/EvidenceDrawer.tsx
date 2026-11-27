@@ -69,6 +69,7 @@ function LazyEvidence<T>({ label, summary, read, children }: {
 const STATUS_LABEL: Record<string, string> = {
   PASSED: '通过', SUCCESS: '成功', FAILED: '失败', UNKNOWN: '结果未确认',
   CANCELLED: '已取消', TIMED_OUT: '超时', REJECTED: '已拒绝',
+  VERIFIED: '已核验', CONTRACT_GAP: '契约缺口', UNVERIFIED: '证据不足',
 };
 
 const EVENT_LABEL: Record<string, string> = {
@@ -77,6 +78,9 @@ const EVENT_LABEL: Record<string, string> = {
   host_delivery_check: '交付固定检查', circuit_breaker: '自动暂停', terminal: '回合结束',
   context_checkpoint: '上下文检查点', model_usage: '服务商用量',
   task_contract: '任务契约', task_contract_result: '契约核对结果',
+  stall_detected: '语义停滞', stall_resolution: '停滞处置',
+  contract_budget_warning: '任务预算提示', contract_budget_stop: '任务预算停止',
+  fresh_verification: '独立只读验证', fresh_verifier_usage: '独立验证用量',
 };
 
 function textField(payload: Record<string, unknown>, key: string): string | undefined {
@@ -172,7 +176,8 @@ export function EvidenceDrawer({ workspaceId, sessionId }: { workspaceId: string
 function EventEntry({ event }: { event: EvidenceEvent }) {
   const { request } = useSocket();
   const label = textField(event.payload, 'checkName') ?? EVENT_LABEL[event.kind] ?? event.kind;
-  const status = textField(event.payload, 'status') ?? textField(event.payload, 'validationStatus');
+  const status = event.payload.code === 'VERIFIER_SKIPPED' ? '已跳过'
+    : textField(event.payload, 'verdict') ?? textField(event.payload, 'status') ?? textField(event.payload, 'validationStatus');
   const snapshot = textField(event.payload, 'snapshotSha256');
 
   return (

@@ -87,6 +87,8 @@ def prepare_contract(service, wid, prompt, override, policy, *, can_check):
             entries.append({'kind':kind, 'name':bounded_text(item['name'], 80)})
         else:
             fail('TASK_CONTRACT_INVALID', '验收条件必须使用受支持的文件条件或固定检查名称。')
+    if len(paths) > 16 or len({canonical(item) for item in entries}) != len(entries):
+        fail('TASK_CONTRACT_INVALID', '验收条件不可重复，保护路径最多16个。')
     contract.update(doneWhen=entries, protectedPaths=sorted(paths), budget=_budget(contract['budget']),
                     origin='explicit' if override else 'inferred')
     service.runtime.providers.check_text(canonical(contract))
@@ -142,7 +144,11 @@ def assess_contract(service, turn, report=None):
         policy = service.execution.policy(wid)
         if policy['enabled'] and policy['id'] == payload['executionPolicyId'] and report and report.get('snapshotSha256'):
             try:
-                snapshot_sha = fixed_inputs(snapshot(service.workspaces, wid), policy['protectedInputs'])['sha256']
+                live = snapshot(service.workspaces, wid)
+                live_files = {item['path']:item['sha256'] for item in live['manifest']['files']}
+                contradictions.extend({'code':'FIXED_INPUT_BYTES_CHANGED', 'path':item['path']}
+                    for item in policy['protectedInputs'] if live_files.get(item['path']) != item['sha256'])
+                snapshot_sha = fixed_inputs(live, policy['protectedInputs'])['sha256']
                 checks = _passed_checks(service, turn, snapshot_sha, policy, report)
             except (ApiError, OSError, ValueError, UnicodeError):
                 missing.append({'code':'CHECK_SNAPSHOT_UNAVAILABLE'})
@@ -156,7 +162,8 @@ def assess_contract(service, turn, report=None):
         elif (fact := files.get(item['path'])) is not None:
             if ((kind == 'file_exists' and fact['sha256'] is not None)
                     or (kind == 'file_nonempty' and (fact['sizeBytes'] or 0) > 0)
-                    or (kind == 'file_unchanged' and fact == payload['contractProtectedFiles'][item['path']])):
+                    or (kind == 'file_unchanged' and fact['sha256'] is not None
+                        and fact == payload['contractProtectedFiles'][item['path']])):
                 checked.append({**item, 'fileSha256':fact['sha256'], 'sizeBytes':fact['sizeBytes']})
             else:
                 contradictions.append({'code':'FILE_CRITERION_UNMET', **item})

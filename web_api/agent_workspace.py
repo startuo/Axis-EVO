@@ -118,12 +118,18 @@ class AgentWorkspaces:
                 'policy':changes[-1]['payload'] if changes else value['policy'],'sources':sources}
 
     def settings(self, workspace_id, body):
-        self.get(workspace_id)
-        if (type(body) is not dict or body.keys() != {'writeMode','evolutionMode','style'}
+        current = self.get(workspace_id)['policy']
+        required = {'writeMode','evolutionMode','style'}
+        options = {'stallReadSteps','verifierMode'}
+        if (type(body) is not dict or not required <= body.keys() <= required | options
                 or body['writeMode'] not in ('read','write') or body['evolutionMode'] not in ('off','observe','auto')
                 or body['style'] not in ('concise','balanced','detailed')):
             fail('WORKSPACE_POLICY_INVALID', '工作区策略无效。')
-        self.store.append('workspace_settings',dict(body),workspace_id)
+        if 'stallReadSteps' in body and (type(body['stallReadSteps']) is not int or not 4 <= body['stallReadSteps'] <= 16):
+            fail('WORKSPACE_POLICY_INVALID', '只读停滞窗口须为4至16步。')
+        if 'verifierMode' in body and body['verifierMode'] not in ('off','on_delivery','always'):
+            fail('WORKSPACE_POLICY_INVALID', '独立验证模式无效。')
+        self.store.append('workspace_settings', current | body, workspace_id)
         return self.get(workspace_id)
 
     def add_source(self, workspace_id, body):

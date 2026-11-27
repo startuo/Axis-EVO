@@ -23,3 +23,11 @@
 .execution-decision-heading { display: flex; align-items: center; gap: 7px; font-weight: 600; }
 .execution-decision p { margin: 0; color: var(--text-secondary); }
 .execution-decision code { color: var(--text-muted); font-size: var(--fs-label); }
+.stall-actions { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.stall-form { display: grid; gap: 6px; min-width: 0; }
+.stall-form textarea {
+  display: block; width: 100%; max-width: 100%; resize: vertical; margin-top: 4px;
+  font: inherit; color: inherit; background: var(--bg-base);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 6px;
+}
+.stall-criterion { display: flex; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }

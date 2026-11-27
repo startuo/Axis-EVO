@@ -173,6 +173,12 @@ export class HttpAxisClient implements AxisClient {
         return this.updateWorkspace(await this.post(`${workspaceRoute(wid)}/settings`,
           { ...policy, writeMode: this.workspaceWriteMode(params.mode) }));
       }
+      case 'workspace.setVerifier': {
+        const wid = text(params.workspaceId);
+        const policy = await this.workspacePolicy(wid);
+        return this.updateWorkspace(await this.post(`${workspaceRoute(wid)}/settings`,
+          { ...policy, verifierMode: params.mode }));
+      }
       case 'profile.list':
         return this.assignProfiles((await this.get(PROVIDERS)).profiles);
       case 'profile.save':
@@ -238,6 +244,17 @@ export class HttpAxisClient implements AxisClient {
       }
       case 'turn.start':
         return this.startTurn(params);
+      case 'stall.resolve': {
+        const { turnId, ...decision } = params;
+        const result = await this.post(`${AGENT}/turns/${enc(text(turnId))}/stall-resolution`, decision);
+        const id = text(result.conversationId);
+        if (id) {
+          if (result.turnId) this.active.add(id);
+          this.schedule();
+          await this.readSummary(id);
+        }
+        return result;
+      }
       case 'turn.cancel': {
         const id = text(params.sessionId);
         const projection = await this.readSummary(id);

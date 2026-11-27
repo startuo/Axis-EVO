@@ -30,6 +30,8 @@ from .agent_context import (
 )
 from .agent_execution_policy import AgentExecution
 from .agent_contract import DEFAULT_BUDGET, assess_contract, prepare_contract, protects
+from .agent_stall import DEFAULT_READ_STEPS, SUGGESTED_ACTIONS, StallDetector, retain_snapshot
+from .agent_verifier import run_verification
 from .agent_metrics import current_context, invoke_completion, output_token_limit, summarize, take_usage
 from .agent_prefix import PrefixProbe, RequestPrefix
 from .agent_fileops import MUTATIONS, TEXT_EDITS, paths as mutation_paths
@@ -44,7 +46,8 @@ SUMMARY_KINDS = (
     'started', 'terminal', 'assistant', 'model_usage', 'model_not_dispatched',
     'tool_intent', 'tool_result', 'tool_execution', 'artifact', 'file_operation',
     'task_plan', 'host_delivery_check', 'post_edit_hook', 'circuit_breaker', 'context_checkpoint',
-    'task_contract', 'task_contract_result',
+    'task_contract', 'task_contract_result', 'contract_budget_warning', 'contract_budget_stop', 'stall_detected',
+    'stall_resolution', 'fresh_verification', 'fresh_verifier_usage',
 )
 SYSTEM = '''You are Axis-Evo, a local-first agent collaborating on goals and deliverables.
 Use the user's language. Work autonomously within the host-provided workspace policy.
@@ -80,7 +83,7 @@ brief result with material caveats; detailed may expand reasoning and evidence.
 
 
 class AgentService:
-    def __init__(self, runtime, browser, *, completion=None):
+    def __init__(self, runtime, browser, *, completion=None, verification_completion=None):
         self.runtime,self.browser=runtime,browser
         self.store=AgentStore(runtime.config.data_dir)
         self.workspaces=AgentWorkspaces(self.store,runtime.providers)
@@ -91,6 +94,7 @@ class AgentService:
         self._deadlines={}
         self._prefix_probe=PrefixProbe()
         self._completion=completion or complete_isolated
+        self._verification_completion=verification_completion or complete_isolated
         self.evolution=AgentEvolution(self.store,runtime.providers,runtime.config.data_dir,self.turn,
             evaluation_runner=self.evaluate_candidate,authority_reader=self.workspaces.source,authority_lock=self._lock,
             experience_capture=self.capture_experience, completion=completion,
@@ -390,6 +394,9 @@ class AgentService:
                          if event['kind'] == 'host_delivery_check'), None)
         contract = next((event['payload'] for event in reversed(events)
                          if event['kind'] == 'task_contract_result'), None)
+        stall = next((event['payload'] for event in reversed(events) if event['kind'] == 'stall_detected'), None)
+        fresh = next((event['payload'] for event in reversed(events) if event['kind'] == 'fresh_verification'), None)
+        fresh_usage = next((event['payload'] for event in reversed(events) if event['kind'] == 'fresh_verifier_usage'), None)
         # Status, reason and answer must come from the same event snapshot.
         # A terminal appended between separate reads must not yield BLOCKED
         # with no reason, or COMPLETED without its final answer.
@@ -404,6 +411,8 @@ class AgentService:
             'evaluation':row['payload'].get('evaluation'),
             'circuitBreaker': circuit, 'deliveryValidation': delivery,
             'taskContract':row['payload'].get('taskContract'), 'contractResult':contract,
+            'stall':stall,
+            'freshVerification':fresh, 'freshVerifierUsage':fresh_usage,
             'skillUses':[e['payload'] for e in events if e['kind']=='skill_use'],
             **current_context(events, row['payload']['profile']),
             'events':events,'usage':summarize(events),'artifacts':[self.artifact(e) for e in events if e['kind']=='artifact'],
@@ -455,20 +464,31 @@ class AgentService:
             if 'taskContract' in body and (evaluation or command == 'compact'):
                 fail('TASK_CONTRACT_INVALID', '隔离评估与会话整理不能覆盖任务契约。')
             contract = {}
-            if not evaluation and command != 'compact':
-                definition, protected = prepare_contract(self, wid, prompt, body.get('taskContract', {}), policy,
-                    can_check=command not in READ_ONLY_COMMANDS)
-                contract = {'taskContract':definition, 'contractProtectedFiles':protected}
             binding=body.get('browserBindingId')
             if binding:
                 self.browser._binding(binding)
             cid=body.get('conversationId')
             continued=body.get('continueFrom')
+            inherited = None
             if continued:
                 parent=self.store.get(continued,'turn')
                 if parent['workspaceId']!=wid or self._status(continued) not in TERMINAL or (cid and cid!=parent['parentId']):
                     fail('AGENT_CONTINUE_INVALID','只能依据同工作区的已结束任务继续。',409)
                 cid=parent['parentId']
+                prior_contract = parent['payload'].get('taskContract')
+                if prior_contract and prior_contract['origin'] == 'explicit':
+                    inherited = parent['payload']
+            if not evaluation and command != 'compact':
+                override = body.get('taskContract', {})
+                if inherited and 'taskContract' not in body:
+                    definition, protected = inherited['taskContract'], inherited['contractProtectedFiles']
+                else:
+                    definition, protected = prepare_contract(self, wid, prompt, override, policy,
+                        can_check=command not in READ_ONLY_COMMANDS)
+                    if inherited:
+                        protected.update({path:fact for path,fact in inherited['contractProtectedFiles'].items()
+                            if path in protected})
+                contract = {'taskContract':definition, 'contractProtectedFiles':protected}
             if cid:
                 conversation=self.store.get(cid,'conversation')
                 if conversation['workspaceId']!=wid:
@@ -575,12 +595,14 @@ class AgentService:
         contract=turn['payload'].get('taskContract')
         budget=contract['budget'] if contract else DEFAULT_BUDGET
         required=bool(contract and contract['verificationMode'] == 'required')
+        threshold=budget['softTokens'] or budget['hardTokens']
         cache_key='axis_'+hashlib.sha256(f"{wid}:{conversation}:{profile['modelId']}".encode()).hexdigest()[:24]
         deadline=time.monotonic()+MAX_TURN_SECONDS
         self._deadlines[tid]=deadline
         used_ids=set()
         calls=0
         tokens=0
+        warned_budget=False
         changed=False
         previous_checks=None
         prompted_repair=False
@@ -606,6 +628,10 @@ class AgentService:
                 return
             if contract:
                 self.store.append('task_contract', contract, wid, tid)
+            stall = None if evaluation else StallDetector(
+                self.workspaces.get(wid)['policy'].get('stallReadSteps', DEFAULT_READ_STEPS))
+            tracked_criteria = bool(contract and contract['doneWhen'] and contract['verificationMode'] != 'none')
+            initial = self._criteria_progress(assess_contract(self, turn)) if tracked_criteria else set()
             messages=self._messages(turn)
             if contract and contract['origin'] == 'explicit':
                 self._context_notice(turn, messages, {'role':'user', 'content':
@@ -665,6 +691,15 @@ class AgentService:
                 tokens += observed['total_tokens'] if observed else reserve
                 self.store.append('model_usage',{'round':round_number+1,'usage':observed,
                     'durationMs':round((time.monotonic()-request_start)*1000,2)},wid,tid)
+                if budget['hardTokens'] is not None and tokens > budget['hardTokens']:
+                    self.store.append('contract_budget_stop', {'round':round_number+1, 'tokens':tokens,
+                        'hardTokens':budget['hardTokens'], 'reason':'PROVIDER_USAGE_OVERRUN'}, wid, tid)
+                    self._finish(turn,'LIMIT_REACHED','TASK_CONTRACT_TOKEN_LIMIT')
+                    return
+                if budget['softTokens'] is not None and tokens >= budget['softTokens'] and not warned_budget:
+                    self.store.append('contract_budget_warning', {'round':round_number+1, 'tokens':tokens,
+                        'softTokens':budget['softTokens']}, wid, tid)
+                    warned_budget=True
                 if self._cancelled(turn):
                     self._finish_cancelled(turn)
                     return
@@ -685,6 +720,7 @@ class AgentService:
                 messages.append(message)
                 proposed=message.get('tool_calls') or []
                 if not proposed:
+                    completion_block = None
                     if command in ('plan', 'goal') and not self.store.records('task_plan', parent_id=tid, limit=1):
                         if plan_reminded:
                             self._finish(turn, 'BLOCKED', 'AGENT_PLAN_REQUIRED')
@@ -701,6 +737,8 @@ class AgentService:
                             report=self._delivery_check(turn,previous_checks)
                         except ApiError as error:
                             if not required:
+                                if contract:
+                                    self._record_contract_result(turn, previous_checks, error.code)
                                 raise
                             check_error=error.code
                     if should_check and report is not None:
@@ -717,24 +755,42 @@ class AgentService:
                                 prompted_repair=True
                                 continue
                             if not required:
+                                if contract:
+                                    self._record_contract_result(turn, report, 'FIXED_CHECKS_FAILED')
                                 self._finish(turn,'FAILED','FIXED_CHECKS_FAILED')
                                 return
                     if contract:
-                        assessment = assess_contract(self, turn, report)
-                        if check_error or required and report and report['status'] == 'FAILED':
-                            assessment['missingEvidence'].append({'code':check_error or 'FIXED_CHECKS_FAILED'})
-                            if assessment['status'] == 'VERIFIED':
-                                assessment['status'] = 'UNVERIFIED'
-                        self.store.append('task_contract_result', assessment, wid, tid)
-                        protections_unconfirmed=any(item.get('path') in contract['protectedPaths']
-                            for item in assessment['missingEvidence'])
-                        if (required and assessment['status'] != 'VERIFIED' or protections_unconfirmed
-                                or any(item['code'] == 'PROTECTED_BYTES_CHANGED' for item in assessment['contradictions'])):
-                            self._finish(turn,'BLOCKED','CONTRACT_UNMET')
-                            return
+                        code = check_error or ('FIXED_CHECKS_FAILED' if required and report and report['status'] == 'FAILED' else None)
+                        assessment = self._record_contract_result(turn, report, code)
+                        verifier_mode = self.workspaces.get(wid)['policy'].get('verifierMode', 'off')
+                        review = None
+                        if changed or contract['verificationMode'] != 'none' or verifier_mode == 'always':
+                            review = run_verification(self, turn, assessment, report, mode=verifier_mode,
+                                completion=self._verification_completion,
+                                cancelled=lambda:self._cancelled(turn) or time.monotonic()>deadline
+                                    or self.workspaces.get(wid)['revision']!=turn['payload']['workspaceRevision'])
+                            if verifier_mode != 'off':
+                                current = self._contract_assessment(turn, report, code)
+                                if current != assessment:
+                                    assessment = current
+                                    self.store.append('task_contract_result', assessment, wid, tid)
+                        if self._contract_unmet(contract, assessment):
+                            completion_block = 'CONTRACT_UNMET'
+                        elif review and review['verdict'] == 'REJECTED':
+                            completion_block = 'FRESH_VERIFIER_REJECTED'
                     snapshot = (auto_compact_snapshot(context_epoch,message)
                         if context_epoch.get('number', 0) and not evaluation and not browser_context else None)
-                    self._finish(turn,'COMPLETED',answer=message.get('content') or '',auto_snapshot=snapshot)
+                    with self._lock:
+                        if self._cancelled(turn):
+                            self._finish_cancelled(turn)
+                        elif self.workspaces.get(wid)['revision'] != turn['payload']['workspaceRevision']:
+                            self._finish(turn, 'BLOCKED', 'WORKSPACE_POLICY_CHANGED')
+                        elif time.monotonic() > deadline:
+                            self._finish(turn, 'LIMIT_REACHED', 'TURN_DEADLINE')
+                        elif completion_block:
+                            self._finish(turn, 'BLOCKED', completion_block)
+                        else:
+                            self._finish(turn,'COMPLETED',answer=message.get('content') or '',auto_snapshot=snapshot)
                     return
                 command_ran=False
                 post_edit_notices = []
@@ -758,6 +814,7 @@ class AgentService:
                     if result['status']=='UNKNOWN':
                         self._finish(turn,'UNKNOWN','TOOL_OUTCOME_UNKNOWN')
                         return
+                    post_edit = None
                     if result['status']=='SUCCESS':
                         changed |= name in MUTATIONS
                         command_ran |= name=='run_command'
@@ -783,19 +840,52 @@ class AgentService:
                             return
                     if name=='run_checks' and result.get('data',{}).get('checks'):
                         previous_checks={**result['data'],'status':result['data']['validationStatus']}
+                    if stall is not None:
+                        artifact_id = result.get('data', {}).get('artifactId')
+                        artifact = self.store.get(artifact_id, 'artifact')['payload'] if artifact_id and name in MUTATIONS else None
+                        detected = stall.tool(calls, call['id'], name, args, result, artifact=artifact)
+                        if not detected and post_edit is not None:
+                            failed = [post_edit['check']['name']] if post_edit['status'] == 'FAILED' else []
+                            detected = stall.check(post_edit['receiptId'], failed)
+                        if not detected and name == 'run_checks' and result.get('data',{}).get('checks'):
+                            checks = result['data']['checks']
+                            if checks[-1].get('receiptId'):
+                                detected = stall.check(checks[-1]['receiptId'], sorted(check['name'] for check in checks
+                                    if type(check['result']['exitCode']) is int and check['result']['exitCode'] != 0))
+                        if detected:
+                            self._stop_stall(turn, detected)
+                            return
                 for notice in post_edit_notices:
                     self._context_notice(turn, messages, notice)
                 if changed and command_ran and not proactive_check and not turn['payload'].get('evaluation'):
                     # Offer the configured result before the model spends more
                     # turns debugging an improvised test command. Run once here.
                     proactive_check=True
-                    report=self._delivery_check(turn,previous_checks)
+                    try:
+                        report=self._delivery_check(turn,previous_checks)
+                    except ApiError as error:
+                        if not required:
+                            if contract:
+                                self._record_contract_result(turn, previous_checks, error.code)
+                            raise
+                        self._record_contract_result(turn, previous_checks, error.code)
+                        self._finish(turn,'BLOCKED','CONTRACT_UNMET')
+                        return
                     if report['status']!='NOT_CONFIGURED' and report is not previous_checks:
                         if any(c['result']['status']=='UNKNOWN' for c in report['checks']):
                             self._finish(turn,'UNKNOWN','FIXED_CHECK_OUTCOME_UNKNOWN')
                             return
                         self._context_notice(turn, messages, self._delivery_feedback(report))
                         previous_checks=report
+                if (tracked_criteria and stall is not None and (round_number + 1) < budget['maxRounds']
+                        and ((round_number + 1)*5 > budget['maxRounds']*3 or threshold is not None and tokens*5 > threshold*3)):
+                    current = assess_contract(self, turn, previous_checks)
+                    detected = stall.budget(rounds=round_number+1, tokens=tokens, max_rounds=budget['maxRounds'],
+                        token_threshold=threshold, progress=len(self._criteria_progress(current) - initial),
+                        unmet=current['status'] != 'VERIFIED')
+                    if detected:
+                        self._stop_stall(turn, detected)
+                        return
             self._finish(turn,'LIMIT_REACHED','ROUND_LIMIT')
         except PlanningTransportError as error:
             if self._cancelled(turn):
@@ -854,6 +944,79 @@ class AgentService:
                        else result['status'])
             self.store.append('host_delivery_check',{'validationStatus':outcome,**result},wid,tid)
         return result
+
+    @staticmethod
+    def _criteria_progress(result):
+        return {(item['kind'], item.get('path'), item.get('name')) for item in result['checkedItems']}
+
+    def _contract_assessment(self, turn, report, check_error):
+        assessment = assess_contract(self, turn, report)
+        if check_error:
+            assessment['missingEvidence'].append({'code':check_error})
+            if assessment['status'] == 'VERIFIED':
+                assessment['status'] = 'UNVERIFIED'
+        return assessment
+
+    def _record_contract_result(self, turn, report, check_error=None):
+        assessment = self._contract_assessment(turn, report, check_error)
+        self.store.append('task_contract_result', assessment, turn['workspaceId'], turn['id'])
+        return assessment
+
+    @staticmethod
+    def _contract_unmet(contract, assessment):
+        return (contract['verificationMode'] == 'required' and assessment['status'] != 'VERIFIED'
+            or any(item.get('path') in contract['protectedPaths'] for item in assessment['missingEvidence'])
+            or any(item['code'] == 'PROTECTED_BYTES_CHANGED' for item in assessment['contradictions']))
+
+    def _stop_stall(self, turn, detected):
+        self.store.append('stall_detected', detected, turn['workspaceId'], turn['id'])
+        self._finish(turn, 'BLOCKED', 'SEMANTIC_STALL_DETECTED')
+
+    def resolve_stall(self, tid, body):
+        extra = {'ADD_CONSTRAINTS':{'constraints'}, 'REDUCE_CONTRACT':{'dropCriteria'}, 'KEEP_SNAPSHOT':set()}
+        action = body.get('action') if type(body) is dict else None
+        if type(action) is not str or action not in SUGGESTED_ACTIONS or body.keys() != {'action', 'requestId'} | extra[action]:
+            fail('STALL_RESOLUTION_INVALID', '请选择一种明确的停滞处置方式。')
+        if type(body['requestId']) is not str or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}', body['requestId']):
+            fail('AGENT_REQUEST_INVALID', '需要固定的本次请求标识。')
+        signature = digest(body)
+        with self._lock:
+            turn = self.store.get(tid, 'turn')
+            wid, cid = turn['workspaceId'], turn['parentId']
+            terminal = self.store.records('terminal', parent_id=tid, limit=1)
+            if not terminal or terminal[0]['payload'].get('code') != 'SEMANTIC_STALL_DETECTED':
+                fail('STALL_RESOLUTION_INVALID', '此轮没有可处置的语义停滞。', 409)
+            previous = self.store.records('stall_resolution', parent_id=tid, limit=1)
+            if previous:
+                if previous[0]['payload']['requestSha256'] != signature:
+                    fail('STALL_ALREADY_RESOLVED', '该停滞已经处置，请查看最新回合。', 409)
+                return previous[0]['payload']
+            prior = turn['payload']
+            contract = prior['taskContract']
+            result = {'action':action, 'requestSha256':signature, 'conversationId':cid}
+            if action == 'KEEP_SNAPSHOT':
+                if any(active['workspaceId'] == wid for active in self._active.values()):
+                    fail('AGENT_WORKSPACE_BUSY', '工作区任务结束后再保留快照。', 409)
+                result.update(retain_snapshot(self, turn))
+            else:
+                override = {key:value for key,value in contract.items() if key != 'origin'}
+                if action == 'ADD_CONSTRAINTS':
+                    constraint = bounded_text(body['constraints'], 2000)
+                    prompt = f"继续任务：{contract['goal']}\n追加约束：{constraint}"
+                else:
+                    drops, cases = body['dropCriteria'], contract['doneWhen']
+                    if (type(drops) is not list or not 0 < len(drops) < len(cases)
+                            or any(type(n) is not int or not 0 <= n < len(cases) for n in drops)
+                            or len(set(drops)) != len(drops)):
+                        fail('STALL_RESOLUTION_INVALID', '请选择要移除的验收条件，并至少保留一项。')
+                    override['doneWhen'] = [case for index,case in enumerate(cases) if index not in drops]
+                    prompt = f"继续任务：{contract['goal']}\n按我已缩减的验收条件推进。"
+                profile = prior['profile']
+                self.submit({'workspaceId':wid, 'conversationId':cid, 'continueFrom':tid,
+                    'requestId':body['requestId'], 'profileId':profile['id'], 'profileRevision':profile['revision'],
+                    'prompt':prompt, 'taskContract':override})
+                result['turnId'] = 'turn_' + body['requestId']
+            return self.store.append('stall_resolution', result, wid, tid)['payload']
 
     def _context_notice(self, turn, messages, message):
         self.store.append('context_notice', {'message': message}, turn['workspaceId'], turn['id'])

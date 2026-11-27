@@ -1,4 +1,4 @@
-import { agentCommand, promptCacheStrategy, taskContractStatus, turnImage } from '@axis/protocol';
+import { agentCommand, promptCacheStrategy, stallAction, stallKind, taskContractInput, taskContractStatus, turnImage, verifierMode } from '@axis/protocol';
 import type {
   ConversationSummary, Item, JournalEvent, Profile, ServerEvent, Session, Skill, Task,
   ToolKind, ToolStatus, TurnDecision, TurnStatus, Workspace,
@@ -18,7 +18,8 @@ export function workspaceFrom(value: unknown): Workspace {
   const evolution = text(policy.evolutionMode);
   return { id: text(row.id), name: text(row.name), path: text(row.path),
     mode: policy.writeMode === 'read' ? 'read-only' : 'workspace-write', authorizedAt: text(row.createdAt),
-    evolutionPolicy: evolution === 'off' || evolution === 'observe' || evolution === 'auto' ? evolution : undefined };
+    evolutionPolicy: evolution === 'off' || evolution === 'observe' || evolution === 'auto' ? evolution : undefined,
+    verifierMode: verifierMode.safeParse(policy.verifierMode).data };
 }
 
 export function profileFrom(value: unknown): Profile {
@@ -66,7 +67,7 @@ function toolStatus(status: string): ToolStatus {
 }
 
 type TurnRecord = { profileId: string; task: Task; lastAssistant: string;
-  decision?: TurnDecision; delivery?: RecordValue };
+  decision?: TurnDecision; delivery?: RecordValue; criteria?: TurnDecision['criteria'] };
 
 export class ConversationProjection {
   cursor = 0;
@@ -199,15 +200,33 @@ export class ConversationProjection {
         hint: text(payload.hint), consecutiveFailures: number(payload.consecutiveFailures), lastCallId: text(payload.lastCallId) };
     } else if (kind === 'host_delivery_check' && turn) {
       turn.delivery = payload;
-    } else if (kind === 'task_contract' && turn && (payload.verificationMode !== 'none' || array(payload.protectedPaths).length)) {
-      turn.task = { ...turn.task, taskContract: { status: 'PENDING', checked: 0, total: array(payload.doneWhen).length } };
-      output.push({ type: 'task.updated', task: turn.task });
+    } else if (kind === 'task_contract' && turn) {
+      turn.criteria = taskContractInput.shape.doneWhen.safeParse(payload.doneWhen).data;
+      if (payload.verificationMode !== 'none' || array(payload.protectedPaths).length) {
+        turn.task = { ...turn.task, taskContract: { status: 'PENDING', checked: 0, total: turn.criteria?.length ?? 0 } };
+        output.push({ type: 'task.updated', task: turn.task });
+      }
     } else if (kind === 'task_contract_result' && turn?.task.taskContract) {
       const status = taskContractStatus.safeParse(payload.status);
       if (status.success) {
         turn.task = { ...turn.task, taskContract: { ...turn.task.taskContract,
           status: status.data, checked: array(payload.checkedItems).length } };
         output.push({ type: 'task.updated', task: turn.task });
+      }
+    } else if (kind === 'stall_detected' && turn) {
+      const detected = stallKind.safeParse(payload.stallKind);
+      if (detected.success) turn.decision = { status: 'STALL', code: 'SEMANTIC_STALL_DETECTED',
+        turnId, stallKind: detected.data, criteria: turn.criteria };
+    } else if (kind === 'stall_resolution' && turn?.decision?.status === 'STALL') {
+      const resolved = stallAction.safeParse(payload.action);
+      if (resolved.success) {
+        turn.decision = { ...turn.decision, resolvedAction: resolved.data };
+        const item = [...this.items.values()].find(entry => entry.metadata?.decision?.turnId === turnId);
+        if (item) {
+          const patch = { metadata: { ...item.metadata, decision: turn.decision } };
+          this.items.set(item.id, { ...item, ...patch });
+          output.push({ type: 'item.updated', sessionId, itemId: item.id, patch });
+        }
       }
     } else if (kind === 'terminal') {
       const disposition = text(payload.status);
@@ -216,7 +235,7 @@ export class ConversationProjection {
       const answer = text(payload.answer);
       const decision: TurnDecision | undefined = status === 'unknown'
         ? { status: 'UNKNOWN', code: code || 'TOOL_OUTCOME_UNKNOWN' }
-        : code === 'TOOL_FAILURE_CIRCUIT_BREAKER' ? turn?.decision : undefined;
+        : code === 'TOOL_FAILURE_CIRCUIT_BREAKER' || code === 'SEMANTIC_STALL_DETECTED' ? turn?.decision : undefined;
       if (decision) {
         append({ ...start, kind: 'message', role: 'assistant', text: '',
           metadata: { ...start.metadata, decision } });
@@ -228,6 +247,9 @@ export class ConversationProjection {
       if (turn) {
         const taskStatus = status === 'completed' ? 'done' : status === 'cancelled' ? 'cancelled' : 'failed';
         turn.task = { ...turn.task, status: taskStatus, summary: answer.slice(0, 4000), updatedAt: createdAt };
+        if (turn.task.taskContract?.status === 'PENDING') {
+          turn.task.taskContract = { ...turn.task.taskContract, status: 'UNVERIFIED' };
+        }
         output.push({ type: 'task.updated', task: turn.task });
       }
       if (status) output.push({ type: 'turn.completed', sessionId, turnId, status, code,
