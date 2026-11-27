@@ -58,6 +58,31 @@ docker image inspect python:3.12-slim --format '{{.Id}}'
 
 「依据这次进展继续」将任务关联带入新一轮，并预填核对进展的目标，发送后才启动；它不自动重放旧调用，也不解除已有未知写入围栏。计划中的完成标记是模型声明，实际完成以保存字节、退出码和固定验证记录判断。
 
+## 任务契约与独立验证
+
+工作台根据当前固定检查生成契约草案。提交新回合的用户或宿主也可通过 `POST /api/runtime/agent/turns` 的 `taskContract` 字段覆盖草案中的项目。示例提供一个文件条件、一项已授权的固定检查，以及本轮保护路径。
+
+```json
+{
+  "taskContract": {
+    "goal": "交付发布说明并核对项目检查",
+    "doneWhen": [
+      { "kind": "file_nonempty", "path": "delivery.md" },
+      { "kind": "check_passed", "name": "release-check" }
+    ],
+    "protectedPaths": ["checks/release_check.py"],
+    "verificationMode": "required",
+    "budget": { "maxRounds": 12, "maxToolSteps": 32, "softTokens": 64000, "hardTokens": 82000 }
+  }
+}
+```
+
+`file_exists` 核对文件存在，`file_nonempty` 核对非空，`file_unchanged` 核对提交时实际存在的文件字节。`check_passed` 引用工作区已授权的固定检查名称。命令只随既有隔离执行授权运行。`required` 模式在条件未满足或回执已过期时记录 `CONTRACT_UNMET`。`advisory` 模式显示核对结果，`none` 模式跳过验收条件核对。契约保护路径在各模式下仍由宿主检查。
+
+审查栏显示契约状态。语义停滞决策卡保留原回合，追加约束和缩减验收范围会创建新回合并继承原命令边界。保留快照会保存授权文本的当前快照，已有产物回执继续可读。
+
+在“设置 → 工作区”选择独立验证的触发时机。验证器只读契约、变更和检查回执，结论与独立用量可在证据栏查看。模型连接不可用、未启用或剩余预算不足时会留下跳过原因。
+
 ## 运行结构
 
 产品层新增 `agent.sqlite3` 追加式记录、受控工作区服务、工具注册表及原生工具回路。每轮最多 32 次模型请求、96 次工具调用和 1,200 秒；模型请求使用有墙钟期限的独立进程，取消后迟到响应不得派发工具。Provider 配置版本和网络授权每次重新核对。

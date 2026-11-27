@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0%20Preview%20(M8.6)-1c1b18?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0%20Preview%20(M9)-1c1b18?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-376db0?style=flat-square">
   <img alt="Stack" src="https://img.shields.io/badge/stack-Python%203.11%2B%20%2F%20React%2019-5aa878?style=flat-square">
   <a href="https://github.com/startuo/Axis-EVO/tree/academic/thesis-freeze-2026-11-02"><img alt="Academic Freeze" src="https://img.shields.io/badge/thesis%20freeze-12c789b-7c56d4?style=flat-square"></a>
@@ -90,14 +90,15 @@ Axis-EVO/
 
 ---
 
-## 验证状态与已知边界（M8.6）
+## 验证状态与已知边界（M9）
 
 | 维度 | 当前状态 | 边界说明 |
 | --- | --- | --- |
-| 自动化回归 | TypeScript 0 错误、Vitest 20 个文件 232 项通过，生产构建通过。Python 3395 通过 / 15 跳过 | 跳过项与 M8 一致，涉及 Windows 符号链接权限、POSIX FIFO 和缺少私有研究语料 |
+| 自动化回归 | TypeScript 0 错误、Vitest 20 个文件 232 项通过，生产构建通过。Python 3415 通过 / 15 跳过，含 M9 新增 20 项 | 跳过项与 M8.6 一致，涉及 Windows 符号链接权限、POSIX FIFO 和缺少私有研究语料 |
 | Windows 预览交付 | Windows 11 隔离安装路径实测 M7.1 → M8。锁定旧文件时拒绝升级，解除锁定后覆盖成功。启动返回 HTTP 200，卸载保留用户数据 | 全新裸机 Windows 10/11 环境仍待独立复验。安装包未代码签名 |
 | 真实模型代码任务（M7） | `qwen4-max` 在 `python-slugify` 分三段续跑（12 次请求，缓存命中 29.24%），产物通过独立 Docker 回归与新增 8/8 项验收 | 模型段触发授权预算门禁停止；尚未证明跨项目的稳定自主完成率 |
 | 提示词缓存优化（M8.6） | 10 轮混合任务的 19 个可比较请求中，本地离线前缀平均匹配率由 89.82% 升至 100.00%。前端分别显示前缀稳定率与 Provider 缓存用量 | Anthropic、百炼、OpenAI 与 DeepSeek 请求格式已完成离线验证。实机缓存命中率与计费仍待验证 |
+| M9 任务闭环 | 18 项本地基准中，M8.6 和 M9 均通过 8/8 项正常任务。M9 拦住 6/6 次虚假完成和 3/3 次语义停滞，37 个可比较前缀均为 100% | 使用确定性模型回放，固定检查实际运行于 Docker。未运行付费模型或服务端缓存压测 |
 | M8 多模态与办公预览 | Windows Edge 验证 1440px 亮暗主题及 390px 暗主题、办公文档联动与更新后的无闪烁刷新 | 图片 Provider 双协议与缓存断点通过离线契约验证。实机缓存复验因本机缺少可用凭据跳过 |
 | M8.5 主题与长对话阅读 | Windows 11 Edge 验证 1440px 和 390px 的 Axis 默认、深空黑曜与白昼冷晶。覆盖刷新持久化、代码顶栏 0px 贴顶和右键办公预览。合体版在两种宽度下验证黑曜棱镜浅水试管悬停浮层同时显示缓存命中率和前缀稳定率 | 使用生产构建、本机 Python 运行时与离线 Provider 夹具。Windows 安装包仍为 M8 |
 
