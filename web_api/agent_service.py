@@ -31,7 +31,7 @@ from .agent_context import (
 from .agent_execution_policy import AgentExecution
 from .agent_contract import DEFAULT_BUDGET, assess_contract, prepare_contract, protects
 from .agent_stall import DEFAULT_READ_STEPS, SUGGESTED_ACTIONS, StallDetector, retain_snapshot
-from .agent_verifier import run_verification
+from .agent_verifier import current_artifact_witness, run_verification
 from .agent_metrics import current_context, invoke_completion, output_token_limit, summarize, take_usage
 from .agent_prefix import PrefixProbe, RequestPrefix
 from .agent_fileops import MUTATIONS, TEXT_EDITS, paths as mutation_paths
@@ -958,7 +958,8 @@ class AgentService:
             if contract:
                 # Host file effects in overlapping workspaces use this same lock.
                 assessment = self._record_contract_result(turn, report, check_error)
-                if review and review['verdict'] == 'VERIFIED' and preliminary != assessment:
+                if (review and review['verdict'] == 'VERIFIED' and (preliminary != assessment
+                        or review['artifactWitnessSha256'] != current_artifact_witness(self, turn))):
                     review = {**review, 'verdict':'UNVERIFIED', 'checkedItems':[],
                         'missingEvidence':['VERIFIER_INPUT_CHANGED']}
                     self.store.append('fresh_verification', review, wid, tid)

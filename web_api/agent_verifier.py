@@ -23,7 +23,7 @@ def _bounded_excerpt(text, limit):
     return text.encode('utf-8')[:limit].decode('utf-8', errors='ignore')
 
 
-def _artifacts(service, turn):
+def _artifacts(service, turn, *, excerpts=True):
     try:
         delta = changes(service, turn['id'])
     except (ApiError, OSError, ValueError):
@@ -31,7 +31,7 @@ def _artifacts(service, turn):
     output = []
     for item in delta['files'][:12]:
         row = {key:item[key] for key in ('path', 'beforeSha256', 'afterSha256', 'matchesCurrentFile')}
-        if item.get('diff'):
+        if excerpts and item.get('diff'):
             row['retainedDiffExcerpt'] = _bounded_excerpt(item['diff'], 512)
             try:
                 git = observe(service, turn, 'git_diff', {'path':item['path']})
@@ -43,6 +43,16 @@ def _artifacts(service, turn):
             row['kind'] = 'DOCUMENT'
         output.append(row)
     return {'scope':'TURN_CHANGED_FILES', 'files':output, 'omittedFiles':max(0, len(delta['files'])-len(output))}
+
+
+def artifact_witness(projection):
+    files = [{key:value for key,value in item.items() if key not in ('gitDiffExcerpt','retainedDiffExcerpt')}
+             for item in projection['files']]
+    return digest({**projection, 'files':files})
+
+
+def current_artifact_witness(service, turn):
+    return artifact_witness(_artifacts(service, turn, excerpts=False))
 
 
 def _receipts(service, turn):
@@ -90,7 +100,8 @@ def _review(service, turn, assessment, report, completion, cancelled, remaining_
     contract = turn['payload']['taskContract']
     proof = {'contract':contract, 'assessment':assessment, 'changes':_artifacts(service, turn),
              'hostReceipts':_receipts(service, turn)}
-    record = {'inputSha256':digest(proof), 'scope':'CONTRACT_AND_HOST_EVIDENCE_ONLY'}
+    record = {'inputSha256':digest(proof), 'artifactWitnessSha256':artifact_witness(proof['changes']),
+              'scope':'CONTRACT_AND_HOST_EVIDENCE_ONLY'}
     observed, dispatched, reason = None, False, None
     started = time.monotonic()
     try:
