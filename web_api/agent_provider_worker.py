@@ -16,7 +16,7 @@ from .agent_provider import AgentProvider, MAX_RESPONSE_BYTES
 from .schemas import strict_json, no_redirected_parents
 
 
-def complete_isolated(providers, profile, messages, tools, cancelled):
+def complete_isolated(providers, profile, messages, tools, cancelled, *, cache_key=None):
     """A killed/late model reply is never dispatched to a tool. No retries."""
     config=providers.config
     env_name=config.credentials[profile['credentialRef']]
@@ -26,6 +26,8 @@ def complete_isolated(providers, profile, messages, tools, cancelled):
         'endpoints':list(config.endpoints),'local_gateways':[{'endpoint':g.endpoint,'model_ids':list(g.model_ids)} for g in config.local_gateways],
         'provider_routes':[r.to_dict() for r in config.provider_routes],
         'profile':profile,'messages':messages,'tools':tools,'attempt':attempt}
+    if cache_key is not None:
+        descriptor['cache_key'] = cache_key
     path=config.data_dir/(attempt+'-model.json')
     no_redirected_parents(path)
     root=Path(__file__).resolve().parent.parent
@@ -97,7 +99,8 @@ def main(path):
     if path.parent!=config.data_dir or path.name!=value['attempt']+'-model.json':
         raise ValueError('Unbound model descriptor')
     try:
-        message=AgentProvider(ProviderStore(config,initialize=False),value['profile'],value['attempt']).complete(value['messages'],value['tools'])
+        message=AgentProvider(ProviderStore(config,initialize=False),value['profile'],value['attempt']).complete(
+            value['messages'], value['tools'], cache_key=value.get('cache_key'))
         result={'message':message}
     except PlanningTransportError as error:
         result={'error':error.category}

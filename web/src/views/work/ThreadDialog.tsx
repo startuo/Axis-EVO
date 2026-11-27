@@ -193,6 +193,7 @@ export function ThreadDialog({
           cacheHitTokens={session?.cacheHitTokens}
           cacheWriteTokens={session?.cacheWriteTokens}
           cacheMissTokens={session?.cacheMissTokens}
+          prefixMatchRatio={session?.prefixMatchRatio}
         />
       </div>
     </div>

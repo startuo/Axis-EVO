@@ -41,6 +41,7 @@ export type AgentStatus = z.infer<typeof agentStatus>;
 
 export const reasoningEffort = z.enum(['off', 'low', 'medium', 'high']);
 export type ReasoningEffort = z.infer<typeof reasoningEffort>;
+export const promptCacheStrategy = z.enum(['auto', 'ephemeral', 'ephemeral_1h', 'off']);
 export const providerProtocol = z.enum(['openai-compatible', 'deepseek-compatible', 'anthropic-compatible', 'local-gateway']);
 export type ProviderProtocol = z.infer<typeof providerProtocol>;
 
@@ -78,6 +79,7 @@ export const profile = z.object({
   revision: z.number().int().positive().optional(),
   contextWindow: z.number().int().positive().optional(),
   maxOutputTokens: z.number().int().positive().optional(),
+  promptCache: promptCacheStrategy.optional(),
   proxy: z.string().nullable().optional(),
   testStatus: z.string().optional(),
   diagnosticCode: z.string().nullable().optional(),
@@ -112,6 +114,8 @@ export const session = z.object({
   cacheHitTokens: z.number().nonnegative().nullable().optional(),
   cacheWriteTokens: z.number().nonnegative().nullable().optional(),
   cacheMissTokens: z.number().nonnegative().nullable().optional(),
+  prefixMatchRatio: z.number().min(0).max(1).nullable().optional(),
+  averagePrefixMatchRatio: z.number().min(0).max(1).nullable().optional(),
 });
 export type Session = z.infer<typeof session>;
 
@@ -361,7 +365,7 @@ export const requestParams = {
   'workspace.setMode': z.object({ workspaceId: id, mode: permissionMode }),
   'workspace.remove': z.object({ workspaceId: id }),
   'profile.list': z.object({}),
-  'profile.save': z.object({ id: id.optional(), name: z.string().min(1).max(80), endpoint: z.string().url(), modelId: z.string().min(1).max(120), credentialEnv: z.string().min(1).max(120).optional(), apiKey: z.string().min(1).max(512).optional(), reasoningEffort: reasoningEffort.optional(), timeoutSeconds: z.number().int().min(5).max(600).optional() }),
+  'profile.save': z.object({ id: id.optional(), name: z.string().min(1).max(80), endpoint: z.string().url(), modelId: z.string().min(1).max(120), credentialEnv: z.string().min(1).max(120).optional(), apiKey: z.string().min(1).max(512).optional(), reasoningEffort: reasoningEffort.optional(), promptCache: promptCacheStrategy.optional(), timeoutSeconds: z.number().int().min(5).max(600).optional() }),
   'provider.listModels': z.object({ endpoint: z.string().url(), apiKey: z.string().min(1).max(512).optional(), credentialEnv: z.string().min(1).max(120).optional() }),
   'profile.delete': z.object({ profileId: id }),
   'profile.test': z.object({ profileId: id }),
@@ -486,6 +490,8 @@ export const conversationSummary = z.object({
   cacheHitTokens: z.number().nonnegative().nullable().optional(),
   cacheWriteTokens: z.number().nonnegative().nullable().optional(),
   cacheMissTokens: z.number().nonnegative().nullable().optional(),
+  prefixMatchRatio: z.number().min(0).max(1).nullable().optional(),
+  averagePrefixMatchRatio: z.number().min(0).max(1).nullable().optional(),
   events: z.array(journalEvent),
   nextSeq: z.number().int().nonnegative(),
   hasMore: z.boolean(),

@@ -15,13 +15,14 @@ export interface ContextMeterProps {
   cacheHitTokens?: number | null;
   cacheWriteTokens?: number | null;
   cacheMissTokens?: number | null;
+  prefixMatchRatio?: number | null;
 }
 
 const RADIUS = 5.5;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export function ContextMeter({ tokenUsage, modelId, contextTokens, contextLimit, cacheHitRate,
-  cacheHitTokens, cacheWriteTokens, cacheMissTokens }: ContextMeterProps) {
+  cacheHitTokens, cacheWriteTokens, cacheMissTokens, prefixMatchRatio }: ContextMeterProps) {
   const fixture = import.meta.env.MODE === 'test' && contextTokens === undefined;
   const exact = typeof contextTokens === 'number' && typeof contextLimit === 'number';
   const usage = fixture
@@ -88,6 +89,11 @@ export function ContextMeter({ tokenUsage, modelId, contextTokens, contextLimit,
                 <div className="ctx-tip-row"><span>未命中 Token</span><span>{cacheMissTokens.toLocaleString()}</span></div>
               )}
             </>
+          )}
+          {typeof prefixMatchRatio === 'number' && (
+            <div className="ctx-tip-row" title="本地请求前缀连续性">
+              <span>前缀稳定率</span><span>{(prefixMatchRatio * 100).toFixed(1)}%</span>
+            </div>
           )}
         </div>
         {fixture && usage.estimated && <div className="ctx-tip-note">按常见模型估算参考窗口</div>}

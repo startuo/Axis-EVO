@@ -242,9 +242,22 @@ def _anthropic_assistant(envelope, names, historical_ids):
         raise PlanningTransportError('assistant_content') from None
 
 
-def _anthropic_wire(model, history, tools, max_tokens, effort, hostname, image_sources=()):
+def _dashscope_host(hostname):
+    suffix = '.aliyuncs.com'
+    return bool(hostname and hostname.endswith(suffix) and 'dashscope' in hostname.removesuffix(suffix))
+
+
+def _message_breakpoint(messages):
+    return next((block for message in reversed(messages) for block in reversed(message['content'])
+        if block['type'] in ('tool_result', 'tool_use') or block['type'] == 'text' and block['text']), None)
+
+
+def _anthropic_wire(model, history, tools, max_tokens, effort, hostname, image_sources=(), *, prompt_cache='auto'):
     supports_qwen4 = model == 'qwen4-max' or bool(re.fullmatch(r'qwen4-max-\d{4}-\d{2}-\d{2}', model))
-    supports_cache = supports_qwen4 or hostname == 'api.anthropic.com'
+    qwen_cache = model.lower().startswith(('qwen4-', 'qwen3.5-', 'qwen3-', 'qwen-max', 'qwen-plus', 'qwen-coder', 'qwq-'))
+    supports_cache = prompt_cache != 'off' and (
+        prompt_cache in ('ephemeral', 'ephemeral_1h') or hostname == 'api.anthropic.com'
+        or model.lower().startswith('claude-') or _dashscope_host(hostname) and qwen_cache)
     system, messages = [], []
     pending = []
     for item in history:
@@ -291,23 +304,70 @@ def _anthropic_wire(model, history, tools, max_tokens, effort, hostname, image_s
             **({'description':function['description']} if 'description' in function else {})}
             for function in sorted((tool['function'] for tool in tools), key=lambda fn: fn['name'])]
     if supports_cache:
+        control = {'type':'ephemeral'}
+        if hostname == 'api.anthropic.com' and prompt_cache == 'ephemeral_1h':
+            control['ttl'] = '1h'
         static = system or wire.get('tools')
         if static:
-            static[-1]['cache_control'] = {'type':'ephemeral'}
-        # A new user turn without history skips the extra cache write, even
-        # when the runtime precedes that prompt with a host policy block.
+            static[-1]['cache_control'] = dict(control)
+        stable = _message_breakpoint(messages[:-1])
+        if stable is not None:
+            stable['cache_control'] = dict(control)
+        # A fresh short text prompt can use the static cache without paying
+        # for a separate cache write for this prompt.
         fresh_user_turn = (len(messages) in (1, 2) and all(message['role'] == 'user' for message in messages)
             and (len(messages) == 1 or messages[0]['content'][0].get('text', '').startswith(HOST_POLICY_PREFIX)))
-        if messages and not fresh_user_turn:
-            tail = next((block for message in reversed(messages) for block in reversed(message['content'])
-                if block['type'] in ('tool_result', 'tool_use') or block['type'] == 'text' and block['text']), None)
-            if tail is not None:
-                tail['cache_control'] = {'type':'ephemeral'}
+        short_text_only = (fresh_user_turn and len(history[-1]['content'].encode('utf-8')) < 512
+            and not any(item.get('_images') for item in history))
+        if not short_text_only and (tail := _message_breakpoint(messages[-1:])) is not None:
+            tail['cache_control'] = dict(control)
     if supports_qwen4:
         enabled = effort not in (None, 'off')
         wire['thinking'] = {'type':'enabled', 'display':'summarized'} if enabled else {'type':'disabled'}
         if enabled:
             wire['output_config'] = {'effort':{'low':'low','medium':'high','high':'xhigh'}[effort]}
+    return wire
+
+
+def _dashscope_breakpoints(messages):
+    system = next((item for item in reversed(messages) if item['role'] == 'system' and item['content']), None)
+    stable = next((item for item in reversed(messages[:-1]) if item['role'] != 'system' and item['content']), None)
+    for anchor in (system, stable):
+        if anchor is None:
+            continue
+        content = anchor['content']
+        parts = [{'type':'text', 'text':content}] if isinstance(content, str) else [dict(part) for part in content]
+        parts[-1]['cache_control'] = {'type':'ephemeral'}
+        anchor['content'] = parts
+
+
+def _openai_wire(model, history, tools, max_tokens, effort, hostname, *, prompt_cache='auto',
+                 cache_key=None, image_sources=()):
+    native_openai = hostname == 'api.openai.com'
+    messages = [{key:value for key,value in item.items() if key != '_images'} for item in history]
+    if image_sources:
+        index = next(i for i, item in enumerate(history) if '_images' in item)
+        messages[index]['content'] = [{'type':'text', 'text':history[index]['content']}, *[
+            {'type':'image_url', 'image_url':{'url':f"data:{source['media_type']};base64,{source['data']}"}}
+            for source in image_sources]]
+    cap_field = 'max_completion_tokens' if native_openai else 'max_tokens'
+    wire = {'model':model, 'stream':False, 'messages':messages, cap_field:max_tokens}
+    if not native_openai:
+        wire['n'] = 1
+    if tools:
+        wire['tools'] = deepcopy(sorted(tools, key=lambda tool: tool['function']['name']))
+    if hostname == 'api.deepseek.com':
+        enabled = effort not in (None, 'off')
+        wire['thinking'] = {'type':'enabled' if enabled else 'disabled'}
+        if enabled:
+            wire['reasoning_effort'] = {'low':'low', 'medium':'high', 'high':'max'}[effort]
+    elif native_openai:
+        if (effective := openai_effort(model, effort)) is not None:
+            wire['reasoning_effort'] = effective
+        if prompt_cache != 'off' and cache_key:
+            wire['prompt_cache_key'] = cache_key
+    elif _dashscope_host(hostname) and prompt_cache == 'ephemeral':
+        _dashscope_breakpoints(messages)
     return wire
 
 
@@ -327,7 +387,7 @@ class AgentProvider:
         self.adapter_name = identity.adapter_name
         self.model_id = identity.model_id
 
-    def complete(self, messages: list, tools: list) -> dict:
+    def complete(self, messages: list, tools: list, *, cache_key=None) -> dict:
         names = _tool_names(tools)
         adapter = self.providers.adapter(self.profile, self.attempt_id)
         if type(adapter) is not _RestrictedAdapter:
@@ -339,46 +399,30 @@ class AgentProvider:
         max_tokens = output_token_limit(self.profile)
         hostname = urlsplit(delegate.endpoint).hostname
         effort = self.profile.get('reasoningEffort')
-        if anthropic:
-            wire = _anthropic_wire(self.model_id, history, tools, max_tokens, effort, hostname)
-        else:
-            native_openai = hostname == 'api.openai.com'
-            cap_field = 'max_completion_tokens' if native_openai else 'max_tokens'
-            wire = {'model':self.model_id,'stream':False,'messages':[
-                {key:value for key,value in item.items() if key != '_images'} for item in history],cap_field:max_tokens}
-            if not native_openai:
-                wire['n'] = 1
-            if tools:
-                wire['tools'] = deepcopy(tools)
-            if hostname == 'api.deepseek.com':
-                enabled = effort not in (None, 'off')
-                wire['thinking'] = {'type': 'enabled' if enabled else 'disabled'}
-                if enabled:
-                    wire['reasoning_effort'] = {'low':'low','medium':'high','high':'max'}[effort]
-            elif native_openai and (effective := openai_effort(self.model_id, effort)) is not None:
-                wire['reasoning_effort'] = effective
-        raw = canonical_json_bytes(wire)
+        prompt_cache = ('off' if self.profile.get('protocol') == 'deepseek-compatible'
+                        else self.profile.get('promptCache', 'auto'))
+        def build_wire(image_sources=()):
+            if anthropic:
+                return _anthropic_wire(self.model_id, history, tools, max_tokens, effort, hostname,
+                    image_sources, prompt_cache=prompt_cache)
+            return _openai_wire(self.model_id, history, tools, max_tokens, effort, hostname,
+                image_sources=image_sources, prompt_cache=prompt_cache, cache_key=cache_key)
+
+        raw = canonical_json_bytes(build_wire())
         if len(raw) > MAX_REQUEST_BYTES:
             raise PlanningTransportError('oversized_request')
         self.providers.check_text(raw.decode('utf-8'))
-        attached = next(((index,item['_images']) for index,item in enumerate(history) if '_images' in item), None)
-        if attached is not None:
+        refs = next((item['_images'] for item in history if '_images' in item), None)
+        if refs is not None:
             if local_gateway or not image_capable(self.profile):
                 raise PlanningTransportError('vision_unsupported')
-            index, refs = attached
             self.providers.check_text(canonical_json_bytes(refs).decode('utf-8'))
             try:
                 sources = [{'type':'base64', 'media_type':ref['mediaType'],
                     'data':b64encode(load_image(self.providers.config.data_dir,ref)).decode('ascii')} for ref in refs]
             except ApiError as error:
                 raise PlanningTransportError('image_store_integrity') from error
-            if anthropic:
-                wire = _anthropic_wire(self.model_id, history, tools, max_tokens, effort, hostname, sources)
-            else:
-                wire['messages'][index]['content'] = [{'type':'text','text':history[index]['content']}, *[
-                    {'type':'image_url', 'image_url':{'url':f"data:{source['media_type']};base64,{source['data']}"}}
-                    for source in sources]]
-            raw = canonical_json_bytes(wire)
+            raw = canonical_json_bytes(build_wire(sources))
             if len(raw) > MAX_REQUEST_BYTES + MAX_IMAGES * (MAX_IMAGE_BASE64 + 256):
                 raise PlanningTransportError('oversized_request')
         if not _configured(adapter.credential_env):

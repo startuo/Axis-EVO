@@ -52,16 +52,24 @@ def conversation_history(service, cid, *, continued=None, profile=None):
     checkpoint_turns = set()
     for index in range(len(earlier) - 1, -1, -1):
         row = earlier[index]
-        if row['payload'].get('command') != 'compact' or not material_allowed(row['payload']):
+        if not material_allowed(row['payload']):
+            continue
+        manual = row['payload'].get('command') == 'compact'
+        kind = 'compact_snapshot' if manual else 'auto_compact_snapshot'
+        snapshot = service.store.records(kind, parent_id=row['id'], limit=1)
+        if not snapshot:
             continue
         terminal = service.store.records('terminal', parent_id=row['id'], limit=1)
-        if not terminal or terminal[0]['payload'].get('completionBasis') != 'HOST_CONTEXT_COMPACTED':
+        if not terminal or terminal[0]['payload']['status'] != 'COMPLETED':
             continue
-        snapshot = service.store.records('compact_snapshot', parent_id=row['id'], limit=1)
-        if snapshot:
-            messages = list(snapshot[0]['payload']['messages'])
-            checkpoint_turns = {turn['id'] for turn in earlier[:index + 1]}
-            break
+        if manual and terminal[0]['payload'].get('completionBasis') != 'HOST_CONTEXT_COMPACTED':
+            continue
+        payload = snapshot[0]['payload']
+        if digest(payload['messages']) != payload['messagesSha256']:
+            raise ApiError('AGENT_STORE_INTEGRITY', '会话检查点与已记录摘要不一致。', 409)
+        messages = list(payload['messages'])
+        checkpoint_turns = {turn['id'] for turn in earlier[:index + 1]}
+        break
     checkpoint_feedback = {message['content'] for message in messages if message['role'] == 'user'
         and message['content'].startswith('Recorded user feedback.')}
     feedback = []
@@ -162,7 +170,7 @@ def continuation_context(service, continued):
 
 def _historical_turn(turn, rows, used_calls, material_current):
     context = [{**r['payload']['message'], '_contextPolicy':True}
-        for r in rows if r['kind'] == 'context_policy']
+        for r in rows if r['kind'] == 'context_policy' and not r['payload'].get('reusedFromPrefix')]
     messages = context if material_current else []
     if turn['payload'].get('command') != 'compact':
         messages.append({'role':'user', 'content':turn['payload']['prompt']})
@@ -237,12 +245,10 @@ def _project_source_reads(messages):
     for index in range(len(messages) - 1, -1, -1):
         message = messages[index]
         if message.get('_continuationSource'):
-            message = {'role':'user', 'content':message['content']}
-            messages[index] = message
             source = strict_json(message['content'].split('\n', 1)[1], 512 * 1024)
             current = saved.get(source['path'])
             if current is not None and current != source['sha256']:
-                messages[index] = {**message, 'content':
+                messages[index] = {'role':'user', 'content':
                     'The continuation source below was superseded by a verified edit in this turn. '
                     'Read the current file before making another guarded change.\n'+canonical({
                         'turnId':source['turnId'], 'artifactId':source['artifactId'], 'path':source['path'],
@@ -503,6 +509,27 @@ def _compact_epoch(messages, tools, target_bytes, hard_bytes, *, force=False):
         'userRequirementsOmitted':False, 'skillInstructionsOmitted':False}
 
 
+def _historical_continuation_receipt(message):
+    source = strict_json(message['content'].split('\n', 1)[1], 512 * 1024)
+    return {'role':'user', 'content':'Historical continuation file receipt. Reread the file before using its contents.\n'
+        + canonical({key:source[key] for key in ('turnId', 'artifactId', 'path', 'sha256')})}
+
+
+def auto_compact_snapshot(epoch, final_reply):
+    """Keep the last effective epoch while removing transient image and continuation material."""
+    messages = []
+    for message in [*epoch['messages'][1:], final_reply]:
+        if message.get('_continuationSource'):
+            messages.append(_historical_continuation_receipt(message))
+        elif images := message.get('_images'):
+            messages.append({key:value for key,value in message.items() if key != '_images'})
+            messages.append(history_image_note(images))
+        else:
+            messages.append(message)
+    return {'messages':messages, 'messagesSha256':digest(messages),
+            'epoch':epoch['number'], 'reason':'AUTO_EPOCH'}
+
+
 def compact_conversation(service, turn):
     """Record a checkable snapshot of the provider view and current journal facts."""
     history = turn['payload']['contextMessages']
@@ -531,9 +558,7 @@ def compact_conversation(service, turn):
         if message.get('_explicitCompactFacts'):
             continue
         if message.get('_continuationSource'):
-            source = strict_json(message['content'].split('\n', 1)[1], 512 * 1024)
-            message = {'role':'user','content':'Historical continuation file receipt. Reread the file before using its contents.\n'
-                + canonical({key:source[key] for key in ('turnId','artifactId','path','sha256')})}
+            message = _historical_continuation_receipt(message)
         request.append(message)
     overhead = _wire_size(notes, []) - _wire_size([], []) + bool(notes)
     # Reserve room for the newest plan and file facts before compacting the
@@ -566,10 +591,10 @@ def bounded_context(messages, tools, *, local_gateway=False, context_limit=None,
     limit = context_window(context_limit, local_gateway=local_gateway)
     allowed_bytes = max(0, limit - output_reserve - 8 * (len(current) + len(tools))) * 3
     hard_bytes = min(MAX_CONTEXT_BYTES, allowed_bytes)
-    high_bytes = min(MAX_CONTEXT_BYTES * 9 // 10, hard_bytes, limit * 3 * 72 // 100)
+    high_bytes = min(MAX_CONTEXT_BYTES * 9 // 10, hard_bytes, limit * 3 * 82 // 100)
     checkpoint = None
     if _wire_size(current, tools) > high_bytes or len(current) > MAX_CONTEXT_MESSAGES - 4:
-        current, checkpoint = _compact_epoch(current, tools, high_bytes * 75 // 100, hard_bytes)
+        current, checkpoint = _compact_epoch(current, tools, high_bytes * 55 // 100, hard_bytes)
     epoch.update(sourceCount=len(messages), sourceSha256=digest(messages), messages=current)
     if checkpoint:
         epoch['number'] = epoch.get('number', 0) + 1
